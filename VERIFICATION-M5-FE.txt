@@ -1,0 +1,229 @@
+[M5-FE] 节点管理页 + dry-run 确认流 + 告警设置 — Verification
+Date: 2026-11-10
+Scope: web/ only (React 19 + TanStack File Router + react-query + i18next)
+Design source: docs/M5-部署与节点管理设计.md §7；docs/M6-上线操作手册.md 四步接入
+Contract source: router/node-router.go / controller/node.go / model/node.go (M5-BE, read-only reference)
+
+================================================================================
+1. Commands (verbatim) and exit codes
+================================================================================
+
+Working directory: <repo>/web
+
+$ bun run build
+  ...
+  Total:   68067.1 kB   20902.4 kB
+  exit code: 0
+  routeTree.gen.ts regenerated:
+    src/routeTree.gen.ts:269  id: '/nodes/'
+    src/routeTree.gen.ts:270  path: '/nodes/'
+
+$ bunx tsc -b --force
+  exit code: 0
+  stdout/stderr: empty (zero diagnostics)
+
+$ bunx oxlint -c .oxlintrc.json src/features/nodes src/features/system-settings/nodes src/routes/_authenticated/nodes src/hooks/use-sidebar-data.ts src/features/system-settings/operations/section-registry.tsx src/i18n/static-keys.ts
+  Found 0 warnings and 0 errors.
+  Finished in 993ms on 21 files with 187 rules using 32 threads.
+  exit code: 0
+
+$ bunx oxfmt --check src/features/nodes src/features/system-settings/nodes src/routes/_authenticated/nodes src/hooks/use-sidebar-data.ts src/features/system-settings/operations/section-registry.tsx src/i18n/static-keys.ts
+  All matched files use the correct format.
+  exit code: 0
+
+Constraint check:
+  - No source file outside web/ was written by this task; only this required
+    verification file at the repo root.
+  - No commit was created by this task; if the coordinator commits, use
+    prefix "[M5-FE]" and stage only the web/ paths listed in section 2.
+
+================================================================================
+2. Deliverables (all paths under web/src)
+================================================================================
+
+Feature (new)
+  features/nodes/types.ts
+      ManagedNode / NodePayload / DeployPlan / DeployAction / DeployApplyResult /
+      FailoverPlan / NodeSettings / NodeAuditLog + response envelopes.
+      Wire names follow M5-BE: node request fields are snake_case
+      (api_token/service_url/project_id/service_id); deploy/failover request
+      fields are camelCase (nodeId/planId/confirm).
+
+  features/nodes/api.ts
+      GET/POST/PUT/DELETE /api/node, POST /api/node/:id/check,
+      POST /api/node/deploy/plan + apply, POST /api/node/:id/failover/plan+apply,
+      GET/PUT /api/node/settings, GET /api/node/audit?nodeId=.
+      All calls use skipBusinessError/skipErrorHandler so dialogs can render
+      inline errors. Optional pre-save test endpoint + browser probe helper.
+
+  features/nodes/lib/index.ts
+      Query keys; tolerant normalizers for snake_case/camelCase, JSON-string
+      columns and {success,data} envelopes; plan diff masking; audit/settings/
+      failover/deploy-result normalization; URL helper.
+
+  features/nodes/constants.ts
+      Provider metadata + M6 four-step onboarding copy; audit action labels;
+      error/success message keys; plan validity.
+
+  features/nodes/hooks/use-nodes-query.ts
+      Shared react-query list cache.
+
+  features/nodes/index.tsx
+      SectionPageLayout page, root/dry-run safety banner, table + dialogs.
+
+  features/nodes/components/nodes-provider.tsx
+      Dialog state (create/edit/delete/deploy/failover/audit).
+
+  features/nodes/components/nodes-table.tsx
+      DataTablePage: filter by name/provider/domain/URL, refresh, mobile layout,
+      empty state, fail-soft ErrorState when GET /api/node is unavailable.
+
+  features/nodes/components/nodes-columns.tsx
+      Columns: name + provider badge, clickable domain (custom domain with
+      service_domain fallback), heartbeat lamp + latency + last beat + last_error,
+      balance snapshot, enable/disable switch, row actions.
+
+  features/nodes/components/node-row-actions.tsx
+      Quick health check, deployment plan, switch domain, audit log, edit, delete.
+
+  features/nodes/components/nodes-primary-buttons.tsx
+      Add node, refresh, check-all (concurrent POST /check with health-aware
+      counts), shortcut to node settings.
+
+  features/nodes/components/node-wizard-dialog.tsx
+      Two-step wizard: provider cards (railway/koyeb/render/fly/sealos/
+      clawcloud/other) -> provider guide (M6 four steps + provider-specific
+      console hint) -> form (name/apiToken/serviceUrl/projectId/serviceId/domain/
+      enabled). Requires a Test connection attempt before first save; failed test
+      blocks save. Editing never shows the token, blank means keep. First health
+      check runs automatically after create (plus backend auto-check on create).
+
+  features/nodes/components/node-deploy-dialog.tsx
+      deploy/plan dry-run: grouped add/update/delete/other diff, resource badge,
+      variable from->to with secret masking, server-sensitive "******" preserved,
+      skipped markers, warnings yellow alert, plan actions count. Confirmation
+      input must equal the node name exactly. Apply calls deploy/apply; while the
+      synchronous backend request runs it shows elapsed progress and disables
+      closing; result consumes deployment_status, deployment id, service/custom
+      domain, changed variable count and duration.
+
+  features/nodes/components/node-failover-dialog.tsx
+      failover/plan dry-run: primary CNAME + current CNAME -> target, Worker KV
+      key/from->to (truncated), kv_skipped badge, warnings, checked confirmation
+      before failover/apply. Dialog cannot close while apply is in flight.
+
+  features/nodes/components/node-audit-sheet.tsx
+      GET /api/node/audit?nodeId= drawer with success/failed badges, translated
+      action labels, target, operator_name, detail, timestamp; loading/error/empty
+      states and refresh.
+
+  features/nodes/components/nodes-dialogs.tsx
+      Dialog composition + delete confirmation.
+
+  routes/_authenticated/nodes/index.tsx
+      File route /_authenticated/nodes/ (URL /nodes/), beforeLoad redirects to
+      /403 unless role >= ROLE.SUPER_ADMIN; zod search schema for ?filter=.
+
+Settings (new / modified)
+  features/system-settings/nodes/node-settings-section.tsx (new)
+      Root-only "Nodes & Alerts" settings section:
+      - balanceAlertThreshold, alertWebhookUrl (URL validation)
+      - primaryDomain (CF CNAME record used by failover)
+      - nodeDenylist / nodeAllowlist via TagInput
+      - autoFailover switch (backend key autoFailover)
+      - Cloudflare API token / zone ID / account ID / KV namespace ID as password
+        inputs; secrets are never populated; only Configured / Not configured
+        badges are shown; blank keeps the existing value.
+      - SMTP configured hint from GET /api/node/settings.
+      - Fail-soft: unavailable API shows defaults + warning; save retries.
+  features/system-settings/operations/section-registry.tsx (modified)
+      New section id "nodes", title "Nodes & Alerts", first Operations entry.
+  hooks/use-sidebar-data.ts (modified)
+      Admin group entry "Node Management" (/nodes), requiredRole SUPER_ADMIN.
+  i18n/locales/zh.json / en.json (modified)
+      All new M5-FE strings added (zh/en parity; automated missing-key check
+      reports 0 for both locales).
+  i18n/static-keys.ts (modified)
+      Dynamic keys from constants (messages, provider hints, audit labels,
+      diff group labels) registered for the i18n sync script.
+
+================================================================================
+3. Contract alignment (§7 vs actual M5-BE)
+================================================================================
+
+GET /api/node                     aligned; list normalized from data[].
+POST /api/node                    aligned; body snake_case fields.
+PUT /api/node                     aligned; id in body (M5-BE also accepts /:id).
+DELETE /api/node/:id              aligned.
+POST /api/node/:id/check          aligned; data.healthy + data.latency_ms used.
+POST /api/node/deploy/plan        aligned; body {nodeId, envOverrides?}.
+POST /api/node/deploy/apply       aligned; body {planId, confirm:true}.
+POST /api/node/:id/failover/plan  aligned; data.from_target -> to_target,
+                                  kv_key/kv_from/kv_to/kv_skipped consumed.
+POST /api/node/:id/failover/apply aligned; body {planId, confirm:true}.
+GET/PUT /api/node/settings        aligned to M5-BE wire names, including
+                                  autoFailover, cloudflareApiToken,
+                                  cloudflareZoneId, cloudflareKvNamespaceId,
+                                  cloudflareAccountId, primaryDomain.
+GET /api/node/audit?nodeId=       aligned; data.items, result=
+                                  success/failed/rejected, operator_name.
+
+Deliberate deviations / notes
+  1. POST /api/node/test is not implemented by M5-BE. The wizard still requires
+     a test attempt: it calls the endpoint first, then falls back to a browser
+     GET {serviceUrl}/api/status. A missing endpoint or CORS rejection yields a
+     warning (not a hard block); a reachable-but-failing result blocks save.
+     The backend's create path already performs a health check, and the UI runs
+     an additional POST /api/node/:id/check after creation.
+  2. There is no deploy status endpoint. M5-BE deploy/apply is synchronous
+     (internal Railway polling up to NodeDeployPollTimeoutSeconds) and returns
+     deployment_status. The dialog therefore shows an elapsed-time progress
+     state during apply and renders the returned status; it does not poll a
+     nonexistent endpoint. getNodeDeployStatus remains as an optional
+     compatibility helper but is not used by the dialog.
+  3. The listed "CF token/KV namespace/zone" fields map to M5-BE
+     cloudflareApiToken / cloudflareKvNamespaceId / cloudflareZoneId. Two extra
+     fields were added because the live backend requires them: primaryDomain
+     (NodePrimaryDomain, required before any failover plan) and
+     cloudflareAccountId (required with the KV namespace for KV updates).
+  4. The node wizard exposes the task-listed fields only. M5-BE additionally
+     stores workspace_id/environment_id/repo/branch/target_port/service_domain;
+     the table displays service_domain and last_error read-only, but editing
+     those advanced deployment fields is not included. Consequence: one-click
+     deploy of a brand-new Railway project needs either recorded ProjectId+
+     ServiceId or a repo configured outside this wizard (M5-BE requires repo when
+     ServiceId is empty).
+  5. Settings section is registered under System Settings -> Operations (root
+     inherited from the system-settings route guard), with a direct "Node
+     settings" shortcut from the node page.
+
+Fail-soft behavior verified by code paths:
+  - GET /api/node failure -> ErrorState with retry + "backend may not be
+    deployed" hint; page never crashes.
+  - GET /api/node/settings failure -> defaults + warning; save attempts the API.
+  - deploy/failover plan/apply failures -> inline alerts, no state mutation.
+  - audit failure -> inline ErrorState inside the drawer.
+  - unknown/missing fields -> normalizers degrade to empty values, not throws.
+
+================================================================================
+4. i18n verification
+================================================================================
+
+Automated key scan of all new t('...') literals plus dynamic constants:
+  zh missing: 0
+  en missing: 0
+  zh values identical to source key: only "Cloudflare DNS" (brand term).
+
+================================================================================
+5. Remaining work / risks
+================================================================================
+
+  - No browser e2e was run in this task; verification is static build/type/lint
+    plus contract review against the M5-BE source tree.
+  - The pre-save connection test depends on browser reachability until a
+    backend /api/node/test route exists; expected UX is a warning in most
+    cross-origin cases, then save + automatic health check.
+  - Advanced Railway deploy fields (repo/branch/workspace/environment/target
+    port) and NodeDeployEnvTemplate / envOverrides editor are not exposed;
+    deploy plan warnings surface missing values, but resolving them requires
+    another UI or direct Option configuration.
