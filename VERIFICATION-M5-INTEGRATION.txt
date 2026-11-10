@@ -1,0 +1,23 @@
+=== 1. start instance A :3201 ===
+A /api/status HTTP 200
+=== 2. A: setup root01 ===
+{"data":null,"message":"System initialized successfully","message_key":"System initialized successfully","success":true}
+=== 3. A: login -> access_token ===
+A token len=389
+=== 4. A: GET /api/user/self (Bearer) ===
+{"data":{"aff_code":"","aff_count":0,"aff_history_quota":0,"aff_quota":0,"discord_id":"","display_name":"Root User","email":"","github_id":"","group":"default","has_password":true,"id":1,"inviter_id":0,"linux_do_id":"","oidc_id":"","permissions":{"admin_permissions":{"audit":{"read":true},"channel":{"operate":true,"read":true,"secret_view":true,"sensitive_write":true,"write":true},"task_plugin":{"
+=== 5. A: create channel shared-chan ===
+{"data":{"id":1,"ids":[1],"results":[{"channel_id":1,"input_index":0}]},"message":"","success":true}
+=== 6. start instance B :3202 (same DB/secret) ===
+B /api/status HTTP 200
+=== 7. B: login root01 (account from A) ===
+B token len=389
+=== 8. B: GET /api/user/self (B token) ===
+{"data":{"aff_code":"","aff_count":0,"aff_history_quota":0,"aff_quota":0,"discord_id":"","display_name":"Root User","email":"","github_id":"","group":"default","has_password":true,"id":1,"inviter_id":0,"linux_do_id":"","oidc_id":"","permissions":{"admin_permissions":{"audit":{"read":true},"channel":{"operate":true,"read":true,"secret_view":true,"sensitive_write":true,"write":true},"task_plugin":{"
+=== 9. B: GET /api/channel — channel created on A visible? ===
+{"data":{"items":[{"id":1,"type":1,"key":"","openai_organization":null,"test_model":null,"status":1,"name":"shared-chan-A","weight":0,"created_time":1794291653,"test_time":0,"response_time":0,"base_url":"http://127.0.0.1:19999","other":"","balance":0,"balance_updated_time":0,"models":"mock-1","group":"default","used_quota":0,"model_mapping":null,"status_code_mapping":"","priority":0,"auto_ban":1,"other_info":"","tag":null,"setting":null,"param_override":null,"header_override":null,"remark":null,"owner_id":0,"channel_info":{"is_multi_key":false,"multi_key_size":0,"multi_key_status_list":null,"multi_key_polling_index":0,"multi_key_mode":""},"settings":""}],"page":1,"page_size":10,"total":1,"type_counts":{"1":1}},"message":"","success":true}
+=== 10. cross-node: A token used against B ===
+{"data":{"aff_code":"","aff_count":0,"aff_history_quota":0,"aff_quota":0,"discord_id":"","display_name":"Root User","email":"","github_id":"","group":"default","has_password":true,"id":1,"inviter_id":0,"linux_do_id":"","oidc_id":"","permissions":{"admin_permissions":{"audit":{"read":true},"channel":
+=== 11. cleanup ===
+stopped
+=== DONE ===
