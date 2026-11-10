@@ -1,0 +1,219 @@
+VERIFICATION-M3-BE — new-api M3 后端（workbuddy/trae 账号型渠道 + 签到中心）验证记录
+================================================================================
+日期: 2026-11-10
+环境: Windows 10/11 (win32), Git Bash; Go 便携版 go1.26.10 windows/amd64
+      (GOROOT 已 unset, GOPROXY=https://goproxy.cn,direct); node v22.22.3
+服务: sqlite 全新库, SESSION_SECRET=devsecret PORT=3000
+      WORKBUDDY_BASE_URL=http://127.0.0.1:12997 TRAE_BASE_URL=http://127.0.0.1:12997
+      CHECKIN_SSRF_ALLOW_PRIVATE=true（仅 e2e 逃生门，生产严禁）
+Mock 上游: node mock-m3.mjs — 单端口模拟 workbuddy 四域（chat/auth/billing/web/growth）
+      + trae 三 host（agent/ug/oauth）+ apinex agent 执行器 + custom 站点；
+      错误注入 model=err12153/err402/err429/err1001/err4008stream
+驱动: node e2e-m3.mjs（60 项断言，脚本在仓库外临时目录运行，不落库）
+蓝图: docs/M3-2api与签到中心设计.md §1-§5; docs/移植清单.md; docs/多租户改造方案.md(M1)
+
+================================================================================
+A. 编译与静态检查
+================================================================================
+$ go version
+go version go1.26.10 windows/amd64
+
+$ go build ./...
+exit=0
+
+$ go vet ./...
+exit=0
+
+================================================================================
+B. 单元测试（新增包 + 改动面回归）
+================================================================================
+$ go test ./relay/channel/workbuddy/ -count=1
+ok  (DoD 指定三项全覆盖)
+  payload 改写管线: stream 强制 / stream_options 缺省注入与显式保留 /
+    max_completion_tokens→max_tokens（翻译/显式优先/非正丢弃）/ GPT max_tokens≥16 钳制 /
+    tool_choice 归一（none 抑制 tools、object→string function/auto）/
+    role developer→system / image_url 字符串→对象 / reasoning_text 片段剔除 /
+    deepseek thinking 注入（enabled+默认档、显式 disabled 删 effort）/
+    reasoning_content 回填 / prompt_cache_key 注入（稳定 + 跨账号不碰撞）/ 坏 JSON 透传
+  12 层错误分类映射表（27 例）+ 判定序回归（429+11102→soft_rate、403 信封≠WAF、
+    429+14017→account_fault）+ IsAlreadyCheckin（网络错误不误判幂等）+
+    ParseRateReset(CN/EN) + IsModelRateLimit(6004)
+  刷新单飞并发安全: 20 goroutine 并发刷新同一过期凭据 → 上游 refresh 命中恰好 1 次、
+    全员拿到同一新 AT/RT；新鲜凭据零请求；12153 刷新失败正确传播 session_dead
+
+$ go test ./relay/channel/trae/ -count=1
+ok
+  payload: content 字符串→数组（含 assistant）/ 数组透传 / function=solo_work_lite 注入 /
+    config_name+model 双填与缺省回落 / tools.parameters 对象→JSON 字符串 /
+    assistant function→function_call（无 name 剔除）/ tool_choice 归一
+  solosse: ParseSOLOLine / notify_usage 提取 ide_credits=4321（空帧/缺字段不误报）/
+    全事件序列聚合（output+reasoning+usage+notify_usage+done）/ error 帧分类映射
+    （1001→session_dead, 1005→plan_limit, 4008→quota_exhausted, 4011/9074→soft_rate）/
+    tool_calls function_call→function 合并与 arguments 拼接
+  credimport: 回调链接 refreshToken 主路径 / userJwt.RefreshToken 兜底 / userJwt.Token 兜底
+    （TokenExpireAt 毫秒→秒归一）/ 空与缺 token 拒绝 / Masked 脱敏
+  adaptor 回归: http body 末帧 (n>0, io.EOF) 同帧形态下流式翻译不丢帧
+    （曾因此返 empty_response，e2e 抓出）；非流式聚合 usage/notify_usage 提取
+
+$ go test ./service/checkin/ -count=1
+ok
+  SSRF: 公网 IP 放行；ftp/file/127.0.0.1/localhost/10.x/172.16/192.168/169.254(云元数据)/
+    100.64(CGNAT)/0.0.0.0/.internal/TEST-NET-1/不可解析域名(fail-closed) 全拒绝；
+    CHECKIN_SSRF_ALLOW_PRIVATE 逃生门仅放开 IP 段、scheme 校验仍生效
+  custom 模板: jsonPathGet 嵌套/数组下标/缺失；judgeCustomSuccess expect 等值与真值判定
+
+$ go test ./router/ -count=1
+ok  （含 TestAccessTokenRouteRulesCoverEveryDashboardRoute：
+    M1/M2 遗留的自服务路由声明缺口随 M3 一并补齐——/api/channel/self/*、
+    /api/route_rule/*、/api/checkin/* 全部进 access_token 规则表，该测试由红转绿）
+
+$ go test ./constant/... ./common/ -count=1
+ok
+
+$ go test ./model/ ./relay/ -count=1
+ok  model 5.960s / ok relay 0.542s
+
+$ go test ./controller/ ./middleware/ -count=1（环境性既有失败，非 M3 回归）
+  失败用例全部命中同一模式：Windows 上 audit.db 文件锁导致
+  testing.TempDir RemoveAll cleanup unlinkat 失败（子测试本体 PASS）——
+  在 pristine HEAD worktree（commit 30d37dc）上复现完全相同的失败清单
+  （TestAuditDatabaseMatrix/TestCreateUserRejectsNonStandardRole/
+  TestSecurityLogin*/TestAdminUser*/TestAccessAndPanicLogsFollowLogRotation/
+  TestRouteTaskPluginEndpointUsesSelectedChannel），与 M3 改动面无关。
+
+================================================================================
+C. 端到端验证（真实服务 + sqlite 新库 + mock 上游，60 项断言全 PASS）
+================================================================================
+场景映射（设计文档 §5 DoD §1/§2/§3/§5）:
+
+1) workbuddy 渠道（凭据 JSON 手填 + baseOverride 指 mock）
+   - 建渠道(type=65) → /v1/chat/completions stream:true：SSE 白名单重建逐帧透出
+     wb-mock-response + [DONE] + 末帧 usage(total_tokens=15)
+   - stream:false：上游 SSE 聚合为单帧 chat.completion（content/usage 一致）
+   - 过期凭据 PUT 换 key → 下次聊天触发刷新单飞（mock refresh 命中）→ 成功；
+     再发一 chat 不再刷新（凭据已持久化 channels.key——行为证明，API 按设计脱敏不回传 key）
+2) 错误分类 → 渠道健康（DoD: 12153/402/429 状态变化）
+   - err12153(401) → 渠道 status 1→3（自动禁用「需重新登录」）
+   - err402 → status 1→3（硬冷却，签到后解冻）
+   - err429 → 错误返回客户端但渠道保持 status=1（软限流不罚号）
+3) workbuddy OAuth 设备流（/api/channel/self/oauth/*）
+   - start → sessionId+authUrl；未授权 poll done=false；mock 授权后 poll done=true，
+     凭据 uid=wb-uid-oauth，响应脱敏 accessToken=wb-at-oa***
+4) trae 渠道（/api/channel/self/import_trae）
+   - 回调链接(302 URL 含 refreshToken+userJwt) → ExchangeToken 换正式 token +
+     GetUserInfo 补全 → 凭据预览（脱敏）→ 建渠道(type=66)
+   - chat SSE：SOLO metadata/output/token_usage/notify_usage/done → OpenAI chunks
+     翻译走通（function=solo_work_lite、content 数组化、config_name+model 双填）
+   - notify_usage.cn_credits_remain_info.ide_credits=4321 写渠道 Balance 字段
+   - stream:false 聚合单帧 usage total=28
+   - err1001(HTTP 401) → 自动禁用；err4008stream（流内 error 帧）→ 错误透出 + 自动禁用
+5) 签到中心（/api/checkin/*）
+   - sites 元数据 4 站点 + 三项 Option（enabled/maxAccountsPerUser/allowAgentUrl）透出
+   - workbuddy 账号（引用渠道）：每日签到 + 连登管家（补签卡判定/礼包+100/补偿+500/
+     streak 兑换/抽奖×2）+ 活跃上报 + 任务 accept+claim（expert 行为链任务标记跳过）
+     → reward>0、Balance=432、连签天数落库
+   - trae 账号（引用渠道）：status→claim → EntUsage → Balance=2500
+   - custom 账号：SSRF 校验通过（逃生门）→ success_path code==0 判定成功
+   - apinex agent 账号：POST AgentUrl（mock 执行器）→ ok + cookie 续期落 CredJson
+   - 判重：同账号当日二次 /run → skipped=true
+   - CheckinLog 落库（logs total≥1，含 agent 模式）
+   - ReenableIfCredits：402 冻结渠道后（模拟次日）签到 → 余额>0 自动解冻 status 3→1
+   - owner 隔离：root 调 user2 的账号 /run → success=false
+
+e2e 逐字输出（exit=0，60 passed, 0 failed）:
+--------------------------------------------------------------------------------
+PASS  root login
+PASS  register ModelRatio
+PASS  user2 login
+PASS  create api token
+PASS  reveal token key
+PASS  create workbuddy channel
+PASS  wb chat SSE status 200
+PASS  wb chat SSE content
+PASS  wb chat SSE [DONE]
+PASS  wb chat SSE usage
+PASS  wb chat aggregate
+PASS  wb chat aggregate usage
+PASS  update wb channel key
+PASS  wb chat after refresh
+PASS  wb refresh hit upstream
+PASS  wb chat with persisted cred
+PASS  wb cred persisted (no re-refresh)
+PASS  12153 auto-disables channel
+PASS  402 auto-disables channel
+PASS  429 returns error
+PASS  429 keeps channel enabled
+PASS  oauth start
+PASS  oauth authUrl
+PASS  oauth poll pending
+PASS  oauth poll done
+PASS  oauth cred uid
+PASS  oauth cred masked
+PASS  trae import preview
+PASS  trae import exchanged
+PASS  create trae channel
+PASS  trae chat SSE status
+PASS  trae chat SSE content
+PASS  trae chat SSE [DONE]
+PASS  trae balance from notify_usage
+PASS  trae chat aggregate
+PASS  trae aggregate usage
+PASS  trae 1001 auto-disables
+PASS  trae 4008 stream error surfaces
+PASS  trae 4008 stream auto-disables
+PASS  checkin sites metadata
+PASS  checkin options exposed
+PASS  create wb checkin account
+PASS  create trae checkin account
+PASS  create custom checkin account
+PASS  create apinex checkin account
+PASS  wb checkin run ok
+PASS  wb checkin reward>0
+PASS  wb checkin balance
+PASS  trae checkin run ok
+PASS  trae checkin balance 2500
+PASS  custom checkin run ok
+PASS  apinex agent run ok
+PASS  wb checkin dedup skipped
+PASS  checkin accounts listed
+PASS  wb checkin logs persisted
+PASS  apinex checkin logs persisted
+PASS  pre-checkin disabled
+PASS  wb second-day checkin ok
+PASS  ReenableIfCredits re-enabled channel
+PASS  owner isolation on run
+
+60 passed, 0 failed
+--------------------------------------------------------------------------------
+
+================================================================================
+D. 关键工程决策与已知取舍（相对蓝图的偏差声明）
+================================================================================
+1. 错误→渠道健康语义：12153/401（session_dead）与 402/14018（hard_credit）、
+   11140/14017（account_fault）由 adaptor 显式禁用渠道（尊重渠道 AutoBan），
+   不依赖全局 AutomaticDisableChannelEnabled 开关（该开关默认关闭时 M1 auto-ban
+   不生效，无法表达「需重新登录」终态）；429/6021/11102/内容审核等请求级错误
+   不罚渠道，交还 relay 重试语义。trae 1001/1005/4008 同口径（流内 error 帧也算）。
+2. 非流式客户端：上游恒强制 stream:true，DoRequest 按客户端流式意图标记合成响应
+   Content-Type（防 relay 核心把 IsStream 翻真导致非流式客户端收到 SSE），
+   DoResponse 聚合为单帧 chat.completion。
+3. io.EOF 同帧：trae 流式翻译的行读取器处理 (n>0, io.EOF) 同帧形态
+   （数据先入行缓冲再切分）——这是 e2e 抓出的真 bug，已固化为回归单测。
+4. 渠道 Balance：trae 以 notify_usage.ide_credits 为准（ent_usage 聚合含 work 包虚高，
+   仅签到时用）；workbuddy 以 get-user-resource（企业版 get-enterprise-user-usage）。
+5. 行为链任务（expert/template/canvas/school/mp 小程序/black_cat/travel 等）
+   一期标记「暂不支持」展示但不执行（蓝图 §3.2 口径）；mp 45s 真人节奏对话任务
+   与猫猫旅行/夜猫子同属二期。
+6. 逃生门（仅 dev/e2e，文档化）：WORKBUDDY_BASE_URL / TRAE_BASE_URL 全局上游覆盖
+   （与 OMNIROUTE_BASE_URL 同风格）、CHECKIN_SSRF_ALLOW_PRIVATE 放开 SSRF 私网段
+   （scheme 校验仍生效）。生产部署严禁开启。
+7. key-reveal 类端点需二次安全验证，e2e 改以「再聊天不触发二次刷新」作持久化
+   行为证明；API 面一律脱敏（Masked() 前缀+***），符合蓝图「API 响应一律脱敏」。
+8. 自服务渠道补了 POST /api/channel/self/:id/status（owner 强制的启用/禁用），
+   作为「需重新登录」恢复闭环的用户侧出口（更新凭据后手动启用）。
+9. middleware/access_token_routes.go 补齐 M1/M2 遗漏的自服务路由声明
+   （TestAccessTokenRouteRulesCoverEveryDashboardRoute 由红转绿）。
+10. 加密留 M5：channels.key / checkin_accounts.cred_json 本期明文 JSON
+    （蓝图 §1 既定口径，仅 owner 可读，API 脱敏）。
+11. 真实凭据联通测试留给用户（凭据涉个人账号，DoD §5 允许）。
+================================================================================
