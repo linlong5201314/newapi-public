@@ -1,0 +1,199 @@
+VERIFICATION-M2-BE — new-api M2 后端（路由策略引擎 + OmniRoute 渠道类型 + 免费源模板 + 免费额度）验证记录
+================================================================================
+日期: 2026-11-10
+环境: Windows 10/11 (win32), Git Bash; Go 便携版 go1.26.10 windows/amd64
+      (GOROOT 已 unset, GOPROXY=https://goproxy.cn,direct)
+服务: sqlite 默认配置, SESSION_SECRET=devsecret PORT=3000 OMNIROUTE_BASE_URL=http://127.0.0.1:20128
+Mock 上游: node v22 mock-upstream.mjs — 12999(mock-a 正常) / 12998(mock-b 可控 500/慢5s) / 20128(OmniRoute 形状 mock)
+驱动: node e2e-m2.mjs（59 项断言，脚本在仓库外临时目录运行，不落库）
+蓝图: docs/M2-路由与免费源设计.md §1-§4; 多租户改造方案.md(M1 owner 体系); 网关优化清单.md §3/§4
+
+================================================================================
+A. 编译与静态检查
+================================================================================
+$ go version
+go version go1.26.10 windows/amd64
+
+$ go build ./...
+exit=0
+
+$ go vet ./...
+exit=0
+
+================================================================================
+B. 单元测试（新增策略引擎 + 改动面回归）
+================================================================================
+$ go test ./service/strategy/ -count=1
+ok  	github.com/QuantumNous/new-api/service/strategy	0.184s
+（8 策略排序单测: priority 保序 / weighted 轮盘赌 / round-robin 轮转 /
+ least-used 升序 / lowest-latency 升序 / lkgp 提队首 / reset-aware 余额排序 /
+ 未知策略回落 priority）
+
+$ go test ./service/ -run 'TestCacheGetRandomSatisfiedChannel|TestSelectChannel' -count=1
+ok  	github.com/QuantumNous/new-api/service	0.309s
+
+$ go test ./model/ -run 'TestChannel|TestAbility|TestGetChannel|TestOption' -count=1
+ok  	github.com/QuantumNous/new-api/model	0.275s
+
+$ go test ./constant/... -count=1
+ok  	github.com/QuantumNous/new-api/constant	0.170s
+
+================================================================================
+C. 端到端验证（真实服务 + sqlite + 三 mock 上游，59 项断言全 PASS）
+================================================================================
+场景映射（设计文档 §5 DoD）:
+ a. user2 建 mock 渠道 A(12999)/B(12998) + 规则 route-test targets=[B,A]
+ b. priority: B 注入 500 -> 200 且走 A(B 命中 2 次=maxRetries+1, A 命中 1 次, ms=27)
+    + per-target 超时: targetTimeoutMs=3000, B 慢 5s -> 超时回退 A(ms=8005)
+    + 模型改写: 渠道 ModelMapping 与 targets[].modelOverride 均验证(model=mock-1)
+ c. round-robin: 4 连发 A/B 各 2 次
+ d. lkgp: 首成功粘 B x2 -> B 挂落 A -> lkgp 粘 A(B 修复后仍走 A)
+ e. 共存/隔离: 普通模型 mock-1 路径不变; root 同名规则互不可见(404/空列表)互不影响
+ f. OmniRoute(type=64, 默认 base env+/api/v1): Test 走 GET /api/v1/models PASS + 聊天走通
+ g. free_templates=12 条真实 baseUrl; from_template 建仓(OtherInfo.templateId);
+    缺 key/缺 accountId 拒绝; free_usage 按 poolKey 聚合 used=15/remaining=14999985/reset=明日0点UTC
+CRUD/校验: 重名拒绝、未知策略拒绝、引用他人渠道拒绝、RouteRuleMaxPerUser 上限(Option 注册)、
+ toggle 关->503->开恢复。
+
+e2e 逐字输出(exit=0):
+--------------------------------------------------------------------------------
+server status: 200
+PASS  setup root  -- {"data":null,"message":"System initialized successfully","message_key":"System initialized successfully","success":true}
+PASS  login root
+PASS  root creates user2  -- {"message":"","success":true}
+PASS  login user2  -- id=undefined
+PASS  get pricing snapshot
+PASS  register pricing x4  -- {"data":{"updated_models":["mock-1","route-test","omni-model","llama-3.3-70b-versatile"]},"message":"","success":true}
+PASS  user2 create channel A (12999)  -- id=1
+PASS  user2 create channel B (12998)  -- id=2
+PASS  user2 create token
+PASS  user2 fetch token key
+PASS  create rule route-test [B,A]  -- id=1 {"data":{"id":1,"user_id":2,"name":"route-test","strategy":"priority","targets":"[{\"channelId\":2},
+PASS  duplicate name rejected  -- A rule with this name already exists
+PASS  unknown strategy rejected  -- Unknown strategy: nope (supported: priority, weighted, round-robin, random, least-used, lowest-latency, lkgp, reset-aware)
+PASS  root create platform channel  -- id=3
+PASS  rule referencing others channel rejected  -- All target channels must be your own channels
+PASS  rule #2 within limit
+PASS  rule #3 within limit
+PASS  rule #4 over limit rejected  -- Route rule limit reached: max 3 rules per user
+PASS  list rules (user2 sees 3)  -- total=3 strategies=8
+PASS  get rule detail
+PASS  root cannot read user2 rule (404)  -- status=404
+PASS  root list empty (cross-tenant invisible)  -- total=0
+PASS  toggle rule off
+PASS  disabled rule -> 503  -- status=503
+PASS  toggle rule on
+PASS  priority: 200 via A when B fails  -- status=200 id=chatcmpl-mock-12999 ms=27
+PASS  priority: B attempted then fell back  -- A=1 B=2
+PASS  priority: total time sane  -- ms=27
+PASS  rule path applies channel ModelMapping  -- model=mock-1
+PASS  update rule -> targetTimeoutMs=3000
+PASS  targetTimeout: slow B timed out, fell to A  -- status=200 ms=8005 A=1
+PASS  targetTimeout: elapsed near timeout not upstream delay  -- ms=8005
+PASS  update rule -> modelOverride on B
+PASS  modelOverride rewrites upstream model  -- model=mock-1 (B has no channel mapping)
+PASS  update rule -> round-robin  -- {"data":{"id":1,"user_id":2,"name":"route-test","strategy":"round-robin","targets":"[{\"channelId\":
+PASS  round-robin: 4 requests split 2/2  -- A=2 B=2
+PASS  update rule -> lkgp
+PASS  lkgp: sticks to first success (B x2)  -- A=0 B=2
+PASS  lkgp: B broken falls to A  -- id=chatcmpl-mock-12999
+PASS  lkgp: sticky to last good (A)  -- A=1 B=0 id=chatcmpl-mock-12999
+PASS  normal model path intact (mock-1)  -- status=200 id=chatcmpl-mock-12999
+PASS  root create own self channel  -- id=4
+PASS  root same-name rule coexists  -- {"data":{"id":4,"user_id":1,"name":"route-test","strategy":"priority","targets":"[{\"channelId\":4}]
+PASS  root uses own rule not user2s  -- status=200 {"id":"chatcmpl-mock-12999","object":"chat.completion","created":1794258951,"model":"route-test","choices":[{"index":0,"
+PASS  create OmniRoute channel (type=64, default base)  -- id=5 {"data":{"id":5,"ids":[5],"results":[{"channel_id":5,"input_index":0}]},"message":"","success":true}
+PASS  OmniRoute channel test PASS (GET /api/v1/models)  -- resp={"message":"","success":true,"time":0.001} modelsHits=1
+PASS  OmniRoute chat request works  -- status=200 id=chatcmpl-mock-20128
+PASS  free_templates returns 12  -- total=12
+PASS  templates have real baseUrl/signupUrl/poolKey  -- groq,gemini,cerebras,sambanova,cloudflare-ai,openrouter-free,mistral,github-models,siliconflow,glm-cn,arcee-free,llm7
+PASS  from_template groq creates channel  -- id=6
+PASS  template channel carries templateId in other_info  -- models=llama-3.3-70b-versatile,meta-llama/llama-4-scout-1
+PASS  from_template missing key rejected  -- API key is required for this template
+PASS  cloudflare template requires accountId  -- extra.accountId is required for this template
+PASS  retarget template channel to mock  -- {"data":{"id":6,"type":1,"key":"","openai_organization":null,"test_model":null,"
+PASS  chat via template channel (usage logged)  -- status=200 {"id":"chatcmpl-mock-12999","object":"chat.completion","created":1794258951,"model":"llama-3.3-70b-versatile","choices":
+PASS  free_usage returns groq pool  -- [{"channelIds":[6],"freeType":"recurring-daily","monthlyTokens":15000000,"name":"Groq 免费层","poolKey":"groq","remaining":14999985,"resetsAt":1794268800,"templateId":"groq","usedThisMonth":15}]
+PASS  free_usage usedThisMonth=15  -- used=15
+PASS  free_usage remaining=15000000-15  -- remaining=14999985
+PASS  free_usage resetsAt is tomorrow 00:00 UTC  -- resetsAt=1794268800
+
+================ SUMMARY ================
+PASS  setup root
+PASS  login root
+PASS  root creates user2
+PASS  login user2
+PASS  get pricing snapshot
+PASS  register pricing x4
+PASS  user2 create channel A (12999)
+PASS  user2 create channel B (12998)
+PASS  user2 create token
+PASS  user2 fetch token key
+PASS  create rule route-test [B,A]
+PASS  duplicate name rejected
+PASS  unknown strategy rejected
+PASS  root create platform channel
+PASS  rule referencing others channel rejected
+PASS  rule #2 within limit
+PASS  rule #3 within limit
+PASS  rule #4 over limit rejected
+PASS  list rules (user2 sees 3)
+PASS  get rule detail
+PASS  root cannot read user2 rule (404)
+PASS  root list empty (cross-tenant invisible)
+PASS  toggle rule off
+PASS  disabled rule -> 503
+PASS  toggle rule on
+PASS  priority: 200 via A when B fails
+PASS  priority: B attempted then fell back
+PASS  priority: total time sane
+PASS  rule path applies channel ModelMapping
+PASS  update rule -> targetTimeoutMs=3000
+PASS  targetTimeout: slow B timed out, fell to A
+PASS  targetTimeout: elapsed near timeout not upstream delay
+PASS  update rule -> modelOverride on B
+PASS  modelOverride rewrites upstream model
+PASS  update rule -> round-robin
+PASS  round-robin: 4 requests split 2/2
+PASS  update rule -> lkgp
+PASS  lkgp: sticks to first success (B x2)
+PASS  lkgp: B broken falls to A
+PASS  lkgp: sticky to last good (A)
+PASS  normal model path intact (mock-1)
+PASS  root create own self channel
+PASS  root same-name rule coexists
+PASS  root uses own rule not user2s
+PASS  create OmniRoute channel (type=64, default base)
+PASS  OmniRoute channel test PASS (GET /api/v1/models)
+PASS  OmniRoute chat request works
+PASS  free_templates returns 12
+PASS  templates have real baseUrl/signupUrl/poolKey
+PASS  from_template groq creates channel
+PASS  template channel carries templateId in other_info
+PASS  from_template missing key rejected
+PASS  cloudflare template requires accountId
+PASS  retarget template channel to mock
+PASS  chat via template channel (usage logged)
+PASS  free_usage returns groq pool
+PASS  free_usage usedThisMonth=15
+PASS  free_usage remaining=15000000-15
+PASS  free_usage resetsAt is tomorrow 00:00 UTC
+
+59/59 PASS
+--------------------------------------------------------------------------------
+E2E SCRIPT DONE, exit=0
+
+================================================================================
+D. 验收判定汇总（设计文档 §5）
+================================================================================
+A1. go build ./...                                              PASS (exit=0)
+A2. go vet ./...                                                PASS (exit=0)
+B1. service/strategy + service/model/constant 定向测试          PASS
+C-b. priority 失败回退 + per-target 超时 + 模型改写              PASS
+C-c. round-robin 4 发 2/2                                       PASS
+C-d. lkgp 粘滞/回退/修复后回粘                                  PASS
+C-e. 规则与普通模型共存; 跨用户规则不可见不可调                  PASS
+C-f. OmniRoute 渠道 Test(GET /models) + 聊天                    PASS
+C-g. 12 模板/from_template/free_usage 额度                       PASS
+CRUD 校验(重名/策略/归属/上限/toggle)                            PASS
+全部 59/59 PASS
