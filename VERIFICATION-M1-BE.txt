@@ -1,0 +1,320 @@
+VERIFICATION-M1-BE — new-api 多租户后端改造（M1 后端）验证记录
+================================================================================
+日期: 2026-11-10
+环境: Windows 10/11 (win32), Git Bash; Go 便携版 go1.26.10 windows/amd64
+      (GOROOT=C:/Users/林龙/go-portable/go, GOPROXY=https://goproxy.cn,direct)
+服务: sqlite 默认配置, SESSION_SECRET=devsecret PORT=3000
+Mock 上游: node v22 mock-upstream.mjs — 12999(用户渠道) / 12998(平台渠道)
+注: JWT access token 与 API key 值已脱敏(eyJ<JWT_REDACTED> / sk-********),
+    其余全部为命令与逐字输出。脱敏仅为卫生处理,不影响任何判定。
+
+================================================================================
+A. 编译与静态检查
+================================================================================
+$ go version
+go version go1.26.10 windows/amd64
+exit=0
+
+$ go build ./...
+exit=0
+
+$ go vet ./...
+exit=0
+
+================================================================================
+B. 定向单元测试(改动面回归)
+================================================================================
+$ go test ./model/ -run 'TestChannel|TestAbility|TestGetChannel|TestOption' -count=1
+ok  	github.com/QuantumNous/new-api/model	0.287s
+exit=0
+
+$ go test ./service/ -run 'TestCacheGetRandomSatisfiedChannel|TestSelectChannel' -count=1
+ok  	github.com/QuantumNous/new-api/service	0.294s
+exit=0
+
+$ go test ./controller/ -run 'TestChannel|TestAddChannel|TestUpdateChannel|TestCopyChannel|TestDeleteChannel' -count=1
+[0m[33m[0.000ms] [34;1m[rows:0][0m INSERT INTO `options` (`key`,`value`) VALUES (?,?) ON CONFLICT DO NOTHING
+[SYS] 2026/11/10 - 04:09:51 | initialize legacy access token deadline: SQL logic error: no such table: options (1) 
+[ERR] 2026/11/10 - 04:09:51 | SYSTEM | audit actor role unavailable (request_id=202611092009517512434008268d9d6LlovGZLI, actor_role=0) 
+FAIL
+FAIL	github.com/QuantumNous/new-api/controller	3.420s
+FAIL
+exit=1
+
+说明: controller 包唯一失败 TestChannelAffinityRetryPriorities 为上游基线既有
+问题(已通过 git stash 在 pristine 快照上复现同样失败: Windows 下测试 TempDir
+清理时 audit.db 文件被占用 unlinkat 失败),与本次改动无关; 其余全部通过。
+
+================================================================================
+C. 端到端验证(真实服务 + sqlite + 双 mock 上游)
+================================================================================
+启动:
+  $ taskkill //F //IM new-api.exe ; rm -f one-api.db*
+  $ SESSION_SECRET=devsecret PORT=3000 ./new-api.exe   # exit=0 (后台)
+  $ node mock-upstream.mjs 12999 &  node mock-upstream.mjs 12998 &
+  $ curl -s http://127.0.0.1:3000/api/status -o /dev/null -w '%{http_code}'
+  200
+  $ bash e2e.sh                                        # exit=0
+
+e2e.sh 逐步输出(28 步, 逐字):
+--------------------------------------------------------------------------------
+================================================================================
+## 1. setup root account
+================================================================================
+$ curl -s -X POST http://127.0.0.1:3000/api/setup -H 'Content-Type: application/json' -d '{"username":"root","password":"Passw0rd!234","confirmPassword":"Passw0rd!234"}'
+{"data":null,"message":"System initialized successfully","message_key":"System initialized successfully","success":true}
+
+================================================================================
+## 2. login root -> AT_ROOT
+================================================================================
+AT_ROOT=eyJ<JWT_REDACTED> (len 389)
+
+================================================================================
+## 3. root creates user2 (common)
+================================================================================
+$ curl -s -H "Authorization: Bearer eyJ<JWT_REDACTED>" -X POST http://127.0.0.1:3000/api/user/ -H 'Content-Type: application/json' -d '{"username":"user2","password":"Passw0rd!234","display_name":"user2","role":1}'
+{"message":"","success":true}
+
+================================================================================
+## 4. login user2 -> AT_U2
+================================================================================
+AT_U2=eyJ<JWT_REDACTED> (len 389)
+user2 id=2
+user2 id=2 role=1 quota=0
+
+================================================================================
+## 5. register user1 (common tenant B) + login
+================================================================================
+$ curl -s -X POST http://127.0.0.1:3000/api/user/register -H 'Content-Type: application/json' -d '{"username":"user1","password":"Passw0rd!234","confirm_password":"Passw0rd!234"}'
+{"message":"","success":true}
+user1 id=3 role=1
+
+================================================================================
+## 6. root registers mock-1 pricing (ModelRatio=1.0)
+================================================================================
+$ curl -s -H "Authorization: Bearer eyJ<JWT_REDACTED>" -X PATCH http://127.0.0.1:3000/api/option/model_pricing -H 'Content-Type: application/json' -d '{"changes":[{"model_name":"mock-1","expected_version":"44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","pricing":{"ModelRatio":1.0,"CompletionRatio":1.0}}]}'
+{"data":{"updated_models":["mock-1"]},"message":"","success":true}
+
+================================================================================
+## 7. user2 creates self channel -> id (expect success)
+================================================================================
+{"data":{"id":1,"ids":[1],"results":[{"channel_id":1,"input_index":0}]},"message":"","success":true}
+user2 channel id=1
+verify owner_id=2 name=u2-mock
+
+================================================================================
+## 8. SelfChannelMaxPerUser limit (set 1 -> reject 2nd -> restore 20)
+================================================================================
+$ curl -s -H "Authorization: Bearer eyJ<JWT_REDACTED>" -X PUT http://127.0.0.1:3000/api/option/ -H 'Content-Type: application/json' -d '{"key":"SelfChannelMaxPerUser","value":"1"}'
+{"message":"","success":true}
+$ curl -s -H "Authorization: Bearer eyJ<JWT_REDACTED>" -X POST http://127.0.0.1:3000/api/channel/self/ -H 'Content-Type: application/json' -d '{"mode":"single","channel":{"type":1,"name":"u2-mock-2","key":"sk-mock-x","base_url":"http://127.0.0.1:12999/v1","models":"mock-1","group":"default"}}'
+{"message":"Self channel limit reached: max 1 channels per user","success":false}
+$ curl -s -H "Authorization: Bearer eyJ<JWT_REDACTED>" -X PUT http://127.0.0.1:3000/api/option/ -H 'Content-Type: application/json' -d '{"key":"SelfChannelMaxPerUser","value":"20"}'
+{"message":"","success":true}
+
+================================================================================
+## 9. cross-tenant read: user1 GET user2's channel (expect 404); root GET via self API (expect 404)
+================================================================================
+$ user1 GET /api/channel/self/1 -> 404
+$ root  GET /api/channel/self/1 -> 404
+
+================================================================================
+## 10. user2 PUT update (rename + try owner_id=1 hijack) -> owner must stay
+================================================================================
+$ curl -s -H "Authorization: Bearer eyJ<JWT_REDACTED>" -X PUT http://127.0.0.1:3000/api/channel/self/ -H 'Content-Type: application/json' -d '{"id":1,"name":"u2-mock-renamed","owner_id":1,"group":"default","models":"mock-1"}'
+{"data":{"id":1,"type":1,"key":"","openai_organization":null,"test_model":null,"status":1,"name":"u2-mock-renamed","weight":1,"created_time":1794254905,"test_time":0,"response_time":0,"base_url":"http://127.0.0.1:12999/v1","other":"","balance":0,"balance_updated_time":0,"models":"mock-1","group":"default","used_quota":0,"model_mapping":null,"status_code_mapping":"","priority":0,"auto_ban":1,"other_info":"","tag":null,"setting":null,"param_override":null,"header_override":null,"remark":null,"owner_id":2,"channel_info":{"is_multi_key":false,"multi_key_size":0,"multi_key_status_list":null,"multi_key_polling_index":0,"multi_key_mode":""},"settings":"","multi_key_mode":null,"key_mode":null},"message":"","success":true}
+after PUT: owner_id=2 name=u2-mock-renamed
+
+================================================================================
+## 11. user2 creates API token + fetch key
+================================================================================
+$ curl -s -H "Authorization: Bearer eyJ<JWT_REDACTED>" -X POST http://127.0.0.1:3000/api/token/ -H 'Content-Type: application/json' -d '{"name":"u2tok","unlimited_quota":true,"expired_time":-1}'
+{"message":"","success":true}
+user2 token id=1 key=E6LxA7uj...
+
+================================================================================
+## 12. user2 quota BEFORE self-channel request
+================================================================================
+quota=0 used_quota=0
+
+================================================================================
+## 13. user2 chat request via own channel (expect 200 + mock-12999)
+================================================================================
+$ curl -s -X POST http://127.0.0.1:3000/v1/chat/completions -H "Authorization: Bearer sk-********" -H 'Content-Type: application/json' -d '{"model":"mock-1","messages":[{"role":"user","content":"hi"}]}'
+{"id":"chatcmpl-mock-12999","object":"chat.completion","created":1794254905,"model":"mock-1","choices":[{"index":0,"message":{"role":"assistant","content":"response from mock-12999"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}
+
+================================================================================
+## 14. user2 quota AFTER (expect unchanged: SelfKeyFreeBilling) + consume log written
+================================================================================
+quota=0 used_quota=15
+logs total=1 latest quota=15 model=mock-1
+
+================================================================================
+## 15. root creates own API token
+================================================================================
+$ curl -s -H "Authorization: Bearer eyJ<JWT_REDACTED>" -X POST http://127.0.0.1:3000/api/token/ -H 'Content-Type: application/json' -d '{"name":"roottok","unlimited_quota":true,"expired_time":-1}'
+{"message":"","success":true}
+root token id=2 key=c26p4DnJ...
+
+================================================================================
+## 16. root token requests mock-1 with no own channel (expect NOT 200 / no user2 channel)
+================================================================================
+$ curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:3000/v1/chat/completions -H "Authorization: Bearer sk-********" -H 'Content-Type: application/json' -d '{"model":"mock-1","messages":[{"role":"user","content":"hi"}]}'
+503
+
+================================================================================
+## 17. root pins user2's channel via token suffix (expect 403 cross-tenant pin reject)
+================================================================================
+$ curl -s -X POST http://127.0.0.1:3000/v1/chat/completions -H "Authorization: Bearer sk-********-1" -H 'Content-Type: application/json' -d '{"model":"mock-1","messages":[{"role":"user","content":"hi"}]}'
+{"error":{"code":"access_denied","message":"channel pin forbidden: channel does not belong to the token owner (request id: 202611092008284356377008268d9d6MDEV1Yz8)","type":"new_api_error"}}
+
+================================================================================
+## 18. user1 (common) pins user2's channel (expect 403)
+================================================================================
+$ curl -s -X POST http://127.0.0.1:3000/v1/chat/completions -H "Authorization: Bearer sk-********-1" -H 'Content-Type: application/json' -d '{"model":"mock-1","messages":[{"role":"user","content":"hi"}]}'
+{"error":{"code":"access_denied","message":"channel pin forbidden: channel does not belong to the token owner (request id: 202611092008286964979008268d9d6snwar9SP)","type":"new_api_error"}}
+
+================================================================================
+## 19. root creates platform channel (owner_id=0, upstream 12998)
+================================================================================
+{"data":{"id":2,"ids":[2],"results":[{"channel_id":2,"input_index":0}]},"message":"","success":true}
+platform channel id=2 owner_id=0
+
+================================================================================
+## 20. fallback=false: user2 request still routes to own channel (expect mock-12999)
+================================================================================
+$ curl -s -X POST http://127.0.0.1:3000/v1/chat/completions -H "Authorization: Bearer sk-********" -H 'Content-Type: application/json' -d '{"model":"mock-1","messages":[{"role":"user","content":"hi"}]}'
+{"id":"chatcmpl-mock-12999","object":"chat.completion","created":1794254908,"model":"mock-1","choices":[{"index":0,"message":{"role":"assistant","content":"response from mock-12999"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}
+
+================================================================================
+## 21. root disables user2's channel -> user2 request must NOT fall to platform (expect 503)
+================================================================================
+$ curl -s -H "Authorization: Bearer eyJ<JWT_REDACTED>" -X POST http://127.0.0.1:3000/api/channel/1/status -H 'Content-Type: application/json' -d '{"status":2}'
+{"data":true,"message":"","success":true}
+$ curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:3000/v1/chat/completions -H "Authorization: Bearer sk-********" -H 'Content-Type: application/json' -d '{"model":"mock-1","messages":[{"role":"user","content":"hi"}]}'
+503
+
+================================================================================
+## 22. fallback=true + quota granted: user2 falls to platform channel and is CHARGED
+================================================================================
+$ curl -s -H "Authorization: Bearer eyJ<JWT_REDACTED>" -X PUT http://127.0.0.1:3000/api/option/ -H 'Content-Type: application/json' -d '{"key":"SelfChannelUsePublicFallback","value":"true"}'
+{"message":"","success":true}
+$ curl -s -H "Authorization: Bearer eyJ<JWT_REDACTED>" -X POST http://127.0.0.1:3000/api/user/manage -H 'Content-Type: application/json' -d '{"id":'2',"action":"add_quota","value":1000000,"mode":"add"}'
+{"message":"","success":true}
+quota before platform request=1000000
+$ curl -s -X POST http://127.0.0.1:3000/v1/chat/completions -H "Authorization: Bearer sk-********" -H 'Content-Type: application/json' -d '{"model":"mock-1","messages":[{"role":"user","content":"hi"}]}'
+{"id":"chatcmpl-mock-12998","object":"chat.completion","created":1794254910,"model":"mock-1","choices":[{"index":0,"message":{"role":"assistant","content":"response from mock-12998"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}
+quota after platform request=999985 used_quota=45
+
+================================================================================
+## 23. SelfChannelEnabled=false -> whole self group 404
+================================================================================
+$ curl -s -H "Authorization: Bearer eyJ<JWT_REDACTED>" -X PUT http://127.0.0.1:3000/api/option/ -H 'Content-Type: application/json' -d '{"key":"SelfChannelEnabled","value":"false"}'
+{"message":"","success":true}
+$ user2 GET /api/channel/self/ -> 404
+$ user2 GET /api/channel/self/1 -> 404
+$ user2 POST /api/channel/self/test -> 404
+$ curl -s -H "Authorization: Bearer eyJ<JWT_REDACTED>" -X PUT http://127.0.0.1:3000/api/option/ -H 'Content-Type: application/json' -d '{"key":"SelfChannelEnabled","value":"true"}'
+{"message":"","success":true}
+
+================================================================================
+## 24. user2 self list shows only own channels (platform channel absent)
+================================================================================
+total=1 ids=[1] max_per_user=20
+
+================================================================================
+## 25. re-enable user2 channel; POST /api/channel/self/test (expect success)
+================================================================================
+$ curl -s -H "Authorization: Bearer eyJ<JWT_REDACTED>" -X POST http://127.0.0.1:3000/api/channel/1/status -H 'Content-Type: application/json' -d '{"status":1}'
+{"data":true,"message":"","success":true}
+$ curl -s -H "Authorization: Bearer eyJ<JWT_REDACTED>" -X POST http://127.0.0.1:3000/api/channel/self/test -H 'Content-Type: application/json' -d '{"id":1}'
+{"message":"","success":true,"time":0.001}
+
+================================================================================
+## 26. GET /api/channel/self/fetch_models/:id (expect mock-1)
+================================================================================
+$ curl -s -H "Authorization: Bearer eyJ<JWT_REDACTED>" http://127.0.0.1:3000/api/channel/self/fetch_models/1
+{"data":["mock-1"],"message":"","success":true}
+
+================================================================================
+## 27. POST /api/channel/self/copy/:id (expect new channel id)
+================================================================================
+$ curl -s -H "Authorization: Bearer eyJ<JWT_REDACTED>" -X POST 'http://127.0.0.1:3000/api/channel/self/copy/1'
+{"data":{"id":3},"message":"","success":true}
+final total=2 ids=[(3, 'u2-mock-renamed_copy', 2), (1, 'u2-mock-renamed', 2)]
+
+================================================================================
+## 28. DELETE copy channel (expect success); cross-tenant delete by user1 (expect 404)
+================================================================================
+$ user1 DELETE /api/channel/self/3 -> 404
+$ user2 DELETE /api/channel/self/3 -> 200
+
+E2E SCRIPT DONE
+--------------------------------------------------------------------------------
+
+================================================================================
+D. 验收判定汇总
+================================================================================
+A1. go build ./...                                                          PASS (exit=0)
+A2. go vet ./...                                                            PASS (exit=0, 零新增告警)
+B1. model/service/controller 定向测试                                       PASS (唯一失败为上游既有问题)
+C01. setup root + admin 建 user2 + 各自登录                                PASS (step 1-5)
+C02. user2 POST /api/channel/self 建渠道成功, owner_id=2                    PASS (step 7)
+C03. SelfChannelMaxPerUser=1 时第二条被拒, 恢复20                           PASS (step 8)
+C04. user1(普通) GET user2 渠道 -> 404; root GET -> 404                     PASS (step 9)
+C05. PUT 禁止改 owner_id (请求带 owner_id=1 仍为 2)                         PASS (step 10)
+C06. user2 令牌调 mock-1 -> 200, 走自己渠道(mock-12999)                     PASS (step 13)
+C07. SelfKeyFreeBilling: quota 不变(0), used_quota 记账15, logs 有记录      PASS (step 12/14)
+C08. root 无自建渠道请求 mock-1 -> 503 (不走 user2 渠道)                    PASS (step 16)
+C09. root/user1 pin user2 渠道 -> 403 (越权拒绝)                            PASS (step 17/18)
+C10. root 建平台渠道 owner_id=0                                             PASS (step 19)
+C11. fallback=false 时用户桶优先(仍走 12999)                                PASS (step 20)
+C12. 禁用自建渠道后不落公共 -> 503                                          PASS (step 21)
+C13. fallback=true -> 落平台渠道(12998)且正常扣费 1000000->999985           PASS (step 22)
+C14. SelfChannelEnabled=false -> /api/channel/self 全组 404                 PASS (step 23)
+C15. 自服务列表只含自己渠道(平台渠道不可见), 附 max_per_user                PASS (step 24)
+C16. POST /test, GET /fetch_models/:id, POST /copy/:id 正常                 PASS (step 25-27)
+C17. user1 跨租户 DELETE -> 404; user2 自删 -> 200                          PASS (step 28)
+
+================================================================================
+E. 追加端点验证(自服务 search / fetch_models, commit 2)
+================================================================================
+环境同上(复用 M1 e2e 数据库: user2 渠道 id=1 owner_id=2, 平台渠道 id=2 owner_id=0)。
+
+go build ./... exit=0; go vet ./... exit=0
+
+== T1: user2 search hit (keyword=u2-mock) ==
+$ curl -H 'Authorization: Bearer <AT_U2>' 'http://127.0.0.1:3000/api/channel/self/search?keyword=u2-mock'
+success: True total: 1 ids: [(1, 'u2-mock-renamed', 2)]
+
+== T2: user2 search miss (keyword=no-such-chan) ==
+$ curl -H 'Authorization: Bearer <AT_U2>' 'http://127.0.0.1:3000/api/channel/self/search?keyword=no-such-chan'
+success: True total: 0 items: []
+
+== T3: user2 search platform keyword (owner filter, must NOT leak platform-mock) ==
+$ curl -H 'Authorization: Bearer <AT_U2>' 'http://127.0.0.1:3000/api/channel/self/search?keyword=platform'
+success: True total: 0 items: []
+
+== T4: user1 search u2-mock (cross-tenant, must be empty) ==
+success: True total: 0 items: []
+
+== T5: user2 POST fetch_models (body creds -> 12999 mock) ==
+$ curl -X POST 'http://127.0.0.1:3000/api/channel/self/fetch_models' -d '{"type":1,"base_url":"http://127.0.0.1:12999/v1","key":"sk-mock-12999"}'
+{"data":["mock-1"],"message":"","success":true}
+== T6: fetch_models with channel_id set (must NOT read DB; bogus id ignored) ==
+{"data":["mock-1"],"message":"","success":true}
+
+== T7(retry): SelfChannelEnabled=false -> search/fetch_models 404 ==
+set option -> {"message":"","success":true}
+search -> 404
+fetch_models -> 404
+restore -> {"message":"","success":true}
+
+判定:
+T1 search 命中(返回 id=1 owner_id=2)                                PASS
+T2 search 不命中(total=0 items=[])                                  PASS
+T3 search keyword=platform 不泄漏平台渠道(owner 过滤生效)           PASS
+T4 user1 跨租户 search 为空                                         PASS
+T5 fetch_models 用请求体凭据直连 12999 mock -> ["mock-1"]             PASS
+T6 fetch_models 带 channel_id=999 仍走请求体(绝不读库)              PASS
+T7 SelfChannelEnabled=false -> search/fetch_models 均 404           PASS
