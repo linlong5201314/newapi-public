@@ -1,0 +1,95 @@
+VERIFICATION — [M2-FE] 前端 路由规则管理页 + 免费源一键添加 + 免费额度卡片
+日期: 2026-11-10
+范围: new-api/web 目录内改动（仅本文件按要求落在仓库根）
+
+============================================================================
+1. bun install
+============================================================================
+$ cd web && bun install
+Checked 1269 installs across 1351 packages (no changes) [5.81s]
+exit=0（bun 1.3.8）
+
+============================================================================
+2. bun run build (rsbuild build)
+============================================================================
+$ cd web && bun run build
+exit=0
+关键输出（逐字）:
+  ready   built in 8.82s
+  dist\static\js\index.84e7515bfd.js                   5212.4 kB   1477.1 kB
+                                       Total:   67878.8 kB   20849.2 kB
+构建日志中 "error" 出现次数: 0
+
+============================================================================
+3. typecheck
+============================================================================
+package.json 的 typecheck 脚本为 `bun check -b`，但本机 bun 1.3.8 (Windows)
+不含 `bun check` 子命令（error: Script not found "check"）。
+等价替代验证（仓库 tsconfig 工程引用全量强制重建，与 M1-FE 同法）:
+$ tsc -b --force        (TypeScript 5.9，隔离目录安装)
+exit=0，输出为空（零类型错误）
+
+============================================================================
+4. oxlint（只核对本次涉及路径，避免仓库存量噪音）
+============================================================================
+$ oxlint -c .oxlintrc.json src/features/route-rules \
+    src/routes/_authenticated/route-rules src/hooks/use-sidebar-data.ts \
+    src/features/my-channels/free-sources.ts \
+    src/features/my-channels/components/free-usage-cards.tsx \
+    src/features/my-channels/components/dialogs/from-template-dialog.tsx \
+    src/features/my-channels/components/channels-provider.tsx \
+    src/features/my-channels/components/channels-dialogs.tsx \
+    src/features/my-channels/components/channels-primary-buttons.tsx \
+    src/features/my-channels/index.tsx
+Found 0 warnings and 0 errors. (24 files)
+exit=0
+
+============================================================================
+路由与菜单验证
+============================================================================
+- src/routeTree.gen.ts 由构建自动重新生成（未手改），含
+  '/_authenticated/route-rules/' 路由条目
+  （import AuthenticatedRouteRulesIndexRouteImport，id '/route-rules/'）。
+- src/hooks/use-sidebar-data.ts 在 general 分组「我的渠道」之后新增
+  「路由规则」(url=/route-rules, icon=Route, requiredRole=ROLE.USER)；
+  use-sidebar-config.ts 的 URL_TO_CONFIG_MAP 无该 URL 映射 → 默认可见，
+  use-sidebar-view.ts 只按 requiredRole 过滤，普通用户可见。
+
+============================================================================
+与后端契约的对齐（对照同期落地的 M2-BE 代码核实）
+============================================================================
+- /api/route_rule 六端点与 router/routerule-router.go 完全一致：
+  GET / · GET /:id · POST / · PUT / · DELETE /:id · POST /:id/toggle。
+- 写入负载 targets/config 发送结构化 JSON（非字符串），匹配
+  controller/route_rule.go routeRuleRequest{Targets []model.RouteRuleTarget,
+  Config *model.RouteRuleConfig}；target 元素字段
+  channelId/weight/fallbackOnlyOnQuotaExhaustion 与 model 层 json tag 一致。
+- 列表响应识别 data.{items,total,max_per_user,strategies} 信封；
+  max_per_user 透出为创建按钮禁用 + "n/max 条规则" 计数。
+- 策略 8 项与 service/strategy.Names() 逐字一致：
+  priority/weighted/round-robin/random/least-used/lowest-latency/lkgp/reset-aware。
+- 表单默认值对齐 model/route_rule.go：maxRetries=1、retryDelayMs=1000、
+  targetTimeoutMs=30000。
+- free_templates 响应识别 data.items；模板字段
+  id/name/channelType/baseUrl/models/freeNote/monthlyTokens/freeType/
+  extraFields/poolKey/tos/signupUrl/keyRequired 与
+  constant/free_sources.go FreeSourceTemplate 一致。
+- from_template 提交 {templateId, key, name?, extra?}；
+  extraFields（如 cloudflare-ai accountId）渲染必填输入并放入 extra。
+- free_usage 识别 {templateId,name,monthlyTokens,usedThisMonth,remaining,
+  resetsAt}；remaining=null（uncapped）时按 monthly-used 兜底，
+  resetsAt=null 显示「重置时间未知」。
+- fail-soft：读路径（free_templates/free_usage/规则列表信封解析/渠道选项）
+  全部容忍 404/403/字段漂移，退化为空态而非报错；写路径错误经
+  handleServerError 统一 toast。
+
+============================================================================
+遗留 / 偏差
+============================================================================
+1. 目标排序用「上移/下移」按钮（任务书允许拖拽或上下移二选一）；
+   仓库无 dnd 依赖，未新增包。
+2. 策略下拉项由前端常量驱动（带 i18n 说明），未消费列表响应里的
+   strategies 字段；后端若砍策略，前端下拉仍以常量为准（未知策略名
+   在表格列以原始值 Badge 兜底显示）。
+3. 渠道多选上限未在前端强卡 RouteRuleMaxTargets=20（后端会拒，
+   错误消息透传 toast）。
