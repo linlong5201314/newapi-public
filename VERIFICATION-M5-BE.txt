@@ -1,0 +1,191 @@
+VERIFICATION-M5-BE — new-api M5 后端（加密落地 + 节点管理 + Railway 部署自动化 + 影响面保护）
+================================================================================
+日期: 2026-11-10
+环境: Windows 10/11 (win32), Git Bash; Go 便携版 go1.26.10 windows/amd64
+      (GOROOT unset, GOPROXY=https://goproxy.cn,direct)
+蓝图: docs/M5-部署与节点管理设计.md §1–§7; docs/M6-上线操作手册.md
+范围: common/controller/model/service/router/middleware/main.go + Dockerfile.production + deploy/
+未触碰: web/（前端另一 agent）、_research/、docs/
+
+================================================================================
+A. 编译与静态检查
+================================================================================
+$ go version
+go version go1.26.10 windows/amd64
+
+$ go build ./...
+exit=0
+
+$ go vet ./...
+exit=0
+
+================================================================================
+B. 单元测试（新增面 + 改动面回归）
+================================================================================
+$ go test ./common/ -run 'TestEncrypt|TestDecrypt|TestMaskSecret' -count=1
+ok  github.com/QuantumNous/new-api/common
+  覆盖：AES-256-GCM 往返 / enc:v1 前缀 / 随机 nonce 不同密文 / 未配置
+  CRYPTO_SECRET 时 plain: 前缀降级 / 历史明文透传 / 篡改密文认证失败 /
+  换 secret 解密失败 / MaskSecret。
+
+$ go test ./model/ -run 'TestNodeApiTokenEncryptedAtRestAndReadable|TestChannelCredentialEncryptionHelpers|TestCheckinCredentialEncryptionHelpers' -count=1
+ok  github.com/QuantumNous/new-api/model
+  覆盖：Node.ApiTokenEnc 写 sqlite 原始列是 enc:v1 密文且不含明文、GetNodeById
+  透明解密；WorkBuddy/Trae 渠道 key 加密幂等 + GetKeys/GetNextEnabledKey 透明
+  解密；普通 OpenAI 渠道维持明文；CheckinAccount.CredJson 加密/历史明文透传。
+
+$ go test ./service/railway/ -count=1
+ok  github.com/QuantumNous/new-api/service/railway
+  覆盖：httptest mock GraphQL —— variableUpsert 必带 skipDeploys:true（调用方
+  传 false 也被强制为 true）；serviceDomainCreate input 仅
+  environmentId/serviceId/targetPort 且无 projectId；部署轮询状态机
+  QUEUED→BUILDING→SUCCESS；FAILED 终止报错；baseline 不变超时报错；
+  GraphQL errors 转 APIError；variables JSON 标量转换。
+
+$ go test ./service/nodedeploy/ -count=1
+ok  github.com/QuantumNous/new-api/service/nodedeploy
+  覆盖：BuildVariableDiff（create/update/delete、密钥 Sensitive、prune=false 时
+  delete skipped + warning、unchanged 不出现在 diff）；Masked 展示脱敏且不改
+  内部 plan；env 模板注释/export/引号解析；envOverrides 合并与非法名 warning；
+  denylist 精确/域名后缀命中、allowlist 缺项拒绝；plan Store 10 分钟过期与
+  kind 隔离；failover 全链（mock CF CNAME 读取→更新、KV 读原始文本→写节点表、
+  证书/域名动作、目标不健康拒绝、denylist 拒绝）。
+
+$ go test ./service/nodemonitor/ -count=1
+ok  github.com/QuantumNous/new-api/service/nodemonitor
+  覆盖：余额双口径 min（remainingUsageCreditBalance vs hardLimit-estimatedUsage）、
+  hasExhaustedFreePlan→0、超限钳制 0、无字段不可用、BalanceInfo JSON 解析。
+
+$ go test ./router/ -count=1
+ok  github.com/QuantumNous/new-api/router
+  覆盖：SetApiRouter 全路由注册无 panic（静态段 settings/audit/deploy 与 :id
+  同层）；access token 路由规则表完整（node.* 新增规则 + 补齐 M4 extlink 规则）。
+
+$ go test ./relay/channel/workbuddy/ ./relay/channel/trae/ ./service/checkin/ -count=1
+ok  .../workbuddy  ok  .../trae  ok  .../checkin
+  说明：SaveCred 写回加密、LoadChannelCred/CredJson 读取解密后，M3 既有
+  凭据刷新/签到测试全部保持绿色。
+
+================================================================================
+C. e2e（httptest 起服务 + sqlite + mock /api/status + mock Railway GraphQL + mock webhook）
+================================================================================
+$ go test ./e2e/ -run TestM5NodeManagementEndToEnd -count=1 -v
+=== RUN   TestM5NodeManagementEndToEnd
+--- PASS: TestM5NodeManagementEndToEnd (0.02s)
+PASS
+ok  github.com/QuantumNous/new-api/e2e
+
+断言链路（全部通过）：
+1. root 建 mock 节点：POST /api/node → 200；创建时自动首次健康检查 healthy=true。
+2. 加密落库：sqlite nodes.api_token_enc 原始值为 enc:v1: 前缀且不含明文 token；
+   model.GetNodeById → DecryptedToken() == 原文。
+3. 列表脱敏：GET /api/node 响应体不含明文 token；has_api_token=true、
+   api_token_hint 非空。
+4. 巡检 PASS→FAIL→告警：POST /api/node/:id/check healthy=true；mock /api/status
+   切 503 后 nodemonitor.RunOnce → mock webhook 收到
+   {type:"node_alert", kind:"unhealthy", node_name:"e2e-railway-node"}。
+5. denylist 硬拒绝：PUT /api/node/settings {nodeDenylist:["proj_e2e"]} 后
+   POST /api/node/deploy/plan → HTTP 403, code=denylisted。
+6. plan diff：清空 denylist 后 POST deploy/plan →
+   SESSION_SECRET update、CRYPTO_SECRET create、MISE_PYTHON_GITHUB_ATTESTATIONS
+   create、EXTRA_VAR delete(skipped=true) + warning；密钥类 To 值为 ******
+   （API 响应不含明文新密钥）。
+7. apply 全链：POST deploy/apply {planId,confirm:true} → 200；
+   mock 观察到 githubRepoDeploy 1 次、所有 variableUpsert 均 skipDeploys=true、
+   serviceInstanceDeploy 恰好 1 次、deployments 轮询 ≥3 次
+   （QUEUED→BUILDING→SUCCESS）、serviceDomainCreate 1 次且 input 无 projectId；
+   结果 deploymentStatus=SUCCESS、serviceDomain=e2e-node.up.railway.app；
+   nodes 表回写 service_id/env/environment_id。
+8. 审计：GET /api/node/audit?nodeId=1 返回 ≥3 条（create/check/deploy_plan/
+   deploy_apply/alert）。
+
+================================================================================
+D. 加密落地证据（代码路径）
+================================================================================
+- common/crypto.go：AES-256-GCM，key=SHA-256("new-api:crypto:v1:"+CRYPTO_SECRET)；
+  存储格式 enc:v1:<base64url(nonce||ciphertext||tag)>；未配置 CRYPTO_SECRET 时
+  EncryptSecret 返回 plain:<原文>，common.InitEnv 启动打印 WARN（含迁移提示）；
+  DecryptSecret 对无前缀历史明文原样返回（无感迁移）。
+- Node.ApiTokenEnc：CreateNode/UpdateNode 幂等加密（已加密/plain: 不重复加密），
+  DecryptedToken 仅服务端使用；API 永不返回原文。
+- CheckinAccount.CredJson：controller 新建/更新加密；service/checkin 四个站点
+  （workbuddy/trae/custom/agent）读取解密；agent cookie 续期回写单独
+  UpdateCheckinAccountCred 加密持久化（修复 M3 续期凭据未落库）。
+- WorkBuddy(65)/Trae(66) channels.key：Insert/Update/BatchInsertChannels 与
+  SaveCred 写回加密；GetKeys/GetNextEnabledKey/LoadChannelCred/
+  SelfFetchAccountModels/GetChannelKey 透明解密。普通 API key 渠道维持上游行为。
+- CloudflareApiToken Option：PUT /api/node/settings 加密后写 Option；
+  nodedeploy.LoadOptions 解密使用；GetOptions 因 *Token 后缀被过滤，
+  GET /api/node/settings 仅返回 cloudflareTokenConfigured 布尔。
+- APInex 无独立渠道类型（仅签到账号），其凭据走 CheckinAccount.CredJson 已加密。
+
+================================================================================
+E. 文件清单
+================================================================================
+新增:
+  common/crypto_test.go
+  controller/node.go
+  model/node.go  model/channel_crypto.go  model/node_test.go
+  router/node-router.go  router/node_router_test.go
+  setting/operation_setting/node_setting.go
+  service/railway/client.go  service/railway/client_test.go
+  service/cloudflare/client.go
+  service/nodedeploy/{config,denylist,plan,store,apply,failover}.go
+  service/nodedeploy/{plan_test,failover_test}.go
+  service/nodemonitor/{health,balance,notify,monitor}.go
+  service/nodemonitor/balance_test.go
+  e2e/m5_node_test.go
+  deploy/.env.template  deploy/backup.sh
+  Dockerfile.production
+修改:
+  common/crypto.go  common/init.go
+  controller/audit.go  controller/channel.go  controller/channel_self_account.go
+  controller/checkin_center.go
+  main.go
+  middleware/access_token_routes.go
+  model/channel.go  model/checkin_account.go  model/main.go  model/option.go
+  relay/channel/trae/refresh.go  relay/channel/workbuddy/account.go
+  router/api-router.go
+  service/checkin/{runner,site_agent,site_custom,site_trae,site_workbuddy}.go
+
+================================================================================
+F. 决策与偏差
+================================================================================
+1. Node 模型在蓝图字段上增加 WorkspaceId/EnvironmentId/Repo/Branch/TargetPort/
+   ServiceDomain/LastError：
+   - WorkspaceId 是 Railway workspaceBilling/estimatedUsage 与 workspace 直查
+     项目的必要入参（蓝图 §6 余额监控需要）；
+   - Repo/Branch 供 githubRepoDeploy；TargetPort 供 serviceDomainCreate；
+   - EnvironmentId/ServiceDomain 是部署后回写与后续 plan 定位所需。
+2. plan/apply/failover/settings 响应字段用 camelCase（planId/serviceDomain/
+   deploymentStatus/balanceAlertThreshold...），与蓝图 §7 请求体命名一致；
+   Node CRUD 沿用 M1–M4 的 snake_case。
+3. deploy/plan 的变量删除：默认 NodeDeployPruneVariables=false，删除动作仍展示
+   但 skipped=true 且带 warning；只有显式开启 prune 才执行 variableDelete。
+4. deploy 环境变量模板：Option NodeDeployEnvTemplate 优先；
+   空则读 NODE_DEPLOY_ENV_TEMPLATE_FILE / deploy/.env.template；最后回落 Go 内置
+   默认（含 MISE_PYTHON_GITHUB_ATTESTATIONS=false 构建坑预埋）。
+5. plan 一致性：以 Node.UpdatedTime 作为配置版本；心跳/余额写库刻意不更新
+   updated_time，避免 60s 巡检让 10 分钟 plan 频繁失效。
+6. Worker KV 节点表格式：在保留已有 JSON 字段的基础上写
+   {activeUrl, activeNodeId, updatedAt, nodes:[{id,name,url,healthy}]}；
+   KV 键名 Option CloudflareKvNodesKey 默认 nodes。
+7. Railway/CF 端点均可 mock：RAILWAY_GRAPHQL_ENDPOINT、
+   CLOUDFLARE_API_ENDPOINT、NODE_DEPLOY_POLL_INTERVAL_MS（仅 e2e）。
+8. 补齐 M4 遗留：middleware/access_token_routes.go 增加 /api/extlink/* 规则，
+   否则既有 TestAccessTokenRouteRulesCoverEveryDashboardRoute 在 master 上失败。
+9. Node 管理全部端点 RootAuth；access token 规则设为 session-only（平台级写
+   操作不接受 PAT），GET /api/node 列表 token 只回 last-4 脱敏提示。
+10. 自动 failover：余额/健康告警默认只生成 plan；仅 NodeAutoFailover=true 时
+    以 system 操作者自动 apply，且 apply 前再次校验目标节点 enabled+healthy。
+
+================================================================================
+G. 已知非本改动失败（仅记录，不影响验收）
+================================================================================
+- go test ./middleware/ 全量：TestAccessAndPanicLogsFollowLogRotation 在本机
+  Windows 上因临时日志文件句柄未释放导致 t.TempDir cleanup unlinkat 失败
+  （复跑仍复现，与本改动无关）。
+- go test ./controller/ 全量：TestAPITokenAuditDatabaseMatrix 同类 Windows
+  TempDir sqlite 文件句柄清理失败；该包全量运行超过 600s 超时，故按
+  -run 'Node|Audit|Checkin' 执行相关面。
+本改动涉及面的定向测试与 e2e 全部通过。
