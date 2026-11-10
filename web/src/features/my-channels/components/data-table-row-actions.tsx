@@ -1,0 +1,268 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import { useQueryClient } from '@tanstack/react-query'
+import type { Row } from '@tanstack/react-table'
+import {
+  MoreHorizontal,
+  Pencil,
+  PlugZap,
+  Gauge,
+  Download,
+  Copy,
+  Power,
+  PowerOff,
+  Trash2,
+  Loader2,
+} from 'lucide-react'
+import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+
+import { ConfirmDialog } from '@/components/confirm-dialog'
+import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+
+import {
+  channelsQueryKeys,
+  handleDeleteChannel,
+  handleTestChannel,
+  handleToggleChannelStatus,
+  isChannelEnabled,
+} from '../lib'
+import type { Channel } from '../types'
+import { useChannels } from './channels-provider'
+
+interface DataTableRowActionsProps {
+  row: Row<Channel>
+}
+
+export function DataTableRowActions({ row }: DataTableRowActionsProps) {
+  const { t } = useTranslation()
+  const channel = row.original
+  const { setOpen, setCurrentRow } = useChannels()
+  const queryClient = useQueryClient()
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [isTesting, setIsTesting] = useState(false)
+  const [isTogglingStatus, setIsTogglingStatus] = useState(false)
+
+  const isEnabled = isChannelEnabled(channel)
+
+  const handleEdit = () => {
+    setCurrentRow(channel)
+    setOpen('update-channel')
+  }
+
+  const handleTest = () => {
+    setCurrentRow(channel)
+    setOpen('test-channel')
+  }
+
+  const handleDirectTest = async (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation()
+    setIsTesting(true)
+    try {
+      await handleTestChannel(channel.id, { channelName: channel.name }, () => {
+        queryClient.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
+      })
+    } finally {
+      setIsTesting(false)
+    }
+  }
+
+  const handleFetchModels = () => {
+    setCurrentRow(channel)
+    setOpen('fetch-models')
+  }
+
+  const handleCopy = () => {
+    setCurrentRow(channel)
+    setOpen('copy-channel')
+  }
+
+  const handleToggleStatus = async (
+    e?: React.MouseEvent<HTMLButtonElement>
+  ) => {
+    e?.stopPropagation()
+    setIsTogglingStatus(true)
+    try {
+      await handleToggleChannelStatus(channel.id, channel.status, queryClient)
+    } finally {
+      setIsTogglingStatus(false)
+    }
+  }
+
+  let statusIcon = <Power className='size-4' />
+  if (isTogglingStatus) {
+    statusIcon = <Loader2 className='size-4 animate-spin' />
+  } else if (isEnabled) {
+    statusIcon = <PowerOff className='size-4' />
+  }
+
+  return (
+    <div className='-ml-1.5 flex items-center gap-1'>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant='ghost'
+              size='icon-sm'
+              onClick={(e) => {
+                e.stopPropagation()
+                handleEdit()
+              }}
+              aria-label={t('Edit')}
+            />
+          }
+        >
+          <Pencil className='size-4' />
+        </TooltipTrigger>
+        <TooltipContent>{t('Edit')}</TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant='ghost'
+              size='icon-sm'
+              onClick={handleDirectTest}
+              disabled={isTesting}
+              aria-label={t('Test Connection')}
+            />
+          }
+        >
+          {isTesting ? (
+            <Loader2 className='size-4 animate-spin' />
+          ) : (
+            <Gauge className='size-4' />
+          )}
+        </TooltipTrigger>
+        <TooltipContent>{t('Test Connection')}</TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant='ghost'
+              size='icon-sm'
+              onClick={handleToggleStatus}
+              disabled={isTogglingStatus}
+              aria-label={isEnabled ? t('Disable') : t('Enable')}
+              className={
+                isEnabled
+                  ? 'text-destructive hover:text-destructive'
+                  : 'text-success hover:text-success'
+              }
+            />
+          }
+        >
+          {statusIcon}
+        </TooltipTrigger>
+        <TooltipContent>
+          {isEnabled ? t('Disable') : t('Enable')}
+        </TooltipContent>
+      </Tooltip>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              variant='ghost'
+              className='data-popup-open:bg-muted flex h-8 w-8 p-0'
+            />
+          }
+        >
+          <MoreHorizontal className='h-4 w-4' />
+          <span className='sr-only'>{t('Open menu')}</span>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align='end' className='w-48'>
+          {/* Test Connection */}
+          <DropdownMenuItem onClick={handleTest}>
+            {t('Test Connection')}
+            <DropdownMenuShortcut>
+              <PlugZap size={16} />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+
+          {/* Fetch Models */}
+          <DropdownMenuItem onClick={handleFetchModels}>
+            {t('Fetch Models')}
+            <DropdownMenuShortcut>
+              <Download size={16} />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+
+          <DropdownMenuSeparator />
+
+          {/* Copy Channel */}
+          <DropdownMenuItem onClick={handleCopy}>
+            {t('Copy Channel')}
+            <DropdownMenuShortcut>
+              <Copy size={16} />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+
+          <DropdownMenuSeparator />
+
+          {/* Delete */}
+          <DropdownMenuItem
+            onSelect={(e) => {
+              e.preventDefault()
+              setDeleteConfirmOpen(true)
+            }}
+            className='text-destructive focus:text-destructive'
+          >
+            {t('Delete')}
+            <DropdownMenuShortcut>
+              <Trash2 size={16} />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        onOpenChange={setDeleteConfirmOpen}
+        title={t('Delete Channel')}
+        desc={t(
+          'Are you sure you want to delete channel "{{name}}"? This action cannot be undone.',
+          { name: channel.name }
+        )}
+        confirmText={t('Delete')}
+        destructive
+        handleConfirm={() => {
+          handleDeleteChannel(channel.id, queryClient)
+          setDeleteConfirmOpen(false)
+        }}
+      />
+    </div>
+  )
+}
