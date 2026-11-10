@@ -1,0 +1,52 @@
+VERIFICATION — [M1-FE] 前端「我的渠道」用户自服务页面
+日期: 2026-11-10
+范围: new-api/web 目录内改动（仅本文件按要求落在仓库根）
+
+============================================================================
+1. bun install
+============================================================================
+$ cd web && bun install
+1213 packages installed [199.42s]
+exit=0
+
+============================================================================
+2. bun run build (rsbuild build)
+============================================================================
+$ cd web && bun run build
+exit=0
+关键输出（逐字）:
+  ready   built in 10.6s
+  dist\index.html                                     1.7 kB    0.83 kB
+  dist\static\css\index.0e3a8c709c.css                436.1 kB  63.7 kB
+  dist\static\js\index.a81a00e5b8.js                  5200.8 kB 1473.8 kB
+                                       Total:   67817.0 kB   20830.8 kB
+构建日志中 "error" 出现次数: 0
+
+============================================================================
+3. typecheck
+============================================================================
+package.json 的 typecheck 脚本为 `bun check -b`，但本机 bun 1.3.8 (Windows)
+不含 `bun check` 子命令（error: Script not found "check"）。
+等价替代验证（仓库 tsconfig 工程引用全量强制重建）:
+$ tsc -b --force        (TypeScript 5.9，隔离目录安装)
+exit=0，输出为空（零类型错误）
+
+============================================================================
+4. oxlint（只核对本次涉及路径，避免仓库存量噪音）
+============================================================================
+$ oxlint -c .oxlintrc.json src/features/my-channels \
+    src/routes/_authenticated/my-channels src/hooks/use-sidebar-data.ts
+Found 0 warnings and 6 errors.
+exit=1（均为存量规则命中，非新增）
+说明: 6 个 error 全部是 unicorn(prefer-spread)（Array.from→扩展运算符），
+逐字复制自 src/features/channels 原始文件（该目录基线同类 error 为 7 个）。
+本次新增代码 0 error、0 warning。
+
+============================================================================
+路由与菜单验证
+============================================================================
+- src/routeTree.gen.ts 由构建自动重新生成，含 '/my-channels/' 路由条目。
+- src/hooks/use-sidebar-data.ts 在 general 分组新增「我的渠道」
+  (url=/my-channels, icon=Radio, requiredRole=ROLE.USER)；
+  use-sidebar-config.ts 的 URL_TO_CONFIG_MAP 无该 URL 映射 → 默认可见，
+  use-sidebar-view.ts 只按 requiredRole 过滤，不会误杀普通用户。
