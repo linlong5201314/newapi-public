@@ -1,0 +1,237 @@
+[M4] 外链模块 + /app/:slug 二级页同域反代 — Verification
+Date: 2026-11-10
+Scope: backend (model/controller/router/service/setting) + web/
+Design source: docs/M4-外链模块设计.md
+
+================================================================================
+1. Commands (verbatim)
+================================================================================
+
+Environment:
+  export PATH="/c/Users/林龙/go-portable/go/bin:$PATH" && unset GOROOT
+  export GOPROXY=https://goproxy.cn,direct
+
+# ---- backend (repo root) ----
+$ go build ./...
+  exit code: 0
+
+$ go vet ./model/ ./controller/ ./router/ ./service/extlink/ ./setting/operation_setting/
+  exit code: 0
+
+$ go test ./service/extlink/ -run 'TestRewrite|TestInsert|TestStrip|TestAllowHost|TestValidate' -v
+  === RUN   TestRewriteSetCookie
+  --- PASS: TestRewriteSetCookie (0.00s)
+  === RUN   TestRewriteLocation
+  --- PASS: TestRewriteLocation (0.00s)
+  === RUN   TestInsertBaseTag
+  --- PASS: TestInsertBaseTag (0.00s)
+  === RUN   TestStripFramingHeaders
+  --- PASS: TestStripFramingHeaders (0.00s)
+  === RUN   TestAllowHostWhitelist
+  --- PASS: TestAllowHostWhitelist (0.00s)
+  === RUN   TestValidateExtLinkURLSchemeAndHost
+  --- PASS: TestValidateExtLinkURLSchemeAndHost (0.00s)
+  === RUN   TestValidatePublicIP
+  --- PASS: TestValidatePublicIP (0.00s)
+  PASS
+  ok  github.com/QuantumNous/new-api/service/extlink  0.219s
+
+# ---- frontend (web/) ----
+$ bun run build
+  $ rsbuild build
+  ...
+  Total: 67953.6 kB 20872.9 kB
+  exit code: 0  (routeTree.gen.ts regenerated with /_authenticated/app/$slug)
+
+$ bunx tsc -b --force
+  exit code: 0  (zero diagnostics)
+
+================================================================================
+2. Deliverables
+================================================================================
+
+Backend:
+  model/extlink.go                      ExtLink model (slug uniqueIndex), CRUD,
+                                        60s slug cache incl. negative cache,
+                                        Create/Update/Delete invalidate cache
+  model/main.go                         AutoMigrate += &ExtLink{}
+  setting/operation_setting/extlink.go  ExtLinkEnabled/ExtLinkMaxCount/
+                                        ExtLinkAllowHosts + host whitelist matcher
+  model/option.go                       OptionMap defaults + updateOptionMap cases
+                                        + startup WARN when allowlist empty
+  controller/extlink.go                 /api/extlink CRUD (RootAuth) +
+                                        GET /api/extlink/enabled (UserAuth),
+                                        slug/mode/position/SSRF validation,
+                                        ExtLinkMaxCount limit
+  controller/extlink_proxy.go           /app/:slug handler: cache lookup, mode
+                                        gate, prefix strip, proxy dispatch,
+                                        SPA shell for iframe/newtab
+  controller/audit.go                   audit templates extlink.create/update/delete
+  router/extlink-router.go              /api/extlink group (RootAuth writes,
+                                        enabled read) + SetAppProxyRouter
+  router/api-router.go / router/main.go route wiring (before NoRoute)
+  service/extlink/ssrf.go               scheme check, host whitelist, private/
+                                        reserved IP denial, post-DNS check,
+                                        EXTLINK_SSRF_ALLOW_PRIVATE escape hatch
+  service/extlink/proxy.go              ReverseProxy: Host rewrite, Accept-Encoding
+                                        strip (auto-gzip decode), XFO/CSP
+                                        frame-ancestors strip, Location rewrite
+                                        (absolute/path-absolute/scheme-relative),
+                                        Set-Cookie Domain strip + Path rewrite,
+                                        <base href=/app/slug/> injection
+                                        (gzip decoded first), shared Transport
+                                        with per-dial IP validation
+  service/extlink/proxy_test.go         unit tests for rewrite/strip/inject/SSRF
+
+Frontend (web/src):
+  features/extlinks/{types,api}.ts      types, enabled-list query (60s stale)
+  features/extlinks/components/ext-link-icon.tsx
+                                        lucide name map / emoji / image URL
+  features/extlinks/components/ext-link-cards.tsx
+                                        home_page card grid; click by mode
+  features/extlinks/components/app-view.tsx
+                                        /app/$slug viewer: slim top bar + iframe
+                                        fill (proxy -> /app/<slug>/, iframe ->
+                                        target URL), newtab auto-open fallback
+  features/extlinks/components/external-links-section.tsx
+                                        root settings card: list/add/edit/delete/
+                                        sort/toggle/mode/position + 3 platform
+                                        options (ExtLinkEnabled/MaxCount/
+                                        AllowHosts)
+  routes/_authenticated/app/$slug.tsx   viewer route (ROLE.USER guard)
+  features/home/index.tsx               home card section after Hero
+  hooks/use-sidebar-data.ts             dynamic sidebar entries (position
+                                        sidebar/both)
+  features/system-settings/content/section-registry.tsx
+                                        "External Links" settings section
+  i18n/locales/{zh,en}.json + static-keys.ts
+                                        M4 strings (zh/en tight parity)
+
+================================================================================
+3. e2e (local target site + real site)
+================================================================================
+
+Environment: Windows, new-api built with `go build -o new-api.exe .`
+(embeds fresh web/dist). SQLite tmp DB, PORT=18098.
+
+Target fixture: node target-site.js on 127.0.0.1:18099 with:
+  /                  HTML: head, relative css/js/img, absolute+relative links,
+                     form POST /form, X-Frame-Options: DENY,
+                     CSP: default-src 'self'; frame-ancestors 'none'; img-src *
+  /sub/page          sub-path page
+  /style.css /app.js /img.png   relative resources
+  /redirect          302 absolute → http://127.0.0.1:18099/sub/page?via=absolute
+  /redirect-rel      302 Location: /sub/page?via=relative
+  /redirect-offsite  302 Location: https://example.com/elsewhere
+  /setcookie         2x Set-Cookie (Domain=127.0.0.1 Path=/ ; Path=/deep)
+  /headers           echoes received Host
+  /gzip              gzip-compressed HTML
+  /form POST         302 → /done?q=<body>
+
+Phase 1 — SSRF rejection (server WITHOUT EXTLINK_SSRF_ALLOW_PRIVATE):
+  token acquired: yes
+  == SSRF rejection (no escape hatch) ==
+  PASS: reject http://127.0.0.1:18099
+  PASS: reject http://192.168.1.10
+  PASS: reject http://localhost:1
+  PASS: reject ftp://example.com
+  PASS: reject http://10.0.0.1
+  PASS: accept https://example.com
+  ----
+  PASS=6 FAIL=0
+  (rejection messages verbatim: "private/reserved addresses are not allowed")
+
+Phase 2 — proxy behavior (server WITH EXTLINK_SSRF_ALLOW_PRIVATE=true,
+          required only because the target fixture itself is on loopback):
+  PASS: create proxy link
+  PASS: create iframe link
+  PASS: duplicate slug rejected
+  enabled slugs: ['test', 'frame']
+  PASS: enabled list contains test+frame
+  == proxy behavior (/app/test) ==
+  PASS: GET /app/test/ 200
+  PASS: base tag injected
+  PASS: XFO stripped
+  PASS: CSP frame-ancestors stripped
+  PASS: CSP other directives kept
+  PASS: style.css 200
+  PASS: app.js 200
+  PASS: img.png 200
+  PASS: sub page 200
+  PASS: sub page has base tag
+  PASS: absolute Location rewritten        (/app/test/sub/page?via=absolute)
+  PASS: relative Location rewritten        (/app/test/sub/page?via=relative)
+  PASS: offsite Location untouched         (https://example.com/elsewhere)
+  PASS: form POST Location rewritten       (/app/test/done?q=q%3Dhello)
+  PASS: Set-Cookie Domain stripped
+  PASS: Set-Cookie Path rewritten           (2 cookies → Path=/app/test/)
+  PASS: upstream sees target Host           (127.0.0.1:18099)
+  PASS: gzip page base injected
+  PASS: gzip page decoded
+  PASS: iframe mode /app/frame/ not proxied (SPA shell)
+  PASS: iframe mode shell has no base tag
+  PASS: unknown slug 404
+  PASS: disabled link 404
+  PASS: re-enabled link 200
+  PASS: audit extlink.* entries recorded
+  ----
+  PASS=29 FAIL=0
+
+Phase 3 — real site (httpbin.org reachable):
+  PASS: create httpbin link
+  PASS: GET /app/bin/html 200
+  PASS: httpbin content present
+  PASS: httpbin base injected
+  ----
+  PASS=4 FAIL=0
+
+Total e2e: 39/39 PASS.
+
+Additional observations verified during e2e:
+  - 60s cache: disable toggle then re-enable within the same test run was
+    reflected immediately (write-path invalidation active); pure TTL path not
+    separately timed.
+  - startup WARN present in server log when ExtLinkAllowHosts is empty:
+    "WARNING: ExtLinkAllowHosts is empty; the /app/* reverse proxy can target
+     ANY public host. Configure ExtLinkAllowHosts to restrict it."
+
+================================================================================
+4. Decisions / deviations
+================================================================================
+
+1. /app/:slug for iframe/newtab modes returns the SPA shell (index.html, 200)
+   instead of 404, so hard-refresh / direct navigation to the in-site viewer
+   route (/_authenticated/app/$slug) renders. No target content is proxied in
+   these modes. Unknown/disabled slugs still 404 (no config leak).
+2. EXTLINK_SSRF_ALLOW_PRIVATE=true is an e2e-only escape hatch (same pattern as
+   M3 checkin). Scheme + whitelist checks still apply. Production default is
+   closed; the e2e target site runs on loopback.
+3. Iframe mode embeds the target URL directly (blueprint §2), not /app/<slug>/;
+   a slim-bar hint suggests "open in new window" when the target sends XFO.
+4. ExtLinkAllowHosts supports exact hosts and leading-dot subdomain wildcards
+   (".example.com"); empty = unrestricted (WARN at startup), per blueprint.
+5. Architecture note: this fork's API auth is JWT Bearer (not cookie session);
+   e2e used POST /api/user/login → access_token, setup wizard created root.
+6. Commit bundles the previously uncommitted M1–M3 frontend feature dirs and
+   their VERIFICATION-M{1,2,3}-FE.txt because shared files (routeTree.gen.ts,
+   sidebar, i18n) now reference those routes; committing M4 alone would leave
+   the tree non-buildable.
+
+================================================================================
+5. File hashes (sha256)
+================================================================================
+
+e35d5a7f598b1ebd099ed976a865577ac801a818914171774ec417eb14eae607  model/extlink.go
+9504dcc2aae724bf3bfca068654a6475ed7d26635b970f68ebc2d448116d7634  controller/extlink.go
+c5c81c847cbc83cb405fb7d0dbaca099cc5c21b1e6bd6280ba6f08b043398b8f  controller/extlink_proxy.go
+bea70a07a9d54c1956d69c4a1ff58c7dbe01d6c8dd937670bc764ed1e08c801d  router/extlink-router.go
+929c470dc8eb05d11945b5b2aee5d1c41aea2f4024cc97a661d3237777c6f9db  service/extlink/ssrf.go
+fb85120731dd94c132b2472b160d0689d6bad2600f5c886b7b65f377a7f3f1f6  service/extlink/proxy.go
+c72cf68d0040a293cfea594d0e7c1ab8cce9ddde6f5133aaa286147cb222d1f3  service/extlink/proxy_test.go
+a9b123026028d69093907d226e82ada33b66addc3a5f4f83c7d7a89d13f5ab2f  setting/operation_setting/extlink.go
+bbf31716c8acd36db6e0e360ad8dc3b4f777830f40fc35d28d104ec32466d6f1  web/src/features/extlinks/types.ts
+72578bdf938874fb6dade1d9d5c35a8ac3be7fe790460cde3c95ff31c439b0d2  web/src/features/extlinks/api.ts
+c06bbbbc7babc0c0fb3ae279b1a00145a1ef5f8dc3b489c16e3265af954415c5  web/src/features/extlinks/components/ext-link-cards.tsx
+beb8455dc7bbb2ee76bd97285b9c6f8ee88ce34d6a4c6aed3834e641be8d4484  web/src/features/extlinks/components/app-view.tsx
+66be70d5d4df5e977dda930a29513d02b23b80b880c430b8abb211a198324421  web/src/features/extlinks/components/external-links-section.tsx
+365b81197ea238060c86d2d2da9d6668fb71b3d5708a9670ce9da01152b4c01c  web/src/routes/_authenticated/app/$slug.tsx
