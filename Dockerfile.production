@@ -1,0 +1,55 @@
+# syntax=docker/dockerfile:1
+# M5 fork 生产镜像：与仓库根 Dockerfile 同构建链，额外提供 /api/status 健康检查。
+# Railway/Render/Fly 通用：监听 PORT（缺省 3000），工作目录 /data 放 SQLite/日志。
+
+FROM oven/bun:1.4.4 AS builder
+
+WORKDIR /build/web
+COPY web/package.json web/bun.lock ./
+RUN bun install --frozen-lockfile
+COPY ./web ./
+COPY ./VERSION /build/VERSION
+RUN DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION=$(cat /build/VERSION) bun run build
+
+FROM golang:1.26.10-alpine AS builder2
+ENV GO111MODULE=on CGO_ENABLED=0 GOWORK=off
+
+ARG TARGETOS
+ARG TARGETARCH
+ENV GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64}
+
+WORKDIR /build
+
+ADD go.mod go.sum ./
+# relaykit/tokenkit 是 replace 本地子模块，必须先复制 go.mod 才能解析模块图。
+ADD relaykit/go.mod ./relaykit/go.mod
+ADD tokenkit/go.mod ./tokenkit/go.mod
+RUN go mod download
+
+COPY . .
+COPY --from=builder /build/web/dist ./web/dist
+RUN go build -ldflags "-s -w -X 'github.com/QuantumNous/new-api/common.Version=$(cat VERSION)'" -o new-api
+
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates tzdata curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && update-ca-certificates
+
+COPY --from=builder2 /build/new-api /new-api
+COPY LICENSE NOTICE THIRD-PARTY-LICENSES.md /licenses/
+
+ENV PORT=3000 \
+    TZ=Asia/Shanghai \
+    SQLITE_PATH=/data/one-api.db \
+    GIN_MODE=release
+
+# CRYPTO_SECRET 未设置时敏感字段降级为 plain: 前缀（启动 WARN）。
+# 部署时必须注入 SQL_DSN / REDIS_CONN_STRING / SESSION_SECRET / CRYPTO_SECRET。
+EXPOSE 3000
+VOLUME ["/data"]
+WORKDIR /data
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+    CMD curl -fsS "http://127.0.0.1:${PORT:-3000}/api/status" >/dev/null || exit 1
+ENTRYPOINT ["/new-api"]
