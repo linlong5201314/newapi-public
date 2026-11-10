@@ -1,0 +1,138 @@
+[M3-FE] Verification — Check-in Center page + workbuddy/trae channel form support
+Date: 2026-11-10
+Scope: web/ only (frontend). Design source: docs/M3-2api与签到中心设计.md §2/§3.4/§4.
+
+================================================================================
+1. Commands (verbatim, run from web/)
+================================================================================
+
+$ bun run build
+  $ rsbuild build
+  Rsbuild v2.1.6
+  info  build started...
+  ready built in 7.99s
+  exit code: 0  (no errors; routeTree.gen.ts regenerated with /checkin route)
+
+$ bunx tsc -b --force
+  exit code: 0  (zero diagnostics)
+
+$ bunx oxlint -c .oxlintrc.json src/features/checkin \
+    src/features/my-channels/components/channel-credential-dialogs.tsx \
+    src/features/my-channels/components/channels-columns.tsx \
+    src/features/my-channels/components/drawers/channel-mutate-drawer.tsx \
+    src/features/my-channels/constants.ts \
+    src/features/my-channels/api.ts \
+    src/features/my-channels/lib/channel-utils.ts \
+    src/routes/_authenticated/checkin \
+    src/hooks/use-sidebar-data.ts \
+    src/i18n/static-keys.ts
+  Found 0 warnings and 0 errors.
+  exit code: 0
+
+Note: `bunx oxlint` over the whole src/features/my-channels directory reports
+6 errors in lib/upstream-update-utils.ts and lib/model-mapping-validation.ts.
+Those files are pre-existing M1 deliverables, untouched by M3 (verified: not
+in this changeset). Out of scope for M3 acceptance ("新增文件 0 error").
+
+================================================================================
+2. Deliverables
+================================================================================
+
+Check-in Center (new feature web/src/features/checkin/):
+- types.ts               CheckinSiteTemplate/CredField/CheckinAccount/CheckinLog/payloads
+- api.ts                 GET /api/checkin/sites; CRUD /api/checkin/accounts;
+                         PUT accounts/:id {enabled}; DELETE accounts/:id;
+                         POST accounts/:id/run; GET accounts/:id/logs
+- constants.ts           query keys, i18n message keys, built-in fallback site
+                         templates (workbuddy/trae/apinex/custom, mirrors §3.2)
+- lib/index.ts           wire normalizers (snake_case+camelCase tolerant) +
+                         site icon resolution
+- components/checkin-account-card.tsx   icon, label, streak, total reward,
+                         last result/status, last check-in day, enable Switch,
+                         "Check in now", Logs, Delete
+- components/checkin-add-dialog.tsx     2-step wizard: site template picker ->
+                         dynamic credFields form; workbuddy/trae render an
+                         own-channel selector (GET /api/channel/self?type=);
+                         agent mode renders AgentUrl; validation + submit
+- components/checkin-logs-sheet.tsx     logs drawer (time/action/success/detail,
+                         refresh, error+retry states)
+- index.tsx              page (SectionPageLayout), react-query mutations,
+                         fail-soft sites fallback, confirm-delete dialog
+
+Route + menu:
+- web/src/routes/_authenticated/checkin/index.tsx   role >= ROLE.USER else /403
+- web/src/hooks/use-sidebar-data.ts                 "Check-in Center" entry with
+                         CheckCircle icon right after Route Rules (ROLE.USER)
+
+Channel form (my-channels):
+- constants.ts           CHANNEL_TYPE_WORKBUDDY=65 / CHANNEL_TYPE_TRAE=66
+                         (single point of change), CHANNEL_TYPES 65/66,
+                         CHANNEL_PROVIDER_PRESENTATION entries, display order
+- api.ts                 startChannelOAuth -> POST /api/channel/self/oauth/start
+                         pollChannelOAuth  -> GET  /api/channel/self/oauth/poll
+                         importTraeCredential -> POST /api/channel/self/import_trae
+- components/channel-credential-dialogs.tsx
+                         WorkbuddyOAuthDialog (start -> QRCodeSVG + copy/open
+                         link -> 2.5s poll with expiry deadline -> backfill),
+                         TraeImportDialog (tabs: callback URL / manual
+                         refreshToken+uid -> redacted preview -> confirm
+                         backfill), prominent "refresh signs out other Trae
+                         clients" warning in dialog AND in drawer
+- drawers/channel-mutate-drawer.tsx
+                         key textarea replaced by credential-assist panel for
+                         types 65/66 (multi-key add modes hidden for them);
+                         OAuth/import dialogs mounted; credential JSON written
+                         into the same `key` form field (create-validation
+                         passes); onChannelCreated closes drawer + invalidates
+- components/channels-columns.tsx
+                         name cell shows nickname (parsed from redacted
+                         key/other_info) + synced balance for types 65/66;
+                         status cell shows "Re-login required" when
+                         auto-disabled with a session-flavoured reason
+- lib/channel-utils.ts   getChannelCredentialNickname + channelNeedsRelogin
+                         (status=3 && reason matches session/401/12153/登录)
+
+i18n:
+- web/src/i18n/locales/en.json   +110 keys (identity values)
+- web/src/i18n/locales/zh.json   +110 keys (Chinese translations)
+- web/src/i18n/static-keys.ts    dynamic keys registered (WorkBuddy/Trae,
+                         provider descriptions/badge, fallback template copy,
+                         credField labels)
+
+================================================================================
+3. Contract alignment / deviations
+================================================================================
+
+- Channel type numbers: backend landed first — constant/channel.go assigns
+  ChannelTypeWorkBuddy=65, ChannelTypeTrae=66 (64 = ChannelTypeOmniRoute).
+  The placeholder constants were aligned to 65/66; only
+  web/src/features/my-channels/constants.ts would need editing if renumbered.
+- OAuth/import wire shapes verified against controller/channel_self_account.go:
+  start -> {sessionId, authUrl, realm, expiresIn};
+  poll(mode=preview) -> {done, credential: masked, key: full JSON};
+  import_trae -> {done, credential: masked, key: full JSON, notice}.
+  extractCredentialJson deliberately prefers `key` (full credential) over the
+  masked `credential` preview object, and still tolerates credentials/
+  credential/importToken shapes (fail-soft).
+- Frontend uses mode=preview + form backfill (per M3-FE tasking) instead of
+  the backend's optional mode=create shortcut; onChannelCreated is still
+  handled if the backend ever returns {channel} in preview mode.
+- oauth/start realm is not selectable in the UI (backend defaults when empty).
+- Check-in model field names match model/checkin_account.go exactly
+  (user_id/channel_id/agent_url/last_status/last_result/total_reward/
+  last_checkin_day/created_time/updated_time). last_status "ok" is rendered
+  as Success in the account card.
+- /api/checkin/sites + /api/checkin/accounts routes are NOT yet registered
+  backend-side at verification time (model layer landed; controller/router in
+  progress). The page is fail-soft: sites fall back to built-in templates,
+  account list shows an error state with retry until the routes exist.
+
+================================================================================
+4. Known follow-ups (non-blocking)
+================================================================================
+
+- Optional realm picker (cn|global) for the WorkBuddy OAuth start call.
+- Pre-existing oxlint errors in M1 files (see §1 note) — suggest a separate
+  cleanup pass, untouched here.
+- Real-credential end-to-end test intentionally left to the operator
+  (personal accounts, per design doc §5.6).
