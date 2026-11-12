@@ -13,6 +13,8 @@ type FreeSourcePool struct {
 	Id            int       `json:"id" gorm:"primaryKey;autoIncrement"`
 	Name          string    `json:"name" gorm:"type:varchar(200);not null"`    // 名称（如 "Groq 免费额度"）
 	Url           string    `json:"url" gorm:"type:varchar(500);not null"`     // 来源 URL
+	SignupUrl     string    `json:"signup_url" gorm:"type:varchar(500)"`       // 注册/申请 key 页面
+	HomepageUrl   string    `json:"homepage_url" gorm:"type:varchar(500)"`     // 官网主页（可选）
 	Models        []string  `json:"models" gorm:"serializer:json;type:text"`   // 可用模型列表（JSON 序列化，三库通用）
 	Description   string    `json:"description" gorm:"type:text"`              // 描述
 	Tags          []string  `json:"tags" gorm:"serializer:json;type:text"`     // 标签：完全免费/额度限制/签到/推荐/不推荐
