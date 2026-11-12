@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "curatedAt": "2026-11-12",
   "source": "assets/free-pools.json + assets/free-model-catalog.json + OmniRoute provider registry",
   "templates": [
@@ -388,6 +388,167 @@
       "freeType": "recurring-uncapped",
       "tos": "ok",
       "poolKey": "pollinations"
+    },
+    {
+      "id": "cline-account",
+      "name": "Cline (WorkOS 账号)",
+      "channelType": 67,
+      "baseUrl": "https://api.cline.bot/api/v1",
+      "signupUrl": "https://cline.bot",
+      "keyRequired": true,
+      "extraFields": [
+        "refreshToken"
+      ],
+      "models": [
+        "cline-free/nemotron-3.5-super-vl",
+        "cline-free/mimo-v2.6-flash",
+        "cline-free/muse-spark-1.3-contributor",
+        "cline-free/solar-mini4",
+        "deepseek/deepseek-v4-flash",
+        "poolside/laguna-s-2.1:free",
+        "zai/glm-5.3-flash",
+        "cline-pass/glm-5.2",
+        "cline-pass/deepseek-v4-flash",
+        "cline-pass/qwen3.7-max"
+      ],
+      "freeNote": "Credential = workos:<accessToken> 或 refreshToken；必须带 Cline 客户端指纹头（网关已内置），免费通道并发>1 上游返回空，需串行",
+      "monthlyTokens": 0,
+      "freeType": "reverse-proxy",
+      "tos": "own-account",
+      "poolKey": "cline"
+    },
+    {
+      "id": "trae-cn",
+      "name": "Trae 国内版",
+      "channelType": 66,
+      "baseUrl": "https://api.trae.cn",
+      "signupUrl": "https://www.trae.cn",
+      "keyRequired": true,
+      "models": [
+        "claude-sonnet-4.5",
+        "gpt-5",
+        "gemini-2.5-pro",
+        "deepseek-v3.1",
+        "kimi-k2"
+      ],
+      "freeNote": "凭据 JSON 里写 {\"domain\":\"trae.cn\"} 走国内域；上游四端点 Remote/Work/Solo/IDE",
+      "monthlyTokens": 0,
+      "freeType": "reverse-proxy",
+      "tos": "own-account",
+      "poolKey": "trae-cn"
+    },
+    {
+      "id": "trae-intl",
+      "name": "Trae 国际版",
+      "channelType": 66,
+      "baseUrl": "https://api.trae.ai",
+      "signupUrl": "https://www.trae.ai",
+      "keyRequired": true,
+      "models": [
+        "claude-sonnet-4.5",
+        "gpt-5",
+        "gemini-2.5-pro",
+        "deepseek-v3.1",
+        "kimi-k2"
+      ],
+      "freeNote": "凭据 JSON 里写 {\"domain\":\"trae.ai\"} 走国际域",
+      "monthlyTokens": 0,
+      "freeType": "reverse-proxy",
+      "tos": "own-account",
+      "poolKey": "trae-intl"
+    },
+    {
+      "id": "qoder-cn",
+      "name": "Qoder 国内版（经 qoder2api 网关）",
+      "channelType": 1,
+      "baseUrl": "http://127.0.0.1:8788/v1",
+      "signupUrl": "https://qoder.com",
+      "keyRequired": true,
+      "models": [
+        "qwen3-coder-plus",
+        "claude-sonnet-4.5",
+        "gpt-5-codex",
+        "deepseek-v3.1"
+      ],
+      "freeNote": "COSY 签名需服务端私钥，网关侧跑 shuishuipingan/qoder2api-hub（realm=cn）后把 /v1 地址与 key 填这里",
+      "monthlyTokens": 0,
+      "freeType": "reverse-proxy",
+      "tos": "own-account",
+      "poolKey": "qoder-cn"
+    },
+    {
+      "id": "qoder-intl",
+      "name": "Qoder 国际版（经 qoder2api 网关）",
+      "channelType": 1,
+      "baseUrl": "http://127.0.0.1:8789/v1",
+      "signupUrl": "https://qoder.com",
+      "keyRequired": true,
+      "models": [
+        "qwen3-coder-plus",
+        "claude-sonnet-4.5",
+        "gpt-5-codex",
+        "deepseek-v3.1"
+      ],
+      "freeNote": "上游 api3.qoder.sh（api2/api1 兜底），realm=intl；同样需要 qoder2api-hub 网关",
+      "monthlyTokens": 0,
+      "freeType": "reverse-proxy",
+      "tos": "own-account",
+      "poolKey": "qoder-intl"
+    },
+    {
+      "id": "minimax-code-intl",
+      "name": "MiniMax Code 国际版（经 minimax2api）",
+      "channelType": 1,
+      "baseUrl": "http://127.0.0.1:8790/v1",
+      "signupUrl": "https://agent.minimax.io",
+      "keyRequired": true,
+      "models": [
+        "MiniMax-M2",
+        "MiniMax-Text-01",
+        "MiniMax-VL-01"
+      ],
+      "freeNote": "agent.minimax.io + MD5 双签名（x-signature / yy），网关侧跑 minimax2api 后填 /v1 地址与 key",
+      "monthlyTokens": 0,
+      "freeType": "reverse-proxy",
+      "tos": "own-account",
+      "poolKey": "minimax-intl"
+    },
+    {
+      "id": "minimax-code-cn",
+      "name": "MiniMax Code 国内版（经 minimax2api）",
+      "channelType": 1,
+      "baseUrl": "http://127.0.0.1:8791/v1",
+      "signupUrl": "https://agent.minimaxi.com",
+      "keyRequired": true,
+      "models": [
+        "MiniMax-M2",
+        "MiniMax-Text-01",
+        "MiniMax-VL-01"
+      ],
+      "freeNote": "agent.minimaxi.com 国内域；签名算法同上（salt I*7Cf%WZ#S&%1RlZJ&C2，后缀 ooui）",
+      "monthlyTokens": 0,
+      "freeType": "reverse-proxy",
+      "tos": "own-account",
+      "poolKey": "minimax-cn"
+    },
+    {
+      "id": "ds2api",
+      "name": "DeepSeek 网页版（ds2api 网关）",
+      "channelType": 1,
+      "baseUrl": "http://127.0.0.1:8792/v1",
+      "signupUrl": "https://chat.deepseek.com",
+      "keyRequired": true,
+      "models": [
+        "deepseek-chat",
+        "deepseek-reasoner",
+        "deepseek-v4",
+        "deepseek-v4-flash"
+      ],
+      "freeNote": "CJackHwang/ds2api：config.json 里填网页账号 email/mobile+password，网关暴露 OpenAI 兼容 /v1",
+      "monthlyTokens": 0,
+      "freeType": "reverse-proxy",
+      "tos": "own-account",
+      "poolKey": "ds2api"
     }
   ]
 }
