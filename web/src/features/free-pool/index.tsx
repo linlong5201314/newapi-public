@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ExternalLink, Link2, MessageSquare, Plus, Star, Trash2 } from 'lucide-react'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -104,6 +104,38 @@ export function FreePoolPage() {
 
   const entries = listQuery.data ?? []
 
+  let content: ReactNode
+  if (listQuery.isLoading) {
+    content = <LoadingState />
+  } else if (listQuery.isError) {
+    content = <ErrorState onRetry={() => void listQuery.refetch()} />
+  } else if (entries.length === 0) {
+    content = (
+      <EmptyState
+        title={t('No free sources yet')}
+        description={t(
+          'Submit a free model endpoint you found; everyone can use it after review-free publishing.'
+        )}
+      />
+    )
+  } else {
+    content = (
+      <div className='grid gap-4 md:grid-cols-2 xl:grid-cols-3'>
+        {entries.map((entry) => (
+          <PoolCard
+            key={entry.id}
+            entry={entry}
+            onRate={(rating) =>
+              rateMutation.mutate({ id: entry.id, rating, comment: '' })
+            }
+            onReview={() => setReviewTarget(entry)}
+            onDelete={() => deleteMutation.mutate(entry.id)}
+          />
+        ))}
+      </div>
+    )
+  }
+
   return (
     <SectionPageLayout>
       <SectionPageLayout.Title>{t('Free Model Pool')}</SectionPageLayout.Title>
@@ -130,34 +162,7 @@ export function FreePoolPage() {
           </Button>
         </div>
       </SectionPageLayout.Actions>
-      <SectionPageLayout.Content>
-        {listQuery.isLoading ? (
-          <LoadingState />
-        ) : listQuery.isError ? (
-          <ErrorState onRetry={() => void listQuery.refetch()} />
-        ) : entries.length === 0 ? (
-          <EmptyState
-            title={t('No free sources yet')}
-            description={t(
-              'Submit a free model endpoint you found; everyone can use it after review-free publishing.'
-            )}
-          />
-        ) : (
-          <div className='grid gap-4 md:grid-cols-2 xl:grid-cols-3'>
-            {entries.map((entry) => (
-              <PoolCard
-                key={entry.id}
-                entry={entry}
-                onRate={(rating) =>
-                  rateMutation.mutate({ id: entry.id, rating, comment: '' })
-                }
-                onReview={() => setReviewTarget(entry)}
-                onDelete={() => deleteMutation.mutate(entry.id)}
-              />
-            ))}
-          </div>
-        )}
-      </SectionPageLayout.Content>
+      <SectionPageLayout.Content>{content}</SectionPageLayout.Content>
 
       <SubmitDialog open={submitOpen} onOpenChange={setSubmitOpen} />
       <ReviewDialog target={reviewTarget} onClose={() => setReviewTarget(null)} />
