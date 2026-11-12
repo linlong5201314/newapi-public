@@ -25,6 +25,8 @@ export interface FreePoolEntry {
   id: number
   name: string
   url: string
+  signup_url?: string
+  homepage_url?: string
   models: string[] | null
   description: string
   tags: string[] | null
@@ -53,6 +55,8 @@ export interface FreePoolReview {
 export interface SubmitPoolPayload {
   name: string
   url: string
+  signup_url?: string
+  homepage_url?: string
   models: string[]
   description: string
   tags: string[]
