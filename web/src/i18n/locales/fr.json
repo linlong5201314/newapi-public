@@ -7532,6 +7532,7 @@
     "Total reward: {{count}}": "Récompense totale : {{count}}",
     "e.g., My main account": "ex. : Mon compte principal",
     "{{count}}-day streak": "Série de {{count}} jours",
-    "{{field}} is required": "{{field}} est requis"
+    "{{field}} is required": "{{field}} est requis",
+    "Connect to Cline with a WorkOS credential; the gateway injects the required client fingerprint headers": "Connectez Cline avec un identifiant WorkOS ; la passerelle ajoute automatiquement les en-têtes d’empreinte client requis"
   }
 }
