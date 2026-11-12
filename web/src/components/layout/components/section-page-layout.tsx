@@ -64,9 +64,18 @@ export function SectionPageLayout(props: SectionPageLayoutProps) {
   let actions: ReactNode = null
   let content: ReactNode = null
   let breadcrumb: ReactNode = null
+  // Anything that is not one of the named slots (dialogs, sheets, portals,
+  // incidental nodes) is rendered as-is so declarative overlays placed next to
+  // <SectionPageLayout.Content> actually mount instead of being dropped.
+  const overlayNodes: ReactNode[] = []
 
   Children.forEach(props.children, (node) => {
-    if (!isValidElement(node)) return
+    if (!isValidElement(node)) {
+      if (node !== null && node !== undefined && node !== false) {
+        overlayNodes.push(node)
+      }
+      return
+    }
     const child = node as ReactElement<SlotProps>
     if (child.type === SectionPageLayoutTitle) title = child.props.children
     else if (child.type === SectionPageLayoutActions) {
@@ -75,6 +84,8 @@ export function SectionPageLayout(props: SectionPageLayoutProps) {
       content = child.props.children
     } else if (child.type === SectionPageLayoutBreadcrumb) {
       breadcrumb = child.props.children
+    } else {
+      overlayNodes.push(node)
     }
   })
 
@@ -120,6 +131,7 @@ export function SectionPageLayout(props: SectionPageLayoutProps) {
           className='bg-background shrink-0 border-t px-3 py-2.5 empty:hidden sm:px-4 sm:py-3'
         />
       </Main>
+      {Children.toArray(overlayNodes)}
     </PageFooterProvider>
   )
 }
