@@ -49,6 +49,7 @@ import { Route as AuthenticatedMyChannelsIndexRouteImport } from './routes/_auth
 import { Route as AuthenticatedNodesIndexRouteImport } from './routes/_authenticated/nodes/index'
 import { Route as AuthenticatedPlaygroundIndexRouteImport } from './routes/_authenticated/playground/index'
 import { Route as AuthenticatedProfileIndexRouteImport } from './routes/_authenticated/profile/index'
+import { Route as AuthenticatedProxyPoolIndexRouteImport } from './routes/_authenticated/proxy-pool/index'
 import { Route as AuthenticatedRedemptionCodesIndexRouteImport } from './routes/_authenticated/redemption-codes/index'
 import { Route as AuthenticatedRouteRulesIndexRouteImport } from './routes/_authenticated/route-rules/index'
 import { Route as AuthenticatedSecurityIndexRouteImport } from './routes/_authenticated/security/index'
@@ -289,6 +290,12 @@ const AuthenticatedProfileIndexRoute =
     path: '/profile/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedProxyPoolIndexRoute =
+  AuthenticatedProxyPoolIndexRouteImport.update({
+    id: '/proxy-pool/',
+    path: '/proxy-pool/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedRedemptionCodesIndexRoute =
   AuthenticatedRedemptionCodesIndexRouteImport.update({
     id: '/redemption-codes/',
@@ -503,6 +510,7 @@ export interface FileRoutesByFullPath {
   '/nodes/': typeof AuthenticatedNodesIndexRoute
   '/playground/': typeof AuthenticatedPlaygroundIndexRoute
   '/profile/': typeof AuthenticatedProfileIndexRoute
+  '/proxy-pool/': typeof AuthenticatedProxyPoolIndexRoute
   '/redemption-codes/': typeof AuthenticatedRedemptionCodesIndexRoute
   '/route-rules/': typeof AuthenticatedRouteRulesIndexRoute
   '/security/': typeof AuthenticatedSecurityIndexRoute
@@ -571,6 +579,7 @@ export interface FileRoutesByTo {
   '/nodes': typeof AuthenticatedNodesIndexRoute
   '/playground': typeof AuthenticatedPlaygroundIndexRoute
   '/profile': typeof AuthenticatedProfileIndexRoute
+  '/proxy-pool': typeof AuthenticatedProxyPoolIndexRoute
   '/redemption-codes': typeof AuthenticatedRedemptionCodesIndexRoute
   '/route-rules': typeof AuthenticatedRouteRulesIndexRoute
   '/security': typeof AuthenticatedSecurityIndexRoute
@@ -643,6 +652,7 @@ export interface FileRoutesById {
   '/_authenticated/nodes/': typeof AuthenticatedNodesIndexRoute
   '/_authenticated/playground/': typeof AuthenticatedPlaygroundIndexRoute
   '/_authenticated/profile/': typeof AuthenticatedProfileIndexRoute
+  '/_authenticated/proxy-pool/': typeof AuthenticatedProxyPoolIndexRoute
   '/_authenticated/redemption-codes/': typeof AuthenticatedRedemptionCodesIndexRoute
   '/_authenticated/route-rules/': typeof AuthenticatedRouteRulesIndexRoute
   '/_authenticated/security/': typeof AuthenticatedSecurityIndexRoute
@@ -714,6 +724,7 @@ export interface FileRouteTypes {
     | '/nodes/'
     | '/playground/'
     | '/profile/'
+    | '/proxy-pool/'
     | '/redemption-codes/'
     | '/route-rules/'
     | '/security/'
@@ -782,6 +793,7 @@ export interface FileRouteTypes {
     | '/nodes'
     | '/playground'
     | '/profile'
+    | '/proxy-pool'
     | '/redemption-codes'
     | '/route-rules'
     | '/security'
@@ -853,6 +865,7 @@ export interface FileRouteTypes {
     | '/_authenticated/nodes/'
     | '/_authenticated/playground/'
     | '/_authenticated/profile/'
+    | '/_authenticated/proxy-pool/'
     | '/_authenticated/redemption-codes/'
     | '/_authenticated/route-rules/'
     | '/_authenticated/security/'
@@ -1183,6 +1196,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedProfileIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/proxy-pool/': {
+      id: '/_authenticated/proxy-pool/'
+      path: '/proxy-pool'
+      fullPath: '/proxy-pool/'
+      preLoaderRoute: typeof AuthenticatedProxyPoolIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/redemption-codes/': {
       id: '/_authenticated/redemption-codes/'
       path: '/redemption-codes'
@@ -1498,6 +1518,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedNodesIndexRoute: typeof AuthenticatedNodesIndexRoute
   AuthenticatedPlaygroundIndexRoute: typeof AuthenticatedPlaygroundIndexRoute
   AuthenticatedProfileIndexRoute: typeof AuthenticatedProfileIndexRoute
+  AuthenticatedProxyPoolIndexRoute: typeof AuthenticatedProxyPoolIndexRoute
   AuthenticatedRedemptionCodesIndexRoute: typeof AuthenticatedRedemptionCodesIndexRoute
   AuthenticatedRouteRulesIndexRoute: typeof AuthenticatedRouteRulesIndexRoute
   AuthenticatedSecurityIndexRoute: typeof AuthenticatedSecurityIndexRoute
@@ -1530,6 +1551,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedNodesIndexRoute: AuthenticatedNodesIndexRoute,
   AuthenticatedPlaygroundIndexRoute: AuthenticatedPlaygroundIndexRoute,
   AuthenticatedProfileIndexRoute: AuthenticatedProfileIndexRoute,
+  AuthenticatedProxyPoolIndexRoute: AuthenticatedProxyPoolIndexRoute,
   AuthenticatedRedemptionCodesIndexRoute:
     AuthenticatedRedemptionCodesIndexRoute,
   AuthenticatedRouteRulesIndexRoute: AuthenticatedRouteRulesIndexRoute,
