@@ -7902,6 +7902,7 @@
     "Please paste the Trae callback URL": "Please paste the Trae callback URL",
     "Failed to import Trae credential": "Failed to import Trae credential",
     "Trae channel created": "Trae channel created",
-    "Authorization expired, please retry": "Authorization expired, please retry"
+    "Authorization expired, please retry": "Authorization expired, please retry",
+    "Connect to Cline with a WorkOS credential; the gateway injects the required client fingerprint headers": "Connect to Cline with a WorkOS credential; the gateway injects the required client fingerprint headers"
   }
 }
