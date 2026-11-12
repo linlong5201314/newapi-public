@@ -218,14 +218,14 @@
       "channelType": 1,
       "baseUrl": "https://api.llm7.io",
       "signupUrl": "https://token.llm7.io",
-      "keyRequired": true,
+      "keyRequired": false,
       "models": [
         "gpt-4o-mini-2024-07-18",
         "gpt-4.1-nano-2025-04-14",
         "deepseek-r1-0528",
         "qwen2.5-coder-32b-instruct"
       ],
-      "freeNote": "No signup required - 2 req/s, 20 RPM, 100 req/hr free tier（任意非空 key 可用，token.llm7.io 领 key 提额）",
+      "freeNote": "免注册免 key：匿名 2 req/s、20 RPM、100 req/hr（token.llm7.io 可领 key 提额）",
       "monthlyTokens": 150000000,
       "freeType": "recurring-daily",
       "tos": "caution",
@@ -298,10 +298,14 @@
         "Qwen3.5-397B-A17B",
         "gpt-oss-120b",
         "gpt-oss-20b",
+        "Qwen3.8-27B",
+        "Qwen3.6-27B",
+        "Qwen3.5-9B",
+        "Mistral-Small-3.2-24B-Instruct-2506",
         "Meta-Llama-3_3-70B-Instruct",
-        "Qwen3.5-9B"
+        "Qwen2.5-VL-72B-Instruct"
       ],
-      "freeNote": "完全匿名免费：无需注册无需 key，每 IP 每模型 2 RPM，20+ 开源模型（欧盟节点）",
+      "freeNote": "完全匿名免费：无需注册无需 key，每 IP 每模型 2 RPM，20+ 开源模型（欧盟节点，含 VL 视觉模型）",
       "monthlyTokens": 5000000,
       "freeType": "recurring-uncapped",
       "tos": "ok",
