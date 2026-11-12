@@ -223,6 +223,14 @@ func InitDB() (err error) {
 		if common.UsingMainDatabase(common.DatabaseTypeMySQL) {
 			//_, _ = sqlDB.Exec("ALTER TABLE channels MODIFY model_mapping TEXT;") // TODO: delete this line when most users have upgraded
 		}
+		// 跨区外部库（如 Supabase eu-west-1 + Railway iad，单次查询 ~226ms）上
+		// AutoMigrate 40+ 张表要跑数分钟，期间实例一直 502，每次发版都撞这个窗口。
+		// 表结构已经就位时用 SKIP_DB_MIGRATION=true 直接跳过，冷启动降到秒级。
+		// 升级带新表的版本时把它关掉跑一次即可。
+		if common.GetEnvOrDefaultBool("SKIP_DB_MIGRATION", false) {
+			common.SysLog(common.LogText("SKIP_DB_MIGRATION=true; skipping AutoMigrate (schema assumed current)"))
+			return nil
+		}
 		common.SysLog(common.LogText("database migration started"))
 		err = migrateDB()
 		return err
