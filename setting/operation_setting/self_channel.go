@@ -15,6 +15,10 @@ var (
 	// PlatformPublicFreeBilling 命中平台公共渠道（owner_id=0）时同样跳过扣费。
 	// 与 SelfKeyFreeBilling 组合成"全场景免价格"：个人自建 + 平台公共都不计费。
 	PlatformPublicFreeBilling = true
+	// AllModelsFreeBilling 全局免价格总闸（默认 false，运行时可用 /api/option/ 打开）。
+	// 打开后跳过"模型价格未配置"校验，预扣额度与后结算额度一律按 0 计算：
+	// 任何渠道、任何模型都可直接调用，只写使用记录不扣钱包/订阅/令牌。
+	AllModelsFreeBilling = false
 )
 
 // RouteRuleMaxPerUser 每个用户可创建的路由规则数量上限（M2）。
