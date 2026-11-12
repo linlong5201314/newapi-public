@@ -518,8 +518,6 @@ func updateOptionMap(key string, value string) (err error) {
 			operation_setting.DemoSiteEnabled = boolValue
 		case "SelfUseModeEnabled":
 			operation_setting.SelfUseModeEnabled = boolValue
-		case "AllModelsFreeBilling":
-			operation_setting.AllModelsFreeBilling = boolValue
 		case "SelfChannelEnabled":
 			operation_setting.SelfChannelEnabled = boolValue
 		case "CheckSensitiveOnPromptEnabled":
@@ -564,6 +562,8 @@ func updateOptionMap(key string, value string) (err error) {
 		operation_setting.SelfKeyFreeBilling = value == "true"
 	case "PlatformPublicFreeBilling":
 		operation_setting.PlatformPublicFreeBilling = value == "true"
+	case "AllModelsFreeBilling":
+		operation_setting.AllModelsFreeBilling = value == "true"
 	case "CheckinEnabled":
 		operation_setting.CheckinEnabled = value == "true"
 	case "CheckinAllowAgentUrl":
