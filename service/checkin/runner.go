@@ -94,6 +94,8 @@ func execute(acc *model.CheckinAccount) *RunResult {
 		return runWorkbuddy(acc)
 	case "trae":
 		return runTrae(acc)
+	case "qoder":
+		return runQoder(acc)
 	case "custom":
 		return runCustom(acc)
 	case "apinex":
