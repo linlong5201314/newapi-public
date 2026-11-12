@@ -35,6 +35,7 @@ import {
   Server,
   ServerCog,
   Settings,
+  Star,
   ShieldCheck,
   Ticket,
   User,
@@ -121,6 +122,13 @@ export function useSidebarData(badges: SidebarBadges = {}): SidebarData {
             title: t('Check-in Center'),
             url: '/checkin',
             icon: CheckCircle,
+            requiredRole: ROLE.USER,
+          },
+          {
+            // [FREE-POOL] Public free-model submission pool (submit/rate/comment)
+            title: t('Free Model Pool'),
+            url: '/free-pool',
+            icon: Star,
             requiredRole: ROLE.USER,
           },
           // [M4-FE] External app links (admin-configured, position=sidebar/both)
