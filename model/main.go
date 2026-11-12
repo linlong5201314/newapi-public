@@ -392,6 +392,8 @@ func migrateDB() error {
 		&NodeAudit{},
 		&FreeSourcePool{},
 		&FreeSourcePoolRating{},
+		&ProxyEndpoint{},
+		&ProxySubscription{},
 	)
 	if err != nil {
 		return err
