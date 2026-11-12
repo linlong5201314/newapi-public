@@ -20,9 +20,11 @@ const (
 	BillingSourceSubscription = "subscription"
 )
 
-// IsSelfChannelFreeBilling 判断当前请求是否命中"自建渠道免计费"：
-// 命中渠道的 OwnerId 与请求用户一致，且平台开启 SelfKeyFreeBilling。
-// 命中平台公共渠道（owner_id=0）或他人渠道时不免计费。
+// IsSelfChannelFreeBilling 判断当前请求是否命中"免计费"场景：
+//  1. 命中渠道 OwnerId 与请求用户一致，且平台开启 SelfKeyFreeBilling（个人自建渠道免计费）；
+//  2. 命中平台公共渠道（owner_id=0），且平台开启 PlatformPublicFreeBilling（公共池免计费）。
+//
+// 两者合起来即"全场景免价格"：个人自建 + 平台公共都不扣钱包/订阅/令牌，用量仅记账。
 // 注意：RelayInfo.ChannelId 经内嵌 *ChannelMeta 访问，且 PrepareRequestBilling
 // 先于 InitChannelMeta 执行，因此渠道 ID 必须回退到 gin context（Distribute
 // 选路时写入的 ContextKeyChannelId），两者都取不到才视为无渠道。
@@ -37,14 +39,17 @@ func IsSelfChannelFreeBilling(c *gin.Context, relayInfo *relaycommon.RelayInfo) 
 	if channelId <= 0 {
 		return false
 	}
-	if !operation_setting.SelfKeyFreeBilling {
-		return false
-	}
 	channel, err := model.CacheGetChannel(channelId)
 	if err != nil || channel == nil {
 		return false
 	}
-	return channel.OwnerId == relayInfo.UserId
+	if channel.OwnerId == relayInfo.UserId {
+		return operation_setting.SelfKeyFreeBilling
+	}
+	if channel.OwnerId == 0 {
+		return operation_setting.PlatformPublicFreeBilling
+	}
+	return false
 }
 
 // PreConsumeBilling 根据用户计费偏好创建 BillingSession 并执行预扣费。
