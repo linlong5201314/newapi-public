@@ -7532,6 +7532,7 @@
     "Total reward: {{count}}": "Всего наград: {{count}}",
     "e.g., My main account": "напр., мой основной аккаунт",
     "{{count}}-day streak": "Серия {{count}} дн.",
-    "{{field}} is required": "Поле {{field}} обязательно"
+    "{{field}} is required": "Поле {{field}} обязательно",
+    "Connect to Cline with a WorkOS credential; the gateway injects the required client fingerprint headers": "Подключение Cline по учётным данным WorkOS; шлюз сам добавляет нужные заголовки отпечатка клиента"
   }
 }
