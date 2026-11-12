@@ -202,6 +202,16 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, header *http.Header, info *
 	if info.ChannelType == constant.ChannelTypeOpenAI && "" != info.Organization {
 		header.Set("OpenAI-Organization", info.Organization)
 	}
+	// 匿名免费源（模板 keyRequired=false，渠道 key 为 sk-free-<templateId> 占位符）：
+	// 上游要求完全不带 Authorization 头。OVHcloud kepler 收到任意 Bearer 会直接
+	// 403 "authentication failed"，所以这里必须整条跳过，不能塞空值。
+	anonymousFree := strings.HasPrefix(info.ApiKey, "sk-free-")
+	if anonymousFree {
+		if info.ChannelType == constant.ChannelTypeOpenAI && "" != info.Organization {
+			header.Set("OpenAI-Organization", info.Organization)
+		}
+		return nil
+	}
 	// 检查 Header Override 是否已设置 Authorization，如果已设置则跳过默认设置
 	// 这样可以避免在 Header Override 应用时被覆盖（虽然 Header Override 会在之后应用，但这里作为额外保护）
 	hasAuthOverride := false
