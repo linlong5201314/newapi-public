@@ -382,6 +382,8 @@ func migrateDB() error {
 		&ExtLink{},
 		&Node{},
 		&NodeAudit{},
+		&FreeSourcePool{},
+		&FreeSourcePoolRating{},
 	)
 	if err != nil {
 		return err
