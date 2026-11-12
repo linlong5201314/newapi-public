@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Info, Loader2 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -43,12 +43,18 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import { getChannels } from '@/features/my-channels/api'
+import {
+  getChannels,
+  importTraeCredential,
+  pollChannelOAuth,
+  startChannelOAuth,
+} from '@/features/my-channels/api'
 import {
   CHANNEL_TYPE_TRAE,
   CHANNEL_TYPE_WORKBUDDY,
 } from '@/features/my-channels/constants'
 import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
 
 import {
   CHECKIN_CHANNEL_SITES,
@@ -164,6 +170,22 @@ export function CheckinAddDialog(props: CheckinAddDialogProps) {
   const [mode, setMode] = useState('api')
   const [enabled, setEnabled] = useState(true)
   const [validationError, setValidationError] = useState('')
+  // 账号型站点（workbuddy/trae）在弹窗里直接登录，免去先去「我的渠道」建渠道一步。
+  const [loginPhase, setLoginPhase] = useState<
+    'idle' | 'starting' | 'waiting' | 'error'
+  >('idle')
+  const [loginUrl, setLoginUrl] = useState('')
+  const [loginError, setLoginError] = useState('')
+  const [traeCallback, setTraeCallback] = useState('')
+  const [traeImporting, setTraeImporting] = useState(false)
+  const loginPollRef = useRef<number | null>(null)
+
+  const stopLoginPoll = useCallback(() => {
+    if (loginPollRef.current !== null) {
+      window.clearInterval(loginPollRef.current)
+      loginPollRef.current = null
+    }
+  }, [])
 
   const reset = () => {
     setStep('site')
@@ -175,11 +197,20 @@ export function CheckinAddDialog(props: CheckinAddDialogProps) {
     setMode('api')
     setEnabled(true)
     setValidationError('')
+    stopLoginPoll()
+    setLoginPhase('idle')
+    setLoginUrl('')
+    setLoginError('')
+    setTraeCallback('')
+    setTraeImporting(false)
   }
 
   useEffect(() => {
     if (!props.open) reset()
   }, [props.open])
+
+  // 组件卸载时清掉轮询定时器。
+  useEffect(() => stopLoginPoll, [stopLoginPoll])
 
   const needsChannel = site ? CHECKIN_CHANNEL_SITES.has(site.site) : false
   const channelType = site ? SITE_CHANNEL_TYPE[site.site] : undefined
@@ -203,6 +234,96 @@ export function CheckinAddDialog(props: CheckinAddDialogProps) {
       })),
     [channelsQuery.data]
   )
+
+  // WorkBuddy 设备授权流：起会话 → 开授权页 → 轮询到渠道建成为止。
+  const beginWorkbuddyLogin = useCallback(async () => {
+    stopLoginPoll()
+    setLoginError('')
+    setLoginPhase('starting')
+    try {
+      const res = await startChannelOAuth('workbuddy')
+      const data = (res.data ?? {}) as Record<string, unknown>
+      const sessionId = String(data.sessionId ?? data.session_id ?? '')
+      const authUrl = String(data.authUrl ?? data.auth_url ?? '')
+      if (!res.success || !sessionId || !authUrl) {
+        throw new Error(
+          res.message || t('Invalid authorization session response')
+        )
+      }
+      setLoginUrl(authUrl)
+      setLoginPhase('waiting')
+      window.open(authUrl, '_blank', 'noopener,noreferrer')
+      loginPollRef.current = window.setInterval(() => {
+        void (async () => {
+          try {
+            const result = await pollChannelOAuth(sessionId)
+            const record = (result.data ?? {}) as Record<string, unknown>
+            const status = String(record.status ?? '').toLowerCase()
+            const channel = record.channel as { id?: number } | undefined
+            if (channel?.id) {
+              stopLoginPoll()
+              setLoginPhase('idle')
+              await channelsQuery.refetch()
+              setChannelId(String(channel.id))
+              toast.success(t('WorkBuddy channel created'))
+              return
+            }
+            if (
+              status === 'expired' ||
+              status === 'error' ||
+              status === 'failed'
+            ) {
+              stopLoginPoll()
+              setLoginPhase('error')
+              setLoginError(t('Authorization expired, please retry'))
+            }
+          } catch {
+            // 单次轮询失败不终止，等下一次。
+          }
+        })()
+      }, 3000)
+    } catch (error) {
+      setLoginPhase('error')
+      setLoginError(
+        error instanceof Error
+          ? error.message
+          : t('Failed to start authorization')
+      )
+    }
+  }, [channelsQuery, stopLoginPoll, t])
+
+  // Trae：粘贴本地回调地址，直接建渠道并选中。
+  const importTraeChannel = useCallback(async () => {
+    const callbackUrl = traeCallback.trim()
+    if (!callbackUrl) {
+      setLoginError(t('Please paste the Trae callback URL'))
+      return
+    }
+    setTraeImporting(true)
+    setLoginError('')
+    try {
+      const res = await importTraeCredential({ callbackUrl, mode: 'create' })
+      const data = (res.data ?? {}) as Record<string, unknown>
+      const channel = data.channel as { id?: number } | undefined
+      if (!res.success || !channel?.id) {
+        throw new Error(
+          res.message || t('Failed to import Trae credential')
+        )
+      }
+      await channelsQuery.refetch()
+      setChannelId(String(channel.id))
+      setTraeCallback('')
+      toast.success(t('Trae channel created'))
+    } catch (error) {
+      setLoginError(
+        error instanceof Error
+          ? error.message
+          : t('Failed to import Trae credential')
+      )
+    } finally {
+      setTraeImporting(false)
+    }
+  }, [channelsQuery, t, traeCallback])
 
   const effectiveMode = needsChannel ? 'api' : mode
 
@@ -368,6 +489,71 @@ export function CheckinAddDialog(props: CheckinAddDialogProps) {
                     )}
                   </p>
                 )}
+
+                <div className='space-y-2 rounded-md border border-dashed p-3'>
+                  <p className='text-muted-foreground text-xs'>
+                    {t('No channel yet? Sign in right here:')}
+                  </p>
+                  {site.site === 'workbuddy' ? (
+                    <div className='flex flex-wrap items-center gap-2'>
+                      <Button
+                        type='button'
+                        size='sm'
+                        variant='outline'
+                        disabled={
+                          loginPhase === 'starting' || loginPhase === 'waiting'
+                        }
+                        onClick={() => void beginWorkbuddyLogin()}
+                      >
+                        {(loginPhase === 'starting' ||
+                          loginPhase === 'waiting') && (
+                          <Loader2 className='mr-1 size-4 animate-spin' />
+                        )}
+                        {loginPhase === 'waiting'
+                          ? t('Waiting for authorization...')
+                          : t('Sign in to WorkBuddy')}
+                      </Button>
+                      {loginUrl && (
+                        <a
+                          href={loginUrl}
+                          target='_blank'
+                          rel='noopener noreferrer'
+                          className='text-primary text-xs underline'
+                        >
+                          {t('Open the authorization page again')}
+                        </a>
+                      )}
+                    </div>
+                  ) : (
+                    <div className='flex flex-wrap items-center gap-2'>
+                      <Input
+                        value={traeCallback}
+                        onChange={(event) =>
+                          setTraeCallback(event.target.value)
+                        }
+                        placeholder={t(
+                          'trae://... or http://127.0.0.1:...?code=...'
+                        )}
+                        className='min-w-56 flex-1'
+                      />
+                      <Button
+                        type='button'
+                        size='sm'
+                        variant='outline'
+                        disabled={traeImporting}
+                        onClick={() => void importTraeChannel()}
+                      >
+                        {traeImporting && (
+                          <Loader2 className='mr-1 size-4 animate-spin' />
+                        )}
+                        {t('Import Trae credential')}
+                      </Button>
+                    </div>
+                  )}
+                  {loginError && (
+                    <p className='text-destructive text-xs'>{loginError}</p>
+                  )}
+                </div>
               </div>
             )}
 
