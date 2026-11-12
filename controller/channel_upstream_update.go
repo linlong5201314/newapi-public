@@ -21,6 +21,8 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/advancedcustom"
 	"github.com/QuantumNous/new-api/relay/channel/gemini"
 	"github.com/QuantumNous/new-api/relay/channel/ollama"
+	"github.com/QuantumNous/new-api/relay/channel/trae"
+	"github.com/QuantumNous/new-api/relay/channel/workbuddy"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -371,6 +373,31 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 		}
 		return normalizeModelNames(plugin.Meta.Models), nil
 	}
+	// 账号型渠道（WorkBuddy / Trae）没有 OpenAI 兼容的 {base}/v1/models 端点：
+	// 它们的模型清单来自登录凭据（cred JSON）调用上游私有接口，必须走适配器自带的
+	// FetchUpstreamModels，否则会拼出空的 "/v1/models" 必然失败。
+	if channel.Type == constant.ChannelTypeWorkBuddy || channel.Type == constant.ChannelTypeTrae {
+		cred, _, apiErr := channel.GetNextEnabledKey()
+		if apiErr != nil {
+			return nil, fmt.Errorf("failed to get channel credential: %w", apiErr)
+		}
+		cred = strings.TrimSpace(cred)
+		if cred == "" {
+			return nil, fmt.Errorf("channel credential is empty")
+		}
+		var models []string
+		var err error
+		if channel.Type == constant.ChannelTypeWorkBuddy {
+			models, err = workbuddy.FetchUpstreamModels(cred)
+		} else {
+			models, err = trae.FetchUpstreamModels(cred)
+		}
+		if err != nil {
+			return nil, err
+		}
+		return normalizeModelNames(models), nil
+	}
+
 	baseURL := constant.GetChannelBaseURL(channel.Type)
 	if channel.GetBaseURL() != "" {
 		baseURL = channel.GetBaseURL()
