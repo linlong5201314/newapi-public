@@ -185,6 +185,7 @@ func InitOptionMap() {
 	common.OptionMap["SelfChannelUsePublicFallback"] = strconv.FormatBool(operation_setting.SelfChannelUsePublicFallback)
 	common.OptionMap["SelfKeyFreeBilling"] = strconv.FormatBool(operation_setting.SelfKeyFreeBilling)
 	common.OptionMap["PlatformPublicFreeBilling"] = strconv.FormatBool(operation_setting.PlatformPublicFreeBilling)
+	common.OptionMap["AllModelsFreeBilling"] = strconv.FormatBool(operation_setting.AllModelsFreeBilling)
 	common.OptionMap["RouteRuleMaxPerUser"] = strconv.Itoa(operation_setting.RouteRuleMaxPerUser)
 	common.OptionMap["CheckinEnabled"] = strconv.FormatBool(operation_setting.CheckinEnabled)
 	common.OptionMap["CheckinMaxAccountsPerUser"] = strconv.Itoa(operation_setting.CheckinMaxAccountsPerUser)
@@ -517,6 +518,8 @@ func updateOptionMap(key string, value string) (err error) {
 			operation_setting.DemoSiteEnabled = boolValue
 		case "SelfUseModeEnabled":
 			operation_setting.SelfUseModeEnabled = boolValue
+		case "AllModelsFreeBilling":
+			operation_setting.AllModelsFreeBilling = boolValue
 		case "SelfChannelEnabled":
 			operation_setting.SelfChannelEnabled = boolValue
 		case "CheckSensitiveOnPromptEnabled":
