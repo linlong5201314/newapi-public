@@ -7532,6 +7532,7 @@
     "Total reward: {{count}}": "Tổng thưởng: {{count}}",
     "e.g., My main account": "ví dụ: tài khoản chính của tôi",
     "{{count}}-day streak": "Chuỗi {{count}} ngày",
-    "{{field}} is required": "{{field}} là bắt buộc"
+    "{{field}} is required": "{{field}} là bắt buộc",
+    "Connect to Cline with a WorkOS credential; the gateway injects the required client fingerprint headers": "Kết nối Cline bằng thông tin WorkOS; gateway tự thêm các header dấu vân tay máy khách bắt buộc"
   }
 }
