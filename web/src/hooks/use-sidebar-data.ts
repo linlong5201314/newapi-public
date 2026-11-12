@@ -33,6 +33,7 @@ import {
   Radio,
   Route,
   Server,
+  Network,
   ServerCog,
   Settings,
   Star,
@@ -129,6 +130,14 @@ export function useSidebarData(badges: SidebarBadges = {}): SidebarData {
             title: t('Free Model Pool'),
             url: '/free-pool',
             icon: Star,
+            requiredRole: ROLE.USER,
+          },          {
+            // [PROXY-POOL] Per-user egress IP pool: airport subscriptions,
+            // residential proxies and client-only nodes rotate per request,
+            // which multiplies the per-IP free quota by the number of exits.
+            title: t('Egress IP Pool'),
+            url: '/proxy-pool',
+            icon: Network,
             requiredRole: ROLE.USER,
           },
           // [M4-FE] External app links (admin-configured, position=sidebar/both)
