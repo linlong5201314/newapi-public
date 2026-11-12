@@ -27,6 +27,8 @@ func GetFreeSourcePools(c *gin.Context) {
 			"id":           p.Id,
 			"name":         p.Name,
 			"url":          p.Url,
+			"signup_url":   p.SignupUrl,
+			"homepage_url": p.HomepageUrl,
 			"models":       p.Models,
 			"description":  p.Description,
 			"tags":         p.Tags,
@@ -57,6 +59,8 @@ func GetFreeSourcePoolDetail(c *gin.Context) {
 		"id":           p.Id,
 		"name":         p.Name,
 		"url":          p.Url,
+		"signup_url":   p.SignupUrl,
+		"homepage_url": p.HomepageUrl,
 		"models":       p.Models,
 		"description":  p.Description,
 		"tags":         p.Tags,
@@ -74,6 +78,8 @@ func SubmitFreeSourcePool(c *gin.Context) {
 	var req struct {
 		Name        string   `json:"name"`
 		Url         string   `json:"url"`
+		SignupUrl   string   `json:"signup_url"`
+		HomepageUrl string   `json:"homepage_url"`
 		Models      []string `json:"models"`
 		Description string   `json:"description"`
 		Tags        []string `json:"tags"`
@@ -95,12 +101,14 @@ func SubmitFreeSourcePool(c *gin.Context) {
 	username, _ := model.GetUsernameById(userId, true)
 
 	pool := &model.FreeSourcePool{
-		Name:         strings.TrimSpace(req.Name),
-		Url:          strings.TrimSpace(req.Url),
-		Models:       req.Models,
-		Description:  strings.TrimSpace(req.Description),
-		Tags:         req.Tags,
-		SubmitterId:  userId,
+		Name:          strings.TrimSpace(req.Name),
+		Url:           strings.TrimSpace(req.Url),
+		SignupUrl:     strings.TrimSpace(req.SignupUrl),
+		HomepageUrl:   strings.TrimSpace(req.HomepageUrl),
+		Models:        req.Models,
+		Description:   strings.TrimSpace(req.Description),
+		Tags:          req.Tags,
+		SubmitterId:   userId,
 		SubmitterName: username,
 	}
 	if err := model.CreateFreeSourcePool(pool); err != nil {
