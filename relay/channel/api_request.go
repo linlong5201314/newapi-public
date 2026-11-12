@@ -14,6 +14,7 @@ import (
 	common2 "github.com/QuantumNous/new-api/common"
 	appconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -457,7 +458,8 @@ func keepUpstreamRedirectResponse(_ *http.Request, _ []*http.Request) error {
 }
 
 func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
-	client, err := service.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
+	proxyURL := resolveEgressProxyURL(info)
+	client, err := service.GetHttpClientWithProxySettings(proxyURL, info.ChannelSetting)
 	if err != nil {
 		return nil, fmt.Errorf("new proxy http client failed: %w", err)
 	}
@@ -490,9 +492,11 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	common2.SetContextKey(c, appconstant.ContextKeyUpstreamRequestOrigin, req.URL.Scheme+"://"+req.URL.Host)
 	resp, err := relayClient.Do(req)
 	if err != nil {
+		model.RecordProxyOutcome(info.UserId, proxyURL, false)
 		logger.LogError(c, common2.LogText("do request failed: %s", err.Error()))
 		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))
 	}
+	model.RecordProxyOutcome(info.UserId, proxyURL, true)
 	if resp == nil {
 		return nil, errors.New("resp is nil")
 	}
@@ -553,4 +557,23 @@ func newTaskAPIRequest(c *gin.Context, fullRequestURL string, requestBody io.Rea
 		return nil, errors.New("task client request is missing")
 	}
 	return http.NewRequestWithContext(c.Request.Context(), c.Request.Method, fullRequestURL, requestBody)
+}
+
+// resolveEgressProxyURL 决定本次上游请求走哪个出口。
+//
+// 优先级（越具体越优先）：
+//  1. 渠道自带 proxy —— 管理员为该渠道固定了出口，不能被用户池覆盖；
+//  2. 请求用户自己的出口池 —— 逐请求轮询，把按 IP 限流的免费额度摊到 N 个 IP 上；
+//  3. 都没有则返回空串，走直连。
+func resolveEgressProxyURL(info *common.RelayInfo) string {
+	if info == nil {
+		return ""
+	}
+	if channelProxy := strings.TrimSpace(info.ChannelSetting.Proxy); channelProxy != "" {
+		return channelProxy
+	}
+	if info.UserId <= 0 {
+		return ""
+	}
+	return model.PickUserProxyUrl(info.UserId)
 }
