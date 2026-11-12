@@ -12,6 +12,9 @@ var (
 	SelfChannelUsePublicFallback = false
 	// SelfKeyFreeBilling 命中用户自己渠道时跳过扣费（仅记账，logs 照写）。
 	SelfKeyFreeBilling = true
+	// PlatformPublicFreeBilling 命中平台公共渠道（owner_id=0）时同样跳过扣费。
+	// 与 SelfKeyFreeBilling 组合成"全场景免价格"：个人自建 + 平台公共都不计费。
+	PlatformPublicFreeBilling = true
 )
 
 // RouteRuleMaxPerUser 每个用户可创建的路由规则数量上限（M2）。
