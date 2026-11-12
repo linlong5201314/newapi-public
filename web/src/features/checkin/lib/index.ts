@@ -28,6 +28,7 @@ import {
   Briefcase,
   CalendarCheck,
   Cloud,
+  Code2,
   Sparkles,
   Wrench,
   type LucideIcon,
@@ -207,6 +208,7 @@ export function normalizeCheckinLogs(data: unknown): CheckinLog[] {
 const SITE_ICON_MAP: Record<string, LucideIcon> = {
   workbuddy: Briefcase,
   trae: Sparkles,
+  qoder: Code2,
   apinex: Cloud,
   custom: Wrench,
   briefcase: Briefcase,
@@ -214,6 +216,7 @@ const SITE_ICON_MAP: Record<string, LucideIcon> = {
   cloud: Cloud,
   wrench: Wrench,
   calendar: CalendarCheck,
+  code: Code2,
 }
 
 /** Resolve the display icon for a site, honoring template-declared icons. */
