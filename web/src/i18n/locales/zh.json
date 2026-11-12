@@ -7894,6 +7894,14 @@
     "optional": "可选",
     "{{n}} enabled": "{{n}} 个已启用",
     "{{n}} failures": "失败 {{n}} 次",
-    "{{n}} nodes": "{{n}} 个节点"
+    "{{n}} nodes": "{{n}} 个节点",
+    "No channel yet? Sign in right here:": "还没有渠道？在这里直接登录：",
+    "Sign in to WorkBuddy": "登录 WorkBuddy",
+    "Open the authorization page again": "重新打开授权页",
+    "trae://... or http://127.0.0.1:...?code=...": "trae://... 或 http://127.0.0.1:...?code=...",
+    "Please paste the Trae callback URL": "请粘贴 Trae 回调地址",
+    "Failed to import Trae credential": "导入 Trae 凭据失败",
+    "Trae channel created": "Trae 渠道已创建",
+    "Authorization expired, please retry": "授权已过期，请重试"
   }
 }
