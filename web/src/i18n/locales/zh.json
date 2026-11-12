@@ -7902,6 +7902,7 @@
     "Please paste the Trae callback URL": "请粘贴 Trae 回调地址",
     "Failed to import Trae credential": "导入 Trae 凭据失败",
     "Trae channel created": "Trae 渠道已创建",
-    "Authorization expired, please retry": "授权已过期，请重试"
+    "Authorization expired, please retry": "授权已过期，请重试",
+    "Connect to Cline with a WorkOS credential; the gateway injects the required client fingerprint headers": "用 WorkOS 凭据接入 Cline；网关会自动补齐必需的客户端指纹头"
   }
 }
