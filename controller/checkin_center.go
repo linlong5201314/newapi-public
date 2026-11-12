@@ -15,37 +15,144 @@ import (
 )
 
 // checkinSiteMetas GET /api/checkin/sites 的站点模板元数据（名称/mode/凭据表单 schema/引导文案）。
+//
+// cred_fields 是前端「添加账号」向导渲染凭据表单的结构化 schema：
+// {key,label,type,required,placeholder,help,options}。channel_ref 类站点
+// （workbuddy/trae）不渲染凭据表单，改为选择「我的渠道」。
 var checkinSiteMetas = []gin.H{
 	{
-		"site":  "workbuddy",
-		"name":  "WorkBuddy/CodeBuddy",
-		"mode":  "api",
-		"icon":  "workbuddy",
-		"cred":  gin.H{"kind": "channel_ref", "channelType": 65, "desc": "引用「我的渠道」中的 WorkBuddy 渠道凭据；或粘贴独立凭据 JSON"},
-		"guide": "每日签到 + 连登管家闭环（补签卡/礼包/补偿/streak 兑换/抽奖）+ 任务中心幂等清扫。行为链任务（expert/template/canvas 等）暂不支持。",
+		"site":        "workbuddy",
+		"name":        "WorkBuddy/CodeBuddy",
+		"mode":        "api",
+		"icon":        "workbuddy",
+		"cred":        gin.H{"kind": "channel_ref", "channelType": 65, "desc": "引用「我的渠道」中的 WorkBuddy 渠道凭据；或粘贴独立凭据 JSON"},
+		"cred_fields": []gin.H{},
+		"guide":       "每日签到 + 连登管家闭环（补签卡/礼包/补偿/streak 兑换/抽奖）+ 任务中心幂等清扫。行为链任务（expert/template/canvas 等）暂不支持。",
 	},
 	{
-		"site":  "trae",
-		"name":  "Trae SOLO",
-		"mode":  "api",
-		"icon":  "trae",
-		"cred":  gin.H{"kind": "channel_ref", "channelType": 66, "desc": "引用「我的渠道」中的 Trae 渠道凭据；或粘贴独立凭据 JSON"},
-		"guide": "每日签到 status→claim（+200/日）+ EntUsage 刷新渠道余额。刷新令牌会踢同账号其他客户端下线。",
+		"site":        "trae",
+		"name":        "Trae SOLO",
+		"mode":        "api",
+		"icon":        "trae",
+		"cred":        gin.H{"kind": "channel_ref", "channelType": 66, "desc": "引用「我的渠道」中的 Trae 渠道凭据；或粘贴独立凭据 JSON"},
+		"cred_fields": []gin.H{},
+		"guide":       "每日签到 status→claim（+200/日）+ EntUsage 刷新渠道余额。刷新令牌会踢同账号其他客户端下线。",
 	},
 	{
-		"site":  "apinex",
-		"name":  "APInex",
-		"mode":  "agent",
-		"icon":  "apinex",
-		"cred":  gin.H{"kind": "cookie", "key": "cookie", "desc": "apinex_user_session（HttpOnly cookie 值）"},
+		"site": "apinex",
+		"name": "APInex",
+		"mode": "agent",
+		"icon": "apinex",
+		"cred": gin.H{"kind": "cookie", "key": "cookie", "desc": "apinex_user_session（HttpOnly cookie 值）"},
+		"cred_fields": []gin.H{
+			{
+				"key":         "cookie",
+				"label":       "APInex Cookie",
+				"type":        "password",
+				"required":    true,
+				"placeholder": "apinex_user_session=...",
+				"help":        "登录 Apinex 后复制 apinex_user_session 的值。",
+			},
+		},
 		"guide": "Turnstile 强制，纯 API 无法签到：配置 agent 执行器地址（云机 apinex-auto HTTP 端点）远程执行。",
 	},
 	{
-		"site":  "custom",
-		"name":  "自定义站点",
-		"mode":  "api|agent",
-		"icon":  "custom",
-		"cred":  gin.H{"kind": "json", "desc": `{"name":"名称","endpoint":"https://…","method":"POST","body":"{}","headers":{"Cookie":"…"},"success_path":"code","expect":"0"}`},
+		"site": "qoder",
+		"name": "Qoder",
+		"mode": "api",
+		"icon": "qoder",
+		"cred": gin.H{"kind": "json", "desc": `{"token":"<桌面端登录态 token>","baseUrl":"https://openapi.qoder.com.cn","machineId":"可选设备标识"}`},
+		"cred_fields": []gin.H{
+			{
+				"key":         "token",
+				"label":       "Qoder desktop token",
+				"type":        "password",
+				"required":    true,
+				"placeholder": "auth.v1.dat 解密后的 token",
+				"help":        "Qoder CN 桌面端登录态文件 auth.v1.dat 解密后的 token 字段。",
+			},
+			{
+				"key":         "baseUrl",
+				"label":       "API base URL",
+				"type":        "text",
+				"required":    false,
+				"placeholder": "https://openapi.qoder.com.cn",
+				"help":        "国际版账号填 https://openapi.qoder.com。",
+			},
+			{
+				"key":      "machineId",
+				"label":    "Machine ID",
+				"type":     "text",
+				"required": false,
+				"help":     "可选设备标识（Cosy-MachineId），带上更易下发活动。",
+			},
+			{
+				"key":      "machineToken",
+				"label":    "Machine token",
+				"type":     "password",
+				"required": false,
+				"help":     "可选（Cosy-MachineToken）。",
+			},
+			{
+				"key":      "machineCode",
+				"label":    "Machine code",
+				"type":     "text",
+				"required": false,
+				"help":     "可选（Cosy-MachineCode）。",
+			},
+		},
+		"guide": "每日 100 通用 Credits（UTC+8 10:00 刷新，无补领）。token 取自 Qoder CN 桌面端登录态（auth.v1.dat 解密后的 token 字段）。带设备头（machineId/machineToken/machineCode）时服务端更易下发活动；领取幂等，已领过会返回 skipped。",
+	},
+	{
+		"site": "custom",
+		"name": "自定义站点",
+		"mode": "api|agent",
+		"icon": "custom",
+		"cred": gin.H{"kind": "json", "desc": `{"name":"名称","endpoint":"https://…","method":"POST","body":"{}","headers":{"Cookie":"…"},"success_path":"code","expect":"0"}`},
+		"cred_fields": []gin.H{
+			{
+				"key":         "endpoint",
+				"label":       "Endpoint",
+				"type":        "text",
+				"required":    true,
+				"placeholder": "https://example.com/api/checkin",
+				"help":        "签到请求地址（经 SSRF 校验）。",
+			},
+			{
+				"key":      "method",
+				"label":    "HTTP Method",
+				"type":     "select",
+				"required": true,
+				"options": []gin.H{
+					{"value": "GET", "label": "GET"},
+					{"value": "POST", "label": "POST"},
+				},
+			},
+			{
+				"key":         "body",
+				"label":       "Request body",
+				"type":        "textarea",
+				"required":    false,
+				"placeholder": `{"sign": "..."}`,
+				"help":        "原样发送的请求体（POST 时可选）。",
+			},
+			{
+				"key":         "success_path",
+				"label":       "Success path",
+				"type":        "text",
+				"required":    false,
+				"placeholder": "data.checked_in",
+				"help":        "响应 JSON 的 dot 路径，如 code / data.checked_in。",
+			},
+			{
+				"key":         "expect",
+				"label":       "Expected value",
+				"type":        "text",
+				"required":    false,
+				"placeholder": "0",
+				"help":        "期望值；留空则按真值判定。",
+			},
+		},
 		"guide": "通用模板：endpoint 经 SSRF 校验；success_path 为响应 JSON 的 dot 路径（如 code / data.checked_in）。",
 	},
 }
@@ -105,9 +212,9 @@ func AddCheckinAccount(c *gin.Context) {
 	uid := c.GetInt("id")
 	site := strings.ToLower(strings.TrimSpace(req.Site))
 	switch site {
-	case "workbuddy", "trae", "apinex", "custom":
+	case "workbuddy", "trae", "qoder", "apinex", "custom":
 	default:
-		common.ApiErrorMsg(c, "site must be workbuddy|trae|apinex|custom")
+		common.ApiErrorMsg(c, "site must be workbuddy|trae|qoder|apinex|custom")
 		return
 	}
 	mode := strings.ToLower(strings.TrimSpace(req.Mode))
