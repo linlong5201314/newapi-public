@@ -7532,6 +7532,7 @@
     "Total reward: {{count}}": "累計獎勵：{{count}}",
     "e.g., My main account": "例如：我的主帳號",
     "{{count}}-day streak": "連續 {{count}} 天",
-    "{{field}} is required": "{{field}} 為必填"
+    "{{field}} is required": "{{field}} 為必填",
+    "Connect to Cline with a WorkOS credential; the gateway injects the required client fingerprint headers": "用 WorkOS 憑證接入 Cline；網關會自動補齊必需的用戶端指紋標頭"
   }
 }
