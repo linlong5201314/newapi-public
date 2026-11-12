@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "curatedAt": "2026-07-22",
+  "version": 2,
+  "curatedAt": "2026-11-12",
   "source": "assets/free-pools.json + assets/free-model-catalog.json + OmniRoute provider registry",
   "templates": [
     {
@@ -10,7 +10,13 @@
       "baseUrl": "https://api.groq.com/openai",
       "signupUrl": "https://console.groq.com",
       "keyRequired": true,
-      "models": ["llama-3.3-70b-versatile", "meta-llama/llama-4-scout-17b-16e-instruct", "openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3-32b"],
+      "models": [
+        "llama-3.3-70b-versatile",
+        "meta-llama/llama-4-scout-17b-16e-instruct",
+        "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b",
+        "qwen/qwen3-32b"
+      ],
       "freeNote": "Free tier: 30 RPM / 14.4K RPD — no credit card",
       "monthlyTokens": 15000000,
       "freeType": "recurring-daily",
@@ -24,7 +30,13 @@
       "baseUrl": "https://generativelanguage.googleapis.com",
       "signupUrl": "https://aistudio.google.com",
       "keyRequired": true,
-      "models": ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3-flash-preview", "gemini-3.1-flash-lite", "gemini-3.5-flash"],
+      "models": [
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+        "gemini-3-flash-preview",
+        "gemini-3.1-flash-lite",
+        "gemini-3.5-flash"
+      ],
       "freeNote": "Free forever: 1,500 req/day for Gemini 2.5 Flash — no credit card, get key at aistudio.google.com",
       "monthlyTokens": 60000000,
       "freeType": "recurring-daily",
@@ -38,7 +50,10 @@
       "baseUrl": "https://api.cerebras.ai",
       "signupUrl": "https://inference.cerebras.ai",
       "keyRequired": true,
-      "models": ["zai-glm-4.7", "gpt-oss-120b"],
+      "models": [
+        "zai-glm-4.7",
+        "gpt-oss-120b"
+      ],
       "freeNote": "Free Trial: 1M tokens/day, 30K TPM, 5 RPM — no credit card.",
       "monthlyTokens": 30000000,
       "freeType": "recurring-daily",
@@ -52,7 +67,13 @@
       "baseUrl": "https://api.sambanova.ai",
       "signupUrl": "https://sambanova.ai",
       "keyRequired": true,
-      "models": ["Meta-Llama-3.3-70B-Instruct", "DeepSeek-V3.2", "Llama-4-Maverick-17B-128E-Instruct", "MiniMax-M2.7", "gpt-oss-120b"],
+      "models": [
+        "Meta-Llama-3.3-70B-Instruct",
+        "DeepSeek-V3.2",
+        "Llama-4-Maverick-17B-128E-Instruct",
+        "MiniMax-M2.7",
+        "gpt-oss-120b"
+      ],
       "freeNote": "$5 free credits on signup (30-day validity), no credit card required",
       "monthlyTokens": 6000000,
       "freeType": "recurring-daily",
@@ -66,8 +87,16 @@
       "baseUrl": "https://api.cloudflare.com/client/v4/accounts/{accountId}/ai",
       "signupUrl": "https://dash.cloudflare.com/sign-up",
       "keyRequired": true,
-      "extraFields": ["accountId"],
-      "models": ["@cf/meta/llama-3.3-70b-instruct-fp8-fast", "@cf/qwen/qwen2.5-coder-32b-instruct", "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b", "@cf/qwen/qwq-32b", "@cf/moonshotai/kimi-k2.6"],
+      "extraFields": [
+        "accountId"
+      ],
+      "models": [
+        "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+        "@cf/qwen/qwen2.5-coder-32b-instruct",
+        "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b",
+        "@cf/qwen/qwq-32b",
+        "@cf/moonshotai/kimi-k2.6"
+      ],
       "freeNote": "Workers AI free tier: 10K neurons/day — 需 accountId + API token，baseUrl 中 {accountId} 建仓时替换",
       "monthlyTokens": 30000000,
       "freeType": "recurring-daily",
@@ -81,7 +110,9 @@
       "baseUrl": "https://openrouter.ai/api",
       "signupUrl": "https://openrouter.ai/keys",
       "keyRequired": true,
-      "models": ["openrouter/auto"],
+      "models": [
+        "openrouter/auto"
+      ],
       "freeNote": "Free models: 20 req/min, 50 req/day (1000 req/day with $10 credit)",
       "monthlyTokens": 1200000,
       "freeType": "recurring-daily",
@@ -95,7 +126,13 @@
       "baseUrl": "https://api.mistral.ai",
       "signupUrl": "https://console.mistral.ai",
       "keyRequired": true,
-      "models": ["mistral-large-latest", "mistral-medium-3-5", "mistral-small-latest", "devstral-latest", "codestral-latest"],
+      "models": [
+        "mistral-large-latest",
+        "mistral-medium-3-5",
+        "mistral-small-latest",
+        "devstral-latest",
+        "codestral-latest"
+      ],
       "freeNote": "La Plateforme free tier — no credit card",
       "monthlyTokens": 1000000000,
       "freeType": "recurring-monthly",
@@ -109,7 +146,12 @@
       "baseUrl": "https://models.github.ai/inference",
       "signupUrl": "https://github.com/marketplace/models",
       "keyRequired": true,
-      "models": ["openai/gpt-4o-mini", "openai/gpt-4o", "meta/llama-3.3-70b-instruct", "deepseek/deepseek-r1"],
+      "models": [
+        "openai/gpt-4o-mini",
+        "openai/gpt-4o",
+        "meta/llama-3.3-70b-instruct",
+        "deepseek/deepseek-r1"
+      ],
       "freeNote": "GitHub Models free tier: per-model daily rate limits, 用 GitHub PAT 即可调用",
       "monthlyTokens": 0,
       "freeType": "recurring-daily",
@@ -123,7 +165,13 @@
       "baseUrl": "https://api.siliconflow.com",
       "signupUrl": "https://cloud.siliconflow.com",
       "keyRequired": true,
-      "models": ["Qwen/Qwen3-32B", "deepseek-ai/DeepSeek-V3.2", "zai-org/GLM-4.7", "moonshotai/Kimi-K2.5", "openai/gpt-oss-120b"],
+      "models": [
+        "Qwen/Qwen3-32B",
+        "deepseek-ai/DeepSeek-V3.2",
+        "zai-org/GLM-4.7",
+        "moonshotai/Kimi-K2.5",
+        "openai/gpt-oss-120b"
+      ],
       "freeNote": "指定免费模型不限量（限速）— no credit card",
       "monthlyTokens": 0,
       "freeType": "recurring-uncapped",
@@ -137,7 +185,11 @@
       "baseUrl": "https://open.bigmodel.cn",
       "signupUrl": "https://open.bigmodel.cn",
       "keyRequired": true,
-      "models": ["glm-4.7-flash", "glm-4.5-flash", "glm-4-flash"],
+      "models": [
+        "glm-4.7-flash",
+        "glm-4.5-flash",
+        "glm-4-flash"
+      ],
       "freeNote": "GLM Flash 系列免费调用（限速），注册送一次性额度",
       "monthlyTokens": 0,
       "freeType": "recurring-uncapped",
@@ -151,7 +203,9 @@
       "baseUrl": "https://api.arcee.ai",
       "signupUrl": "https://arcee.ai",
       "keyRequired": true,
-      "models": ["arcee-ai/trinity-large-preview:free"],
+      "models": [
+        "arcee-ai/trinity-large-preview:free"
+      ],
       "freeNote": "Free Trinity Large Thinking model (262K context). No credit card required.",
       "monthlyTokens": 4800000,
       "freeType": "recurring-daily",
@@ -165,12 +219,171 @@
       "baseUrl": "https://api.llm7.io",
       "signupUrl": "https://token.llm7.io",
       "keyRequired": true,
-      "models": ["gpt-4o-mini-2024-07-18", "gpt-4.1-nano-2025-04-14", "deepseek-r1-0528", "qwen2.5-coder-32b-instruct"],
+      "models": [
+        "gpt-4o-mini-2024-07-18",
+        "gpt-4.1-nano-2025-04-14",
+        "deepseek-r1-0528",
+        "qwen2.5-coder-32b-instruct"
+      ],
       "freeNote": "No signup required - 2 req/s, 20 RPM, 100 req/hr free tier（任意非空 key 可用，token.llm7.io 领 key 提额）",
       "monthlyTokens": 150000000,
       "freeType": "recurring-daily",
       "tos": "caution",
       "poolKey": "llm7-free"
+    },
+    {
+      "id": "cohere",
+      "name": "Cohere Trial 免费层",
+      "channelType": 1,
+      "baseUrl": "https://api.cohere.ai/compatibility",
+      "signupUrl": "https://dashboard.cohere.com/api-keys",
+      "keyRequired": true,
+      "models": [
+        "command-a-plus",
+        "command-a",
+        "command-r-plus",
+        "command-r",
+        "command-r7b"
+      ],
+      "freeNote": "Trial key：1000 calls/月，20 RPM，无需信用卡（非商用）",
+      "monthlyTokens": 2000000,
+      "freeType": "recurring-monthly",
+      "tos": "caution",
+      "poolKey": "cohere"
+    },
+    {
+      "id": "nvidia-nim",
+      "name": "NVIDIA NIM 免费层",
+      "channelType": 1,
+      "baseUrl": "https://integrate.api.nvidia.com",
+      "signupUrl": "https://build.nvidia.com/explore/discover",
+      "keyRequired": true,
+      "models": [
+        "nvidia/nemotron-3-ultra-550b-a55b",
+        "openai/gpt-oss-20b",
+        "google/gemma-4-31b-it",
+        "meta/llama-3.3-70b-instruct"
+      ],
+      "freeNote": "NVIDIA Developer Program 免费：100+ 模型，按模型限速",
+      "monthlyTokens": 20000000,
+      "freeType": "recurring-daily",
+      "tos": "caution",
+      "poolKey": "nvidia-nim"
+    },
+    {
+      "id": "modelscope",
+      "name": "ModelScope 免费推理",
+      "channelType": 1,
+      "baseUrl": "https://api-inference.modelscope.cn",
+      "signupUrl": "https://modelscope.cn/my/myaccesstoken",
+      "keyRequired": true,
+      "models": [
+        "Qwen/Qwen3.5-35B-A3B",
+        "Qwen/Qwen3.5-27B"
+      ],
+      "freeNote": "注册即送免费推理额度：2000 RPD 总量、单模型 500 RPD（需绑定阿里云+实名）",
+      "monthlyTokens": 30000000,
+      "freeType": "recurring-daily",
+      "tos": "caution",
+      "poolKey": "modelscope"
+    },
+    {
+      "id": "ovhcloud",
+      "name": "OVHcloud AI Endpoints 匿名免费",
+      "channelType": 1,
+      "baseUrl": "https://oai.endpoints.kepler.ai.cloud.ovh.net",
+      "signupUrl": "https://www.ovhcloud.com/en/public-cloud/ai-endpoints/catalog/",
+      "keyRequired": false,
+      "models": [
+        "Qwen3.5-397B-A17B",
+        "gpt-oss-120b",
+        "gpt-oss-20b",
+        "Meta-Llama-3_3-70B-Instruct",
+        "Qwen3.5-9B"
+      ],
+      "freeNote": "完全匿名免费：无需注册无需 key，每 IP 每模型 2 RPM，20+ 开源模型（欧盟节点）",
+      "monthlyTokens": 5000000,
+      "freeType": "recurring-uncapped",
+      "tos": "ok",
+      "poolKey": "ovhcloud"
+    },
+    {
+      "id": "kilo-code",
+      "name": "Kilo Code 免费池",
+      "channelType": 1,
+      "baseUrl": "https://api.kilo.ai/api/gateway",
+      "signupUrl": "https://app.kilo.ai/profile",
+      "keyRequired": false,
+      "models": [
+        "kilo-auto/free",
+        "nvidia/nemotron-3-ultra-550b-a55b:free",
+        "cohere/north-mini-code:free",
+        "nvidia/nemotron-3.5-lightning:free",
+        "openrouter/free"
+      ],
+      "freeNote": "免 key 免卡：200 req/hr per IP，kilo-auto/free 自动路由免费池",
+      "monthlyTokens": 10000000,
+      "freeType": "recurring-daily",
+      "tos": "caution",
+      "poolKey": "kilo-code"
+    },
+    {
+      "id": "aion-labs",
+      "name": "Aion Labs 免费层",
+      "channelType": 1,
+      "baseUrl": "https://api.aionlabs.ai",
+      "signupUrl": "https://www.aionlabs.ai/app/api-keys/",
+      "keyRequired": true,
+      "models": [
+        "aion-labs/aion-3.0",
+        "aion-labs/aion-3.0-mini",
+        "aion-labs/aion-2.0",
+        "aion-labs/aion-rp-llama-3.1-8b"
+      ],
+      "freeNote": "永久免费层：15 RPM / 20K TPD，无需信用卡（角色扮演/叙事优化）",
+      "monthlyTokens": 600000,
+      "freeType": "recurring-daily",
+      "tos": "caution",
+      "poolKey": "aion-labs"
+    },
+    {
+      "id": "gonka-broker",
+      "name": "Gonka Broker 免费层",
+      "channelType": 1,
+      "baseUrl": "https://proxy.gonkabroker.com",
+      "signupUrl": "https://app.gonkabroker.com/signup",
+      "keyRequired": true,
+      "models": [
+        "deepseek-ai/DeepSeek-V4-Flash-0731",
+        "zai-org/GLM-5.3-Flash",
+        "MiniMaxAI/MiniMax-M2.7",
+        "BAAI/bge-m3"
+      ],
+      "freeNote": "永久免费层：约 1M tokens/月（需手机验证，模型阵容随治理轮换）",
+      "monthlyTokens": 1000000,
+      "freeType": "recurring-monthly",
+      "tos": "caution",
+      "poolKey": "gonka-broker"
+    },
+    {
+      "id": "pollinations",
+      "name": "Pollinations 免费层",
+      "channelType": 1,
+      "baseUrl": "https://text.pollinations.ai/openai",
+      "signupUrl": "https://pollinations.ai",
+      "keyRequired": false,
+      "models": [
+        "openai",
+        "openai-fast",
+        "openai-large",
+        "qwen-coder",
+        "mistral"
+      ],
+      "freeNote": "完全免费免 key：匿名层约 1 req/45s/IP，注册可提额（平台公共渠道 id=1 即此源）",
+      "monthlyTokens": 5000000,
+      "freeType": "recurring-uncapped",
+      "tos": "ok",
+      "poolKey": "pollinations"
     }
   ]
 }
