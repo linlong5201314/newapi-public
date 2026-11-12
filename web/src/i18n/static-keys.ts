@@ -915,6 +915,7 @@ export const STATIC_I18N_KEYS = [
   // [M3-FE] WorkBuddy/Trae channel provider labels and descriptions.
   'WorkBuddy',
   'Trae',
+  'Cline',
   'Account login',
   'Connect to WorkBuddy using OAuth account credentials with automatic token refresh',
   'Connect to Trae using imported account credentials with automatic token refresh',
