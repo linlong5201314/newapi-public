@@ -7894,6 +7894,14 @@
     "optional": "optional",
     "{{n}} enabled": "{{n}} enabled",
     "{{n}} failures": "{{n}} failures",
-    "{{n}} nodes": "{{n}} nodes"
+    "{{n}} nodes": "{{n}} nodes",
+    "No channel yet? Sign in right here:": "No channel yet? Sign in right here:",
+    "Sign in to WorkBuddy": "Sign in to WorkBuddy",
+    "Open the authorization page again": "Open the authorization page again",
+    "trae://... or http://127.0.0.1:...?code=...": "trae://... or http://127.0.0.1:...?code=...",
+    "Please paste the Trae callback URL": "Please paste the Trae callback URL",
+    "Failed to import Trae credential": "Failed to import Trae credential",
+    "Trae channel created": "Trae channel created",
+    "Authorization expired, please retry": "Authorization expired, please retry"
   }
 }
