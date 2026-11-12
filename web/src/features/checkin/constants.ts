@@ -71,6 +71,39 @@ export const CHECKIN_FALLBACK_SITES: CheckinSiteTemplate[] = [
       'Daily check-in claim (+200/day) and balance sync onto the referenced channel. References one of your Trae channels.',
   },
   {
+    site: 'qoder',
+    name: 'Qoder',
+    icon: 'qoder',
+    mode: 'api',
+    credFields: [
+      {
+        key: 'token',
+        label: 'Qoder desktop token',
+        type: 'password',
+        required: true,
+        placeholder: 'auth.v1.dat 解密后的 token',
+        help: 'Qoder CN 桌面端登录态文件 auth.v1.dat 解密后的 token 字段。',
+      },
+      {
+        key: 'baseUrl',
+        label: 'API base URL',
+        type: 'text',
+        required: false,
+        placeholder: 'https://openapi.qoder.com.cn',
+        help: '国际版账号填 https://openapi.qoder.com。',
+      },
+      {
+        key: 'machineId',
+        label: 'Machine ID',
+        type: 'text',
+        required: false,
+        help: '可选设备标识（Cosy-MachineId）。',
+      },
+    ],
+    guide:
+      '每日 100 通用 Credits（UTC+8 10:00 刷新，无补领）。token 取自 Qoder 桌面端登录态；领取幂等，已领过会返回 skipped。',
+  },
+  {
     site: 'apinex',
     name: 'Apinex',
     icon: 'cloud',
