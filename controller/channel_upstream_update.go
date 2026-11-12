@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relay/channel/advancedcustom"
+	"github.com/QuantumNous/new-api/relay/channel/cline"
 	"github.com/QuantumNous/new-api/relay/channel/gemini"
 	"github.com/QuantumNous/new-api/relay/channel/ollama"
 	"github.com/QuantumNous/new-api/relay/channel/trae"
@@ -372,6 +373,26 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 			return nil, fmt.Errorf("task plugin %q is not registered", channel.GetSetting().TaskPluginKey)
 		}
 		return normalizeModelNames(plugin.Meta.Models), nil
+	}
+	// Cline 的基址已自带 /api/v1，模型端点是 {base}/models（不是 {base}/v1/models）。
+	if channel.Type == constant.ChannelTypeCline {
+		key, _, apiErr := channel.GetNextEnabledKey()
+		if apiErr != nil {
+			return nil, fmt.Errorf("failed to get channel credential: %w", apiErr)
+		}
+		key = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(strings.TrimPrefix(key, "Bearer ")), cline.AuthPrefix))
+		if key == "" {
+			return nil, fmt.Errorf("channel credential is empty")
+		}
+		base := strings.TrimSuffix(strings.TrimSpace(channel.GetBaseURL()), "/")
+		if base == "" {
+			base = cline.DefaultBaseURL
+		}
+		models, err := cline.FetchUpstreamModels(base, key)
+		if err != nil {
+			return nil, err
+		}
+		return normalizeModelNames(models), nil
 	}
 	// 账号型渠道（WorkBuddy / Trae）没有 OpenAI 兼容的 {base}/v1/models 端点：
 	// 它们的模型清单来自登录凭据（cred JSON）调用上游私有接口，必须走适配器自带的
