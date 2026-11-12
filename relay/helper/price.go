@@ -73,6 +73,21 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 
 	groupRatioInfo := HandleGroupRatio(c, info)
 
+	// 全局免价格总闸：不校验模型价格/倍率是否配置，预扣与后结算一律按 0 计算。
+	if operation_setting.AllModelsFreeBilling {
+		priceData := hosttypes.PriceData{
+			FreeModel:         true,
+			UsePrice:          false,
+			ModelPrice:        0,
+			ModelRatio:        0,
+			CompletionRatio:   0,
+			QuotaToPreConsume: 0,
+			GroupRatioInfo:    groupRatioInfo,
+		}
+		info.PriceData = priceData
+		return priceData, nil
+	}
+
 	// Check if this model uses tiered_expr billing
 	if billing_setting.GetBillingMode(billingModelName) == billing_setting.BillingModeTieredExpr {
 		return modelPriceHelperTiered(c, info, billingModelName, promptTokens, groupRatioInfo)
@@ -212,6 +227,20 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 // ModelPriceHelperPerCall 按次/按量计费的 PriceHelper (MJ、Task)
 func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (hosttypes.PriceData, error) {
 	groupRatioInfo := HandleGroupRatio(c, info)
+
+	// 全局免价格总闸：按次/按量计费同样直接归零，不校验价格配置。
+	if operation_setting.AllModelsFreeBilling {
+		priceData := hosttypes.PriceData{
+			FreeModel:      true,
+			UsePrice:       false,
+			ModelPrice:     0,
+			ModelRatio:     0,
+			Quota:          0,
+			GroupRatioInfo: groupRatioInfo,
+		}
+		info.PriceData = priceData
+		return priceData, nil
+	}
 
 	modelPrice, success := ratio_setting.GetModelPrice(info.OriginModelName, true)
 	usePrice := success
