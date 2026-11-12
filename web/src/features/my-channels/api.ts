@@ -328,6 +328,8 @@ export async function importTraeCredential(payload: {
   callbackUrl?: string
   refreshToken?: string
   uid?: string
+  /** preview（默认，只回脱敏预览）｜create（直接建渠道并返回 channel）。 */
+  mode?: 'preview' | 'create'
 }): Promise<ImportTraeCredentialResponse> {
   const res = await api.post(
     `${SELF_BASE}/import_trae`,
