@@ -7532,6 +7532,7 @@
     "Total reward: {{count}}": "累計報酬：{{count}}",
     "e.g., My main account": "例：メインアカウント",
     "{{count}}-day streak": "{{count}} 日連続",
-    "{{field}} is required": "{{field}} は必須です"
+    "{{field}} is required": "{{field}} は必須です",
+    "Connect to Cline with a WorkOS credential; the gateway injects the required client fingerprint headers": "WorkOS 認証情報で Cline に接続します。必要なクライアント指紋ヘッダーはゲートウェイが自動付与します"
   }
 }
