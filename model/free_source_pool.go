@@ -10,19 +10,19 @@ import (
 
 // FreeSourcePool 公共免费模型池条目。
 type FreeSourcePool struct {
-	Id          int       `json:"id" gorm:"primaryKey;autoIncrement"`
-	Name        string    `json:"name" gorm:"type:varchar(200);not null"`                // 名称（如 "Groq 免费额度"）
-	Url         string    `json:"url" gorm:"type:varchar(500);not null"`                 // 来源 URL
-	Models      []string  `json:"models" gorm:"type:text[]"`                             // 可用模型列表（PostgreSQL array）
-	Description string    `json:"description" gorm:"type:text"`                          // 描述
-	Tags        []string  `json:"tags" gorm:"type:text[]"`                               // 标签：完全免费/额度限制/签到/推荐/不推荐
-	Rating      float64   `json:"rating" gorm:"type:decimal(3,2);default:0"`             // 平均评分（0-5）
-	RatingCount int       `json:"rating_count" gorm:"default:0"`                         // 评分人数
-	Recommended bool      `json:"recommended" gorm:"default:false"`                      // 是否推荐（高评分/人工置顶）
-	SubmitterId int       `json:"submitter_user_id" gorm:"not null"`                     // 提交者 user_id
-	SubmitterName string  `json:"submitter_name" gorm:"type:varchar(64)"`                // 提交者 username（冗余，避免 join）
-	CreatedAt   time.Time `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt   time.Time `json:"updated_at" gorm:"autoUpdateTime"`
+	Id            int       `json:"id" gorm:"primaryKey;autoIncrement"`
+	Name          string    `json:"name" gorm:"type:varchar(200);not null"`    // 名称（如 "Groq 免费额度"）
+	Url           string    `json:"url" gorm:"type:varchar(500);not null"`     // 来源 URL
+	Models        []string  `json:"models" gorm:"serializer:json;type:text"`   // 可用模型列表（JSON 序列化，三库通用）
+	Description   string    `json:"description" gorm:"type:text"`              // 描述
+	Tags          []string  `json:"tags" gorm:"serializer:json;type:text"`     // 标签：完全免费/额度限制/签到/推荐/不推荐
+	Rating        float64   `json:"rating" gorm:"type:decimal(3,2);default:0"` // 平均评分（0-5）
+	RatingCount   int       `json:"rating_count" gorm:"default:0"`             // 评分人数
+	Recommended   bool      `json:"recommended" gorm:"default:false"`          // 是否推荐（高评分/人工置顶）
+	SubmitterId   int       `json:"submitter_user_id" gorm:"not null"`         // 提交者 user_id
+	SubmitterName string    `json:"submitter_name" gorm:"type:varchar(64)"`    // 提交者 username（冗余，避免 join）
+	CreatedAt     time.Time `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt     time.Time `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
 func (FreeSourcePool) TableName() string { return "free_source_pools" }
