@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relay/channel/cline"
 	"github.com/QuantumNous/new-api/relay/channel/trae"
 	"github.com/QuantumNous/new-api/relay/channel/workbuddy"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -162,6 +163,8 @@ func createAccountChannel(c *gin.Context, channelType int, nickname, keyJSON str
 		models = (&workbuddy.Adaptor{}).GetModelList()
 	case constant.ChannelTypeTrae:
 		models = (&trae.Adaptor{}).GetModelList()
+	case constant.ChannelTypeCline:
+		models = (&cline.Adaptor{}).GetModelList()
 	}
 	weight := uint(0)
 	autoBan := 1
@@ -208,6 +211,9 @@ func SelfFetchAccountModels(c *gin.Context, channel *model.Channel) ([]string, b
 		models, err = workbuddy.FetchUpstreamModels(key)
 	case constant.ChannelTypeTrae:
 		models, err = trae.FetchUpstreamModels(key)
+	case constant.ChannelTypeCline:
+		base := channel.GetBaseURL()
+		models, err = cline.FetchUpstreamModels(base, key)
 	default:
 		return nil, false
 	}
