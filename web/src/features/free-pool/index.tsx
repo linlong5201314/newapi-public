@@ -198,10 +198,11 @@ function PoolCard(props: PoolCardProps) {
           </div>
           <div className='flex items-center gap-1'>
             <a
-              href={entry.url}
+              href={entry.signup_url || entry.homepage_url || entry.url}
               target='_blank'
               rel='noreferrer noopener'
-              aria-label={t('Open source')}
+              aria-label={t('Sign up')}
+              title={t('Sign up')}
               className={buttonVariants({ variant: 'ghost', size: 'icon' })}
             >
               <ExternalLink className='h-4 w-4' />
@@ -281,6 +282,8 @@ function SubmitDialog(props: SubmitDialogProps) {
   const queryClient = useQueryClient()
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
+  const [signupUrl, setSignupUrl] = useState('')
+  const [homepageUrl, setHomepageUrl] = useState('')
   const [models, setModels] = useState('')
   const [description, setDescription] = useState('')
   const [quota, setQuota] = useState('')
@@ -291,6 +294,8 @@ function SubmitDialog(props: SubmitDialogProps) {
       submitPool({
         name,
         url,
+        signup_url: signupUrl.trim() || undefined,
+        homepage_url: homepageUrl.trim() || undefined,
         models: models
           .split(',')
           .map((model) => model.trim())
@@ -303,6 +308,8 @@ function SubmitDialog(props: SubmitDialogProps) {
       props.onOpenChange(false)
       setName('')
       setUrl('')
+      setSignupUrl('')
+      setHomepageUrl('')
       setModels('')
       setDescription('')
       setQuota('')
@@ -343,6 +350,24 @@ function SubmitDialog(props: SubmitDialogProps) {
               value={url}
               onChange={(event) => setUrl(event.target.value)}
               placeholder='https://console.groq.com/keys'
+            />
+          </div>
+          <div className='space-y-1'>
+            <Label htmlFor='pool-signup-url'>{t('Signup / API key page')}</Label>
+            <Input
+              id='pool-signup-url'
+              value={signupUrl}
+              onChange={(event) => setSignupUrl(event.target.value)}
+              placeholder='https://example.com/signup'
+            />
+          </div>
+          <div className='space-y-1'>
+            <Label htmlFor='pool-homepage-url'>{t('Homepage')}</Label>
+            <Input
+              id='pool-homepage-url'
+              value={homepageUrl}
+              onChange={(event) => setHomepageUrl(event.target.value)}
+              placeholder='https://example.com'
             />
           </div>
           <div className='space-y-1'>
