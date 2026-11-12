@@ -41,6 +41,7 @@ import { Route as AuthenticatedCheckinIndexRouteImport } from './routes/_authent
 import { Route as AuthenticatedDashboardIndexRouteImport } from './routes/_authenticated/dashboard/index'
 import { Route as AuthenticatedDashboardSectionRouteImport } from './routes/_authenticated/dashboard/$section'
 import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenticated/errors/$error'
+import { Route as AuthenticatedFreePoolIndexRouteImport } from './routes/_authenticated/free-pool/index'
 import { Route as AuthenticatedKeysIndexRouteImport } from './routes/_authenticated/keys/index'
 import { Route as AuthenticatedModelsIndexRouteImport } from './routes/_authenticated/models/index'
 import { Route as AuthenticatedModelsSectionRouteImport } from './routes/_authenticated/models/$section'
@@ -240,6 +241,12 @@ const AuthenticatedErrorsErrorRoute =
   AuthenticatedErrorsErrorRouteImport.update({
     id: '/errors/$error',
     path: '/errors/$error',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedFreePoolIndexRoute =
+  AuthenticatedFreePoolIndexRouteImport.update({
+    id: '/free-pool/',
+    path: '/free-pool/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedKeysIndexRoute = AuthenticatedKeysIndexRouteImport.update({
@@ -489,6 +496,7 @@ export interface FileRoutesByFullPath {
   '/channels/': typeof AuthenticatedChannelsIndexRoute
   '/checkin/': typeof AuthenticatedCheckinIndexRoute
   '/dashboard/': typeof AuthenticatedDashboardIndexRoute
+  '/free-pool/': typeof AuthenticatedFreePoolIndexRoute
   '/keys/': typeof AuthenticatedKeysIndexRoute
   '/models/': typeof AuthenticatedModelsIndexRoute
   '/my-channels/': typeof AuthenticatedMyChannelsIndexRoute
@@ -556,6 +564,7 @@ export interface FileRoutesByTo {
   '/channels': typeof AuthenticatedChannelsIndexRoute
   '/checkin': typeof AuthenticatedCheckinIndexRoute
   '/dashboard': typeof AuthenticatedDashboardIndexRoute
+  '/free-pool': typeof AuthenticatedFreePoolIndexRoute
   '/keys': typeof AuthenticatedKeysIndexRoute
   '/models': typeof AuthenticatedModelsIndexRoute
   '/my-channels': typeof AuthenticatedMyChannelsIndexRoute
@@ -627,6 +636,7 @@ export interface FileRoutesById {
   '/_authenticated/channels/': typeof AuthenticatedChannelsIndexRoute
   '/_authenticated/checkin/': typeof AuthenticatedCheckinIndexRoute
   '/_authenticated/dashboard/': typeof AuthenticatedDashboardIndexRoute
+  '/_authenticated/free-pool/': typeof AuthenticatedFreePoolIndexRoute
   '/_authenticated/keys/': typeof AuthenticatedKeysIndexRoute
   '/_authenticated/models/': typeof AuthenticatedModelsIndexRoute
   '/_authenticated/my-channels/': typeof AuthenticatedMyChannelsIndexRoute
@@ -697,6 +707,7 @@ export interface FileRouteTypes {
     | '/channels/'
     | '/checkin/'
     | '/dashboard/'
+    | '/free-pool/'
     | '/keys/'
     | '/models/'
     | '/my-channels/'
@@ -764,6 +775,7 @@ export interface FileRouteTypes {
     | '/channels'
     | '/checkin'
     | '/dashboard'
+    | '/free-pool'
     | '/keys'
     | '/models'
     | '/my-channels'
@@ -834,6 +846,7 @@ export interface FileRouteTypes {
     | '/_authenticated/channels/'
     | '/_authenticated/checkin/'
     | '/_authenticated/dashboard/'
+    | '/_authenticated/free-pool/'
     | '/_authenticated/keys/'
     | '/_authenticated/models/'
     | '/_authenticated/my-channels/'
@@ -1112,6 +1125,13 @@ declare module '@tanstack/react-router' {
       path: '/errors/$error'
       fullPath: '/errors/$error'
       preLoaderRoute: typeof AuthenticatedErrorsErrorRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/free-pool/': {
+      id: '/_authenticated/free-pool/'
+      path: '/free-pool'
+      fullPath: '/free-pool/'
+      preLoaderRoute: typeof AuthenticatedFreePoolIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/keys/': {
@@ -1471,6 +1491,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedChannelsIndexRoute: typeof AuthenticatedChannelsIndexRoute
   AuthenticatedCheckinIndexRoute: typeof AuthenticatedCheckinIndexRoute
   AuthenticatedDashboardIndexRoute: typeof AuthenticatedDashboardIndexRoute
+  AuthenticatedFreePoolIndexRoute: typeof AuthenticatedFreePoolIndexRoute
   AuthenticatedKeysIndexRoute: typeof AuthenticatedKeysIndexRoute
   AuthenticatedModelsIndexRoute: typeof AuthenticatedModelsIndexRoute
   AuthenticatedMyChannelsIndexRoute: typeof AuthenticatedMyChannelsIndexRoute
@@ -1502,6 +1523,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedChannelsIndexRoute: AuthenticatedChannelsIndexRoute,
   AuthenticatedCheckinIndexRoute: AuthenticatedCheckinIndexRoute,
   AuthenticatedDashboardIndexRoute: AuthenticatedDashboardIndexRoute,
+  AuthenticatedFreePoolIndexRoute: AuthenticatedFreePoolIndexRoute,
   AuthenticatedKeysIndexRoute: AuthenticatedKeysIndexRoute,
   AuthenticatedModelsIndexRoute: AuthenticatedModelsIndexRoute,
   AuthenticatedMyChannelsIndexRoute: AuthenticatedMyChannelsIndexRoute,
