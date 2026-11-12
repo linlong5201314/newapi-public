@@ -54,6 +54,11 @@ func AddSelfChannelFromTemplate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "API key is required for this template"})
 		return
 	}
+	// 免 key 源（kilo-code / ovhcloud / pollinations 等匿名层）：渠道表 key 不能为空，
+	// 灌一个可识别的占位 key，上游忽略 Authorization 即可（实测 pollinations/kilo/ovh 均接受任意非空 key）
+	if req.Key == "" {
+		req.Key = "sk-free-" + tpl.Id
+	}
 	// extraFields（如 cloudflare-ai 的 accountId）替换 baseUrl 占位符
 	baseURL := tpl.BaseUrl
 	for _, field := range tpl.ExtraFields {
