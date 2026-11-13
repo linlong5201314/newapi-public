@@ -7533,6 +7533,12 @@
     "e.g., My main account": "ví dụ: tài khoản chính của tôi",
     "{{count}}-day streak": "Chuỗi {{count}} ngày",
     "{{field}} is required": "{{field}} là bắt buộc",
-    "Connect to Cline with a WorkOS credential; the gateway injects the required client fingerprint headers": "Kết nối Cline bằng thông tin WorkOS; gateway tự thêm các header dấu vân tay máy khách bắt buộc"
+    "Connect to Cline with a WorkOS credential; the gateway injects the required client fingerprint headers": "Kết nối Cline bằng thông tin WorkOS; gateway tự thêm các header dấu vân tay máy khách bắt buộc",
+    "Outbound proxy for this channel": "Proxy ra cho kênh này",
+    "Follow my egress IP pool (rotate per request)": "Theo pool IP ra của tôi (xoay mỗi request)",
+    "Direct connection (no proxy)": "Kết nối trực tiếp (không proxy)",
+    "Fixed proxy URL": "URL proxy cố định",
+    "e.g. http://1.2.3.4:8080 or socks5://host:1080": "ví dụ http://1.2.3.4:8080 hoặc socks5://host:1080",
+    "Reverse-proxy accounts carry risk: use a throwaway account, never your main one.": "Tài khoản reverse-proxy có rủi ro: hãy dùng tài khoản phụ, đừng dùng tài khoản chính."
   }
 }
