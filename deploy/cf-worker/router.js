@@ -28,6 +28,9 @@ async function getNodes(env) {
   return DEFAULT_NODES;
 }
 
+// 静态资源前缀：命中后直接 302 到主节点（见 fetch 内注释）
+const STATIC_RE = /^\/(?:static\/|assets\/|favicon\.ico$|logo\.png$|robots\.txt$|manifest\.json$)/;
+
 function weightedOrder(nodes) {
   const arr = [];
   for (const n of nodes) {
@@ -68,6 +71,23 @@ export default {
 
     const nodes = (await getNodes(env)).filter((n) => n.enabled && n.healthy !== false);
     if (!nodes.length) return new Response('no healthy node', { status: 503 });
+
+    // 静态资源（JS/CSS/字体/图标）：各节点字节完全一致，没必要经 Worker 转发。
+    // 实测 Worker 透传大文件极慢：347KB 需 33s、738KB 与 5.3MB 主包直接超时 → 浏览器首屏空白。
+    // 改为 302 到权重最高的节点，浏览器直连 Railway（实测 <2s），地址栏仍是本站域名。
+    if (STATIC_RE.test(url.pathname)) {
+      const primary = [...nodes].sort((a, b) => (b.weight || 1) - (a.weight || 1))[0];
+      const target = new URL(url.pathname + url.search, primary.url);
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: target.toString(),
+          'Cache-Control': 'public, max-age=300',
+          'X-Router-Node': primary.id,
+          'X-Router-Mode': 'static-redirect',
+        },
+      });
+    }
 
     let lastErr = null;
     for (const node of weightedOrder(nodes).slice(0, 3)) {
