@@ -45,6 +45,8 @@ export type FreeSourceTemplate = {
   freeType?: string
   /** Extra placeholder fields in baseUrl (e.g. cloudflare-ai accountId). */
   extraFields?: string[]
+  /** Default values for extraFields; used when the user leaves them empty. */
+  defaultExtra?: Record<string, string>
   /** Quota pool key shared by several templates. */
   poolKey?: string
   /** ToS risk marker: ok | caution | avoid (avoid never ships). */
@@ -162,6 +164,18 @@ export function normalizeFreeTemplates(data: unknown): FreeSourceTemplate[] {
               (field): field is string => typeof field === 'string'
             )
           : undefined,
+        defaultExtra: (() => {
+          const rawDefault = asRecord(
+            record.defaultExtra ?? record.default_extra
+          )
+          if (!rawDefault) return undefined
+          const entries = Object.entries(rawDefault)
+            .map(([k, v]) => [k, asString(v)] as const)
+            .filter((entry): entry is readonly [string, string] =>
+              Boolean(entry[1])
+            )
+          return entries.length ? Object.fromEntries(entries) : undefined
+        })(),
         poolKey: asString(record.poolKey ?? record.pool_key),
         tos: asString(record.tos),
         signupUrl: asString(record.signupUrl ?? record.signup_url),
