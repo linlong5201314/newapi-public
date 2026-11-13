@@ -7533,6 +7533,12 @@
     "e.g., My main account": "例：メインアカウント",
     "{{count}}-day streak": "{{count}} 日連続",
     "{{field}} is required": "{{field}} は必須です",
-    "Connect to Cline with a WorkOS credential; the gateway injects the required client fingerprint headers": "WorkOS 認証情報で Cline に接続します。必要なクライアント指紋ヘッダーはゲートウェイが自動付与します"
+    "Connect to Cline with a WorkOS credential; the gateway injects the required client fingerprint headers": "WorkOS 認証情報で Cline に接続します。必要なクライアント指紋ヘッダーはゲートウェイが自動付与します",
+    "Outbound proxy for this channel": "このチャネルの送信プロキシ",
+    "Follow my egress IP pool (rotate per request)": "送信 IP プールに従う（リクエストごとに切替）",
+    "Direct connection (no proxy)": "直接接続（プロキシなし）",
+    "Fixed proxy URL": "固定プロキシ URL",
+    "e.g. http://1.2.3.4:8080 or socks5://host:1080": "例: http://1.2.3.4:8080 または socks5://host:1080",
+    "Reverse-proxy accounts carry risk: use a throwaway account, never your main one.": "逆プロキシアカウントにはリスクがあります。捨てアカウントを使い、メインを使わないでください。"
   }
 }
