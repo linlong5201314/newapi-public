@@ -7533,6 +7533,12 @@
     "e.g., My main account": "例如：我的主帳號",
     "{{count}}-day streak": "連續 {{count}} 天",
     "{{field}} is required": "{{field}} 為必填",
-    "Connect to Cline with a WorkOS credential; the gateway injects the required client fingerprint headers": "用 WorkOS 憑證接入 Cline；網關會自動補齊必需的用戶端指紋標頭"
+    "Connect to Cline with a WorkOS credential; the gateway injects the required client fingerprint headers": "用 WorkOS 憑證接入 Cline；網關會自動補齊必需的用戶端指紋標頭",
+    "Outbound proxy for this channel": "該渠道的出口代理",
+    "Follow my egress IP pool (rotate per request)": "跟隨我的出口 IP 池（每請求輪換）",
+    "Direct connection (no proxy)": "直連（不使用代理）",
+    "Fixed proxy URL": "固定代理位址",
+    "e.g. http://1.2.3.4:8080 or socks5://host:1080": "例如 http://1.2.3.4:8080 或 socks5://host:1080",
+    "Reverse-proxy accounts carry risk: use a throwaway account, never your main one.": "反代帳號有風險：請用小號，不要用主號。"
   }
 }
