@@ -7533,6 +7533,12 @@
     "e.g., My main account": "напр., мой основной аккаунт",
     "{{count}}-day streak": "Серия {{count}} дн.",
     "{{field}} is required": "Поле {{field}} обязательно",
-    "Connect to Cline with a WorkOS credential; the gateway injects the required client fingerprint headers": "Подключение Cline по учётным данным WorkOS; шлюз сам добавляет нужные заголовки отпечатка клиента"
+    "Connect to Cline with a WorkOS credential; the gateway injects the required client fingerprint headers": "Подключение Cline по учётным данным WorkOS; шлюз сам добавляет нужные заголовки отпечатка клиента",
+    "Outbound proxy for this channel": "Исходящий прокси для этого канала",
+    "Follow my egress IP pool (rotate per request)": "Использовать мой пул исходящих IP (ротация на запрос)",
+    "Direct connection (no proxy)": "Прямое подключение (без прокси)",
+    "Fixed proxy URL": "Фиксированный прокси URL",
+    "e.g. http://1.2.3.4:8080 or socks5://host:1080": "напр. http://1.2.3.4:8080 или socks5://host:1080",
+    "Reverse-proxy accounts carry risk: use a throwaway account, never your main one.": "Аккаунты обратного прокси несут риск: используйте одноразовый аккаунт, не основной."
   }
 }
