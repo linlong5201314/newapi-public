@@ -113,8 +113,11 @@ export function FromTemplateDialog({
 
   const keyRequired = selected?.keyRequired !== false
   const extraFields = selected?.extraFields ?? []
+  // 用户没填时回落到模板默认值（如 ds2api 平台已部署的网关地址）
+  const extraValue = (field: string) =>
+    (extraValues[field] ?? selected?.defaultExtra?.[field] ?? '').trim()
   const extrasComplete = extraFields.every(
-    (field) => (extraValues[field] ?? '').trim() !== ''
+    (field) => extraValue(field) !== ''
   )
   const canSubmit =
     selected !== null &&
@@ -126,12 +129,7 @@ export function FromTemplateDialog({
     setIsSubmitting(true)
     try {
       const extra = extraFields.length
-        ? Object.fromEntries(
-            extraFields.map((field) => [
-              field,
-              (extraValues[field] ?? '').trim(),
-            ])
-          )
+        ? Object.fromEntries(extraFields.map((field) => [field, extraValue(field)]))
         : undefined
       const proxy =
         proxyMode === 'direct'
@@ -313,14 +311,17 @@ export function FromTemplateDialog({
                 </Label>
                 <Input
                   id={`from-template-extra-${field}`}
-                  value={extraValues[field] ?? ''}
+                  value={extraValues[field] ?? selected.defaultExtra?.[field] ?? ''}
                   onChange={(e) =>
                     setExtraValues((prev) => ({
                       ...prev,
                       [field]: e.target.value,
                     }))
                   }
-                  placeholder={t('Required by this template')}
+                  placeholder={
+                    selected.defaultExtra?.[field] ??
+                    t('Required by this template')
+                  }
                   autoComplete='off'
                 />
               </div>
