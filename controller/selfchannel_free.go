@@ -39,6 +39,11 @@ func AddSelfChannelFromTemplate(c *gin.Context) {
 		Key        string            `json:"key"`
 		Name       string            `json:"name"`
 		Extra      map[string]string `json:"extra"`
+		// Proxy 可选：出口代理策略。
+		//   ""        → 跟随用户出口 IP 池（逐请求轮换，默认）
+		//   "direct"  → 强制直连（忽略用户出口池）
+		//   "http://…"/"socks5://…" → 该渠道固定走这个代理
+		Proxy string `json:"proxy"`
 	}{}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ApiErrorT(c, "Invalid parameters")
@@ -96,6 +101,22 @@ func AddSelfChannelFromTemplate(c *gin.Context) {
 		"templateId": tpl.Id,
 		"poolKey":    tpl.PoolKey,
 	})
+	// 出口代理策略：空=跟随用户出口池；direct=强制直连；其余=固定代理（创建时校验格式）
+	proxy := strings.TrimSpace(req.Proxy)
+	if proxy != "" {
+		if proxy != "direct" {
+			if _, err := common.ParseProxyURLStrict(proxy); err != nil {
+				c.JSON(http.StatusOK, gin.H{
+					"success": false,
+					"message": "invalid proxy: " + err.Error(),
+				})
+				return
+			}
+		}
+		setting := channel.GetSetting()
+		setting.Proxy = proxy
+		channel.SetSetting(setting)
+	}
 	addChannelExecute(c, &AddChannelRequest{Mode: "single", Channel: channel})
 }
 
