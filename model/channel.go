@@ -1033,8 +1033,11 @@ func (channel *Channel) ValidateSettings() error {
 			return err
 		}
 	}
-	if _, err := common.ParseProxyURLStrict(channelParams.Proxy); err != nil {
-		return fmt.Errorf("invalid channel proxy: %w", err)
+	// "direct" 是哨兵值：显式声明「该渠道强制直连，不走用户出口池」，不是代理地址。
+	if strings.TrimSpace(channelParams.Proxy) != "" && strings.TrimSpace(channelParams.Proxy) != "direct" {
+		if _, err := common.ParseProxyURLStrict(channelParams.Proxy); err != nil {
+			return fmt.Errorf("invalid channel proxy: %w", err)
+		}
 	}
 	if err := channelParams.ValidateHTTPTransport(); err != nil {
 		return err
