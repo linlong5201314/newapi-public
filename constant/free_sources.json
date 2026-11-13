@@ -553,14 +553,17 @@
         "deepseek-v4",
         "deepseek-v4-flash"
       ],
-      "freeNote": "CJackHwang/ds2api（4.7k★，Go）：部署到任何可公网访问的机器，config.json 填网页版 DeepSeek 账号（email/mobile + password），网关暴露 OpenAI 兼容 /v1。此处 base 填该网关地址（如 https://ds2api.example.com/v1）。⚠️ 反代账号有风险，建议用小号（小号被风控/封禁不影响主号）。",
+      "freeNote": "DeepSeek 网页端反代网关（平台已部署：https://ds2api-production-24fcbc11.up.railway.app ，管理后台 /admin）。填你自己的 ds2api 地址可覆盖。⚠️ 反代账号有风险，建议用小号（小号被风控/封禁不影响主号）。",
       "monthlyTokens": 0,
       "freeType": "reverse-proxy",
       "tos": "own-account",
       "poolKey": "ds2api",
       "extraFields": [
         "base"
-      ]
+      ],
+      "defaultExtra": {
+        "base": "https://ds2api-production-24fcbc11.up.railway.app/v1"
+      }
     }
   ]
 }
