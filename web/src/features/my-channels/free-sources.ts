@@ -64,6 +64,11 @@ export type CreateFromTemplateRequest = {
   key: string
   name?: string
   extra?: Record<string, string>
+  /**
+   * 出口代理策略：不传/空 = 跟随用户出口 IP 池（逐请求轮换）；
+   * "direct" = 强制直连；其余按 http(s)/socks5 代理 URL 解析。
+   */
+  proxy?: string
 }
 
 export type CreateFromTemplateResponse = {
