@@ -73,6 +73,10 @@ func AddSelfChannelFromTemplate(c *gin.Context) {
 		}
 		value := strings.TrimSpace(req.Extra[field])
 		if value == "" {
+			// 用户留空时回落到模板默认值（如 ds2api 平台已部署的网关地址）
+			value = strings.TrimSpace(tpl.DefaultExtra[field])
+		}
+		if value == "" {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": fmt.Sprintf("extra.%s is required for this template", field),
