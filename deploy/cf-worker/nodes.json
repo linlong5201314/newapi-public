@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "nodes": [
+    {
+      "id": "node1",
+      "url": "https://newapi-public-production.up.railway.app",
+      "provider": "railway438",
+      "weight": 3,
+      "enabled": true,
+      "healthy": true
+    },
+    {
+      "id": "node2",
+      "url": "https://newapi-public-production-49b4dfb0.up.railway.app",
+      "provider": "railway842",
+      "weight": 2,
+      "enabled": true,
+      "healthy": true
+    },
+    {
+      "id": "node4",
+      "url": "https://newapi-public-production-91f2142c.up.railway.app",
+      "provider": "railway196",
+      "weight": 2,
+      "enabled": true,
+      "healthy": true
+    },
+    {
+      "id": "node5",
+      "url": "https://newapi-public-production-1c18a29a.up.railway.app",
+      "provider": "railway850",
+      "weight": 2,
+      "enabled": true,
+      "healthy": true
+    },
+    {
+      "id": "node6",
+      "url": "https://newapi-public-production-782d8c37.up.railway.app",
+      "provider": "railway733",
+      "weight": 2,
+      "enabled": true,
+      "healthy": true
+    },
+    {
+      "id": "node7",
+      "url": "https://newapi-public-production-2113ed4c.up.railway.app",
+      "provider": "railway964",
+      "weight": 2,
+      "enabled": true,
+      "healthy": true
+    }
+  ]
+}
