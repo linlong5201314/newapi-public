@@ -7903,6 +7903,12 @@
     "Failed to import Trae credential": "Failed to import Trae credential",
     "Trae channel created": "Trae channel created",
     "Authorization expired, please retry": "Authorization expired, please retry",
-    "Connect to Cline with a WorkOS credential; the gateway injects the required client fingerprint headers": "Connect to Cline with a WorkOS credential; the gateway injects the required client fingerprint headers"
+    "Connect to Cline with a WorkOS credential; the gateway injects the required client fingerprint headers": "Connect to Cline with a WorkOS credential; the gateway injects the required client fingerprint headers",
+    "Outbound proxy for this channel": "Outbound proxy for this channel",
+    "Follow my egress IP pool (rotate per request)": "Follow my egress IP pool (rotate per request)",
+    "Direct connection (no proxy)": "Direct connection (no proxy)",
+    "Fixed proxy URL": "Fixed proxy URL",
+    "e.g. http://1.2.3.4:8080 or socks5://host:1080": "e.g. http://1.2.3.4:8080 or socks5://host:1080",
+    "Reverse-proxy accounts carry risk: use a throwaway account, never your main one.": "Reverse-proxy accounts carry risk: use a throwaway account, never your main one."
   }
 }
