@@ -570,6 +570,10 @@ func resolveEgressProxyURL(info *common.RelayInfo) string {
 		return ""
 	}
 	if channelProxy := strings.TrimSpace(info.ChannelSetting.Proxy); channelProxy != "" {
+		// "direct" = 管理员显式要求该渠道直连，跳过用户出口池
+		if channelProxy == "direct" {
+			return ""
+		}
 		return channelProxy
 	}
 	if info.UserId <= 0 {
