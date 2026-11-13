@@ -88,6 +88,8 @@ export function FromTemplateDialog({
   const [apiKey, setApiKey] = useState('')
   const [customName, setCustomName] = useState('')
   const [extraValues, setExtraValues] = useState<Record<string, string>>({})
+  const [proxyMode, setProxyMode] = useState<'pool' | 'direct' | 'custom'>('pool')
+  const [proxyUrl, setProxyUrl] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const { data: templates, isLoading } = useQuery({
@@ -104,6 +106,8 @@ export function FromTemplateDialog({
     setApiKey('')
     setCustomName('')
     setExtraValues({})
+    setProxyMode('pool')
+    setProxyUrl('')
     setIsSubmitting(false)
   }, [open])
 
@@ -129,11 +133,18 @@ export function FromTemplateDialog({
             ])
           )
         : undefined
+      const proxy =
+        proxyMode === 'direct'
+          ? 'direct'
+          : proxyMode === 'custom'
+            ? proxyUrl.trim()
+            : ''
       const result = await createChannelFromTemplate({
         templateId: selected.id,
         key: apiKey.trim(),
         ...(customName.trim() ? { name: customName.trim() } : {}),
         ...(extra ? { extra } : {}),
+        ...(proxy ? { proxy } : {}),
       })
       if (result.success) {
         toast.success(t('Channel created from free source'))
@@ -316,6 +327,41 @@ export function FromTemplateDialog({
             ))}
 
             <div className='flex flex-col gap-2'>
+              <Label htmlFor='from-template-proxy'>
+                {t('Outbound proxy for this channel')}
+              </Label>
+              <select
+                id='from-template-proxy'
+                value={proxyMode}
+                onChange={(e) =>
+                  setProxyMode(e.target.value as 'pool' | 'direct' | 'custom')
+                }
+                className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
+              >
+                <option value='pool'>
+                  {t('Follow my egress IP pool (rotate per request)')}
+                </option>
+                <option value='direct'>
+                  {t('Direct connection (no proxy)')}
+                </option>
+                <option value='custom'>{t('Fixed proxy URL')}</option>
+              </select>
+              {proxyMode === 'custom' && (
+                <Input
+                  value={proxyUrl}
+                  onChange={(e) => setProxyUrl(e.target.value)}
+                  placeholder={t('e.g. http://1.2.3.4:8080 or socks5://host:1080')}
+                  autoComplete='off'
+                />
+              )}
+              <p className='text-muted-foreground text-xs'>
+                {t(
+                  'Reverse-proxy accounts carry risk: use a throwaway account, never your main one.'
+                )}
+              </p>
+            </div>
+
+            <div className='flex flex-col gap-2'>
               <Label htmlFor='from-template-name'>
                 {t('Channel Name (optional)')}
               </Label>
@@ -358,3 +404,4 @@ export function FromTemplateDialog({
     </Dialog>
   )
 }
+
