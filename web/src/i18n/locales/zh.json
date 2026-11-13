@@ -7903,6 +7903,12 @@
     "Failed to import Trae credential": "导入 Trae 凭据失败",
     "Trae channel created": "Trae 渠道已创建",
     "Authorization expired, please retry": "授权已过期，请重试",
-    "Connect to Cline with a WorkOS credential; the gateway injects the required client fingerprint headers": "用 WorkOS 凭据接入 Cline；网关会自动补齐必需的客户端指纹头"
+    "Connect to Cline with a WorkOS credential; the gateway injects the required client fingerprint headers": "用 WorkOS 凭据接入 Cline；网关会自动补齐必需的客户端指纹头",
+    "Outbound proxy for this channel": "该渠道的出口代理",
+    "Follow my egress IP pool (rotate per request)": "跟随我的出口 IP 池（每请求轮换）",
+    "Direct connection (no proxy)": "直连（不使用代理）",
+    "Fixed proxy URL": "固定代理地址",
+    "e.g. http://1.2.3.4:8080 or socks5://host:1080": "例如 http://1.2.3.4:8080 或 socks5://host:1080",
+    "Reverse-proxy accounts carry risk: use a throwaway account, never your main one.": "反代账号有风险：请用小号，不要用主号。"
   }
 }
