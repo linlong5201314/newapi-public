@@ -7533,6 +7533,12 @@
     "e.g., My main account": "ex. : Mon compte principal",
     "{{count}}-day streak": "Série de {{count}} jours",
     "{{field}} is required": "{{field}} est requis",
-    "Connect to Cline with a WorkOS credential; the gateway injects the required client fingerprint headers": "Connectez Cline avec un identifiant WorkOS ; la passerelle ajoute automatiquement les en-têtes d’empreinte client requis"
+    "Connect to Cline with a WorkOS credential; the gateway injects the required client fingerprint headers": "Connectez Cline avec un identifiant WorkOS ; la passerelle ajoute automatiquement les en-têtes d’empreinte client requis",
+    "Outbound proxy for this channel": "Proxy sortant pour ce canal",
+    "Follow my egress IP pool (rotate per request)": "Suivre mon pool d’IP de sortie (rotation par requête)",
+    "Direct connection (no proxy)": "Connexion directe (sans proxy)",
+    "Fixed proxy URL": "URL de proxy fixe",
+    "e.g. http://1.2.3.4:8080 or socks5://host:1080": "ex. http://1.2.3.4:8080 ou socks5://host:1080",
+    "Reverse-proxy accounts carry risk: use a throwaway account, never your main one.": "Les comptes reverse-proxy présentent des risques : utilisez un compte jetable, jamais votre compte principal."
   }
 }
