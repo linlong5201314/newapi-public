@@ -396,9 +396,6 @@
       "baseUrl": "https://api.cline.bot/api/v1",
       "signupUrl": "https://cline.bot",
       "keyRequired": true,
-      "extraFields": [
-        "refreshToken"
-      ],
       "models": [
         "cline-free/nemotron-3.5-super-vl",
         "cline-free/mimo-v2.6-flash",
@@ -411,7 +408,7 @@
         "cline-pass/deepseek-v4-flash",
         "cline-pass/qwen3.7-max"
       ],
-      "freeNote": "Credential = workos:<accessToken> 或 refreshToken；必须带 Cline 客户端指纹头（网关已内置），免费通道并发>1 上游返回空，需串行",
+      "freeNote": "使用官方 Cline 账号的 WorkOS 凭据：把 accessToken 填到 API Key（可写 workos:xxx 或裸 token）；网关会自动注入 Cline 客户端指纹请求头，绕过 api.cline.bot 的 product-surface 校验。refreshToken 可用 Cline 的 WorkOS 设备授权换取。⚠️ 反代账号有风险，建议用小号（小号被风控/封禁不影响主号）。",
       "monthlyTokens": 0,
       "freeType": "reverse-proxy",
       "tos": "own-account",
@@ -431,7 +428,7 @@
         "deepseek-v3.1",
         "kimi-k2"
       ],
-      "freeNote": "凭据 JSON 里写 {\"domain\":\"trae.cn\"} 走国内域；上游四端点 Remote/Work/Solo/IDE",
+      "freeNote": "凭据 JSON 里写 {\"domain\":\"trae.cn\"} 走国内域；上游四端点 Remote/Work/Solo/IDE⚠️ 反代账号有风险，建议用小号（小号被风控/封禁不影响主号）。",
       "monthlyTokens": 0,
       "freeType": "reverse-proxy",
       "tos": "own-account",
@@ -451,7 +448,7 @@
         "deepseek-v3.1",
         "kimi-k2"
       ],
-      "freeNote": "凭据 JSON 里写 {\"domain\":\"trae.ai\"} 走国际域",
+      "freeNote": "凭据 JSON 里写 {\"domain\":\"trae.ai\"} 走国际域⚠️ 反代账号有风险，建议用小号（小号被风控/封禁不影响主号）。",
       "monthlyTokens": 0,
       "freeType": "reverse-proxy",
       "tos": "own-account",
@@ -461,7 +458,7 @@
       "id": "qoder-cn",
       "name": "Qoder 国内版（经 qoder2api 网关）",
       "channelType": 1,
-      "baseUrl": "http://127.0.0.1:8788/v1",
+      "baseUrl": "{base}",
       "signupUrl": "https://qoder.com",
       "keyRequired": true,
       "models": [
@@ -470,17 +467,20 @@
         "gpt-5-codex",
         "deepseek-v3.1"
       ],
-      "freeNote": "COSY 签名需服务端私钥，网关侧跑 shuishuipingan/qoder2api-hub（realm=cn）后把 /v1 地址与 key 填这里",
+      "freeNote": "Qoder 国内版：用 shuishuipingan/qoder2api-hub（590★）自建网关，支持 OAuth 设备授权+签到+双区多账号。此处 base 填网关地址（如 http://你的机器:8788/v1）。⚠️ 反代账号有风险，建议用小号（小号被风控/封禁不影响主号）。",
       "monthlyTokens": 0,
       "freeType": "reverse-proxy",
       "tos": "own-account",
-      "poolKey": "qoder-cn"
+      "poolKey": "qoder-cn",
+      "extraFields": [
+        "base"
+      ]
     },
     {
       "id": "qoder-intl",
       "name": "Qoder 国际版（经 qoder2api 网关）",
       "channelType": 1,
-      "baseUrl": "http://127.0.0.1:8789/v1",
+      "baseUrl": "{base}",
       "signupUrl": "https://qoder.com",
       "keyRequired": true,
       "models": [
@@ -489,17 +489,20 @@
         "gpt-5-codex",
         "deepseek-v3.1"
       ],
-      "freeNote": "上游 api3.qoder.sh（api2/api1 兜底），realm=intl；同样需要 qoder2api-hub 网关",
+      "freeNote": "Qoder 国际版（api3.qoder.sh）：同 qoder2api-hub，realm 选 intl。此处 base 填网关地址（如 http://你的机器:8789/v1）。⚠️ 反代账号有风险，建议用小号（小号被风控/封禁不影响主号）。",
       "monthlyTokens": 0,
       "freeType": "reverse-proxy",
       "tos": "own-account",
-      "poolKey": "qoder-intl"
+      "poolKey": "qoder-intl",
+      "extraFields": [
+        "base"
+      ]
     },
     {
       "id": "minimax-code-intl",
       "name": "MiniMax Code 国际版（经 minimax2api）",
       "channelType": 1,
-      "baseUrl": "http://127.0.0.1:8790/v1",
+      "baseUrl": "{base}",
       "signupUrl": "https://agent.minimax.io",
       "keyRequired": true,
       "models": [
@@ -507,17 +510,20 @@
         "MiniMax-Text-01",
         "MiniMax-VL-01"
       ],
-      "freeNote": "agent.minimax.io + MD5 双签名（x-signature / yy），网关侧跑 minimax2api 后填 /v1 地址与 key",
+      "freeNote": "MiniMax Agent 国际版（agent.minimax.io）：同上，region=intl。此处 base 填网关地址（如 http://你的机器:8790/v1）。⚠️ 反代账号有风险，建议用小号（小号被风控/封禁不影响主号）。",
       "monthlyTokens": 0,
       "freeType": "reverse-proxy",
       "tos": "own-account",
-      "poolKey": "minimax-intl"
+      "poolKey": "minimax-intl",
+      "extraFields": [
+        "base"
+      ]
     },
     {
       "id": "minimax-code-cn",
       "name": "MiniMax Code 国内版（经 minimax2api）",
       "channelType": 1,
-      "baseUrl": "http://127.0.0.1:8791/v1",
+      "baseUrl": "{base}",
       "signupUrl": "https://agent.minimaxi.com",
       "keyRequired": true,
       "models": [
@@ -525,17 +531,20 @@
         "MiniMax-Text-01",
         "MiniMax-VL-01"
       ],
-      "freeNote": "agent.minimaxi.com 国内域；签名算法同上（salt I*7Cf%WZ#S&%1RlZJ&C2，后缀 ooui）",
+      "freeNote": "MiniMax Agent 国内版（agent.minimaxi.com）：用 juangchuank-ops/minimax2api 自建网关（带签名与 session 协议）。此处 base 填网关地址（如 http://你的机器:8791/v1）。⚠️ 反代账号有风险，建议用小号（小号被风控/封禁不影响主号）。",
       "monthlyTokens": 0,
       "freeType": "reverse-proxy",
       "tos": "own-account",
-      "poolKey": "minimax-cn"
+      "poolKey": "minimax-cn",
+      "extraFields": [
+        "base"
+      ]
     },
     {
       "id": "ds2api",
       "name": "DeepSeek 网页版（ds2api 网关）",
       "channelType": 1,
-      "baseUrl": "http://127.0.0.1:8792/v1",
+      "baseUrl": "{base}",
       "signupUrl": "https://chat.deepseek.com",
       "keyRequired": true,
       "models": [
@@ -544,11 +553,14 @@
         "deepseek-v4",
         "deepseek-v4-flash"
       ],
-      "freeNote": "CJackHwang/ds2api：config.json 里填网页账号 email/mobile+password，网关暴露 OpenAI 兼容 /v1",
+      "freeNote": "CJackHwang/ds2api（4.7k★，Go）：部署到任何可公网访问的机器，config.json 填网页版 DeepSeek 账号（email/mobile + password），网关暴露 OpenAI 兼容 /v1。此处 base 填该网关地址（如 https://ds2api.example.com/v1）。⚠️ 反代账号有风险，建议用小号（小号被风控/封禁不影响主号）。",
       "monthlyTokens": 0,
       "freeType": "reverse-proxy",
       "tos": "own-account",
-      "poolKey": "ds2api"
+      "poolKey": "ds2api",
+      "extraFields": [
+        "base"
+      ]
     }
   ]
 }
