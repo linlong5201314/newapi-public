@@ -3,6 +3,49 @@
 本文件记录平台已托管的反代网关、入口 URL、端口与接入方式。所有网关都是 OpenAI 兼容的
 `/v1/chat/completions`，由 new-api 侧按「渠道」方式接入或直接给用户/客户端使用。
 
+## 0. 统一入口 `gw.ailong.love`（DNS-only 直连 Railway）
+
+| 项 | 值 |
+| --- | --- |
+| 入口 | **https://gw.ailong.love** |
+| 解析 | `CNAME gw → z06s5r7j.up.railway.app`，Cloudflare **DNS-only（灰云，proxied=false）**，TTL 60 |
+| 后端 | Railway node1（`newapi-public-production`，project `27fb5007…` / env `a0bbf032…` / service `21e6779e-ed4f-485c-9578-fb95151c8bb1`） |
+| 证书 | Railway 自动签发；归属验证 TXT `_railway-verify.gw = railway-verify=<token>` |
+| 上线 | 2026-11-14，`certificateStatus = CERTIFICATE_STATUS_TYPE_VALID` |
+
+> **为什么不用 Cloudflare 代理（关键教训）**
+> 国内家宽实测：CF 边缘向客户端传大文件被限速到 **≈2.2 KB/s**——5.3 MB 的前端主包 90 秒只下了
+> 199,799 B（直连同文件 2.73 s / 1.9 MB/s）。所以凡是「前端资源经 CF 下发」的方案
+> （Worker 透传、Worker 静态 302、Workers Static Assets 托管 `web/dist` 65 MB）都会让浏览器白屏。
+> 结论：**CF 只做 DNS，静态资源与 API 全部由浏览器直连 Railway**。
+
+实测（`gw.ailong.love` 直连）：
+
+```
+GET /                                   -> 200   1.71s   1,707 B
+GET /login                              -> 200   0.71s   1,707 B（SPA 路由）
+GET /api/status                         -> 200   0.77s
+GET /static/js/index.be5eecfb28.js       -> 200   2.78s   5,374,616 B  (1.9 MB/s)
+GET /static/js/async/79926.2951…js      -> 200   3.03s   6,827,321 B
+真实浏览器（Chromium 1280×800）          -> DCL 2.0s / load 2.0s，首屏完整渲染
+```
+
+六台节点（同一个 Supabase 库、同一 rootadmin）：
+
+| 节点 | 域名 | 说明 |
+| --- | --- | --- |
+| node1 railway438 | `newapi-public-production.up.railway.app` | **gw.ailong.love 指向它**，权重最高 |
+| node2 railway842 | `newapi-public-production-49b4dfb0.up.railway.app` | 备用 |
+| node4 railway196 | `newapi-public-production-91f2142c.up.railway.app` | 备用 |
+| node5 railway850 | `newapi-public-production-1c18a29a.up.railway.app` | 备用 |
+| node6 railway733 | `newapi-public-production-782d8c37.up.railway.app` | 备用 |
+| node7 railway964 | `newapi-public-production-2113ed4c.up.railway.app` | 备用 |
+| 875 railway875 | — | workspace 被 Railway 风控（`Suspicious activity`），项目+账号已删 |
+
+Cloudflare Worker `newapi-router` 仍部署在 `https://newapi-router.m13136064359.workers.dev`
+（加权分流 + 5xx 顺延 + `/__router/nodes`），但**不再绑定 gw.ailong.love**：CF 代理会拖慢大文件，
+只作为 workers.dev 上的实验/备用入口。`wrangler.toml` 里不要再加 `routes`/`[assets]`。
+
 ## 1. DS2API（DeepSeek 网页端 → OpenAI 兼容）
 
 | 项 | 值 |
