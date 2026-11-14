@@ -1,0 +1,20 @@
+# Cloudflare Worker：new-api 多节点分流（备用入口）
+# 部署：cd deploy/cf-worker && npx --yes wrangler@3 deploy
+#
+# ⚠️ 重要：gw.ailong.love 已不再绑定到本 Worker。
+# 原因（2026-11-14 实测，国内家宽）：Cloudflare 边缘向客户端传大文件被限速到 ~2.2KB/s，
+#   5.3MB 前端主包 40 分钟都下不完 → 浏览器白屏。直连 Railway 节点是 1.9MB/s、2.7s。
+# 现在 gw.ailong.love 走 DNS-only CNAME 直连 Railway（node1），CF 只做 DNS 解析。
+# 本 Worker 保留在 workers.dev 上作为备用/分流实验入口。
+name = "newapi-router"
+main = "router.js"
+compatibility_date = "2024-11-01"
+workers_dev = true
+
+# 不要启用 [assets]：把前端托管到 CF 边缘同样会被限速（同上原因）。
+# 也不要启用 custom_domain 路由到 gw.ailong.love：CF 会接管该 DNS 记录并强制走代理。
+
+# 可选：有 KV 权限时启用，节点表改为运行时可动态调整
+# [[kv_namespaces]]
+# binding = "NODES_KV"
+# id = "<your-kv-namespace-id>"
