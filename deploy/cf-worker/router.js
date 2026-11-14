@@ -31,6 +31,11 @@ async function getNodes(env) {
 // 静态资源前缀：命中后直接 302 到主节点（见 fetch 内注释）
 const STATIC_RE = /^\/(?:static\/|assets\/|favicon\.ico$|logo\.png$|robots\.txt$|manifest\.json$)/;
 
+// 权重最高的健康节点（静态资源与 HTML 都从这台取）
+function pickPrimary(nodes) {
+  return [...nodes].sort((a, b) => (b.weight || 1) - (a.weight || 1))[0];
+}
+
 function weightedOrder(nodes) {
   const arr = [];
   for (const n of nodes) {
@@ -72,9 +77,12 @@ export default {
     const nodes = (await getNodes(env)).filter((n) => n.enabled && n.healthy !== false);
     if (!nodes.length) return new Response('no healthy node', { status: 503 });
 
-    // 静态资源（JS/CSS/字体/图标）：各节点字节完全一致，没必要经 Worker 转发。
-    // 实测 Worker 透传大文件极慢：347KB 需 33s、738KB 与 5.3MB 主包直接超时 → 浏览器首屏空白。
-    // 改为 302 到权重最高的节点，浏览器直连 Railway（实测 <2s），地址栏仍是本站域名。
+    // 静态资源（JS/CSS/字体/图标）：各节点字节完全一致，不交给 Cloudflare 回源。
+    // 实测（2026-11-14，国内家宽）：CF 边缘向客户端传大文件被限速到 ~2.2KB/s
+    //   → 347KB 用 33s、5.3MB 主包 40 分钟都下不完 → 浏览器白屏。
+    // 同一台机器直连 Railway 节点：5.3MB / 2.7s、1.9MB/s。
+    // 因此：① 首页 HTML 由 Worker 取回后把 /static/ 改写成节点绝对地址（见下）
+    //        ② 兜底：真被请求到 Worker 的静态路径，302 到节点直连。
     if (STATIC_RE.test(url.pathname)) {
       const primary = [...nodes].sort((a, b) => (b.weight || 1) - (a.weight || 1))[0];
       const target = new URL(url.pathname + url.search, primary.url);
@@ -87,6 +95,40 @@ export default {
           'X-Router-Mode': 'static-redirect',
         },
       });
+    }
+
+    // 页面导航（Accept: text/html）：HTML 走 CF（1.7KB 很快），但把里面的 /static/ 全部改写成
+    // 节点的绝对地址 —— 5.3MB 主包与异步 chunk 由此走节点直连（实测 1.9MB/s），绕开 CF 限速。
+    // API 请求仍是同源 /api/*（cookie、CORS、鉴权逻辑全不变），不需要前端改代码。
+    // 同一个 HTML 六台节点完全一致：并发抢最快的三台（任一成功即返回），并缓存 300s。
+    const wantHtml = req.method === 'GET' && (req.headers.get('Accept') || '').includes('text/html');
+    if (wantHtml) {
+      const tryHtml = async (node, path) => {
+        const up = new URL(path, node.url);
+        const resp = await fetch(up.toString(), { cf: { cacheEverything: true, cacheTtl: 300 }, signal: AbortSignal.timeout(8000) });
+        const ct = resp.headers.get('content-type') || '';
+        if (!resp.ok || !ct.includes('text/html')) throw new Error('not html ' + resp.status);
+        return { node, html: await resp.text() };
+      };
+      const attempts = [];
+      for (const node of weightedOrder(nodes).slice(0, 3)) {
+        attempts.push(tryHtml(node, url.pathname + url.search).catch(() => tryHtml(node, '/')));
+      }
+      const got = await Promise.any(attempts).catch(() => null);
+      if (got) {
+        const nodeUrl = got.node.url;
+        let html = got.html.replace(/((?:src|href)=")\/(static\/)/g, `$1${nodeUrl}/$2`);
+        html = html.replace(/((?:src|href)=")\/(?=(?:logo|favicon|robots|manifest)[.\w-])/g, `$1${nodeUrl}/`);
+        return new Response(html, {
+          status: 200,
+          headers: {
+            'content-type': 'text/html; charset=utf-8',
+            'cache-control': 'no-store',
+            'X-Router-Node': got.node.id,
+            'X-Router-Mode': 'html-rewrite',
+          },
+        });
+      }
     }
 
     let lastErr = null;
@@ -108,4 +150,5 @@ export default {
     return new Response('all nodes failed: ' + (lastErr && lastErr.message), { status: 502 });
   },
 };
+
 
