@@ -30,6 +30,26 @@ GET /static/js/async/79926.2951…js      -> 200   3.03s   6,827,321 B
 真实浏览器（Chromium 1280×800）          -> DCL 2.0s / load 2.0s，首屏完整渲染
 ```
 
+### 0.1 第二入口 `gw2.ailong.love`（DNS-only 直连 railway871，已上线）
+
+| 项 | 值 |
+| --- | --- |
+| 入口 | **https://gw2.ailong.love** |
+| 解析 | `CNAME gw2 → s6e6pl5v.up.railway.app`，DNS-only（proxied=false），TTL 60 |
+| 归属验证 | `TXT _railway-verify.gw2.ailong.love = railway-verify=<token>`（token 由 Railway `customDomainStatus.verificationToken` 提供，**已自带 `railway-verify=` 前缀**） |
+| 后端 | Railway railway871@ailong.love（project `55fd279d-9d3a-4ab5-b0a9-800b2b98a724` / env `01521139-e280-4ce1-9db4-95b00719be52` / service `e5ece9b0-66af-4f59-bb8e-5ad4c58c1256`） |
+| 域名 targetPort | **`null`**（交给 Railway 自动探测；写死会 502） |
+| 上线 | 2026-11-15，`certificateStatus = CERTIFICATE_STATUS_TYPE_VALID`，探测 `200 railway-hikari` |
+
+实测（本机直连，与 `gw` 对照）：
+
+```
+gw.ailong.love    / 200 0.708s   /api/status 200 0.703s   index.be5eecfb28.js 200 2.623s 5,374,616 B
+gw2.ailong.love   / 200 1.861s   /api/status 200 0.774s   index.be5eecfb28.js 200 2.577s 5,374,616 B
+```
+
+> `gw2` 首次访问偏慢是冷启动；两个入口都是「一个域名对一个节点」，域名级真分流仍需要前置代理
+> （VPS nginx 或面板驱动的 CNAME 故障切换）。
 六台节点（同一个 Supabase 库、同一 rootadmin）：
 
 | 节点 | 域名 | 说明 |
@@ -40,6 +60,7 @@ GET /static/js/async/79926.2951…js      -> 200   3.03s   6,827,321 B
 | node5 railway850 | `newapi-public-production-1c18a29a.up.railway.app` | 备用 |
 | node6 railway733 | `newapi-public-production-782d8c37.up.railway.app` | 备用 |
 | node7 railway964 | `newapi-public-production-2113ed4c.up.railway.app` | 备用 |
+| node8 railway871 | `newapi-public-production-49f64774.up.railway.app` | 备用 |
 | 875 railway875 | — | workspace 被 Railway 风控（`Suspicious activity`），项目+账号已删 |
 
 Cloudflare Worker `newapi-router` 仍部署在 `https://newapi-router.m13136064359.workers.dev`
@@ -114,3 +135,4 @@ GET /v1/models -> 首次会懒加载上游模型目录，无账号时会一直�
 - 托管实例的账号池是**共享**的，多用户混用会互相抢额度；要隔离请各自 fork 部署一份。
 - Qoder 的 COSY 签名、MiniMax 的 `yy` 签名会随客户端版本漂移，因此平台**不在 new-api 内复刻**，
   统一走这两个独立网关（它们自己跟进上游版本）。
+
