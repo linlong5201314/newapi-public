@@ -53,6 +53,10 @@ type Channel struct {
 	Remark            *string `json:"remark" gorm:"type:varchar(255)" validate:"max=255"`
 	// OwnerId 渠道归属用户 ID：0=平台公共渠道，>0=用户自建渠道（多租户隔离）
 	OwnerId int `json:"owner_id" gorm:"not null;default:0;index:idx_channels_owner"`
+	// Visibility 渠道可见性：0=私有（仅 owner 与平台管理员可用），1=公开到公共池（所有用户可路由）
+	Visibility int `json:"visibility" gorm:"not null;default:0;index:idx_channels_visibility"`
+	// Tier 渠道层级：free=免费层（只凭订阅来源/入口地址即可用），api=密钥层（需要上游 API Key）
+	Tier string `json:"tier" gorm:"type:varchar(16);not null;default:'api'"`
 	// add after v0.8.5
 	ChannelInfo ChannelInfo `json:"channel_info" gorm:"type:json"`
 
