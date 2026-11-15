@@ -45,4 +45,5 @@ export interface MyChannelRow {
   tier?: string
   models?: string
   status?: number
+  allow_ips?: string
 }
