@@ -5,9 +5,13 @@ import { getFreeTemplates, type FreeSourceTemplate } from '@/features/my-channel
 import {
   createBinding,
   deleteBinding,
+  importTrae,
   listBindings,
+  pollWorkbuddyOAuth,
   setBindingPublic,
+  startWorkbuddyOAuth,
   type AccountBinding,
+  type OAuthSession,
 } from './api'
 
 const STATUS_TEXT: Record<string, string> = {
@@ -26,6 +30,12 @@ export function AccountBindingsCard() {
   const [rows, setRows] = useState<AccountBinding[]>([])
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
+  const [oauthRealm, setOauthRealm] = useState<'cn' | 'global'>('cn')
+  const [oauthSession, setOauthSession] = useState<OAuthSession | null>(null)
+  const [oauthMsg, setOauthMsg] = useState('')
+  const [traeInput, setTraeInput] = useState('')
+  const [traeUid, setTraeUid] = useState('')
+  const [traeMsg, setTraeMsg] = useState('')
 
   const accountTemplates = useMemo(
     () =>
@@ -83,6 +93,64 @@ export function AccountBindingsCard() {
     }
   }
 
+  // WorkBuddy 设备授权：拿到 authUrl 后让用户在浏览器里登录，成功后后端直接建渠道。
+  useEffect(() => {
+    if (!oauthSession) return
+    let alive = true
+    const timer = window.setInterval(async () => {
+      const res = await pollWorkbuddyOAuth(oauthSession.sessionId)
+      if (!alive) return
+      if (res.done) {
+        window.clearInterval(timer)
+        setOauthSession(null)
+        setOauthMsg(
+          res.channel?.id
+            ? `授权成功，已为你开通渠道 #${res.channel.id}`
+            : '授权成功，渠道已开通'
+        )
+        await reload()
+      }
+    }, 3000)
+    return () => {
+      alive = false
+      window.clearInterval(timer)
+    }
+  }, [oauthSession, reload])
+
+  const startOAuth = async () => {
+    setOauthMsg('正在创建授权会话…')
+    const sess = await startWorkbuddyOAuth(oauthRealm)
+    if (!sess) {
+      setOauthMsg('发起授权失败，请稍后再试')
+      return
+    }
+    setOauthSession(sess)
+    setOauthMsg('请在新窗口完成登录，完成后本页会自动刷新')
+    window.open(sess.authUrl, '_blank', 'noopener,noreferrer')
+  }
+
+  const submitTrae = async () => {
+    const raw = traeInput.trim()
+    if (!raw) {
+      setTraeMsg('请粘贴 Trae 的回调链接或 refreshToken')
+      return
+    }
+    setTraeMsg('正在导入…')
+    const looksUrl = raw.startsWith('http') || raw.includes('code=')
+    const res = await importTrae(
+      looksUrl
+        ? { callbackUrl: raw, uid: traeUid.trim() || undefined }
+        : { refreshToken: raw, uid: traeUid.trim() || undefined }
+    )
+    setTraeMsg(
+      res.ok ? res.notice || '导入成功，渠道已开通' : res.message || '导入失败'
+    )
+    if (res.ok) {
+      setTraeInput('')
+      await reload()
+    }
+  }
+
   return (
     <div className='mb-3 rounded-lg border p-3'>
       <div className='mb-1 text-sm font-medium'>
@@ -134,6 +202,66 @@ export function AccountBindingsCard() {
           {busy ? '提交中…' : '提交授权'}
         </button>
         {msg ? <span className='text-xs'>{msg}</span> : null}
+      </div>
+
+      <div className='mt-3 grid gap-3 md:grid-cols-2'>
+        <div className='rounded border p-2'>
+          <div className='mb-1 text-xs font-medium'>
+            WorkBuddy 设备授权（Google / 邮箱登录）
+          </div>
+          <div className='text-muted-foreground mb-2 text-xs'>
+            点「开始授权」后在新窗口完成登录，回来这里会自动显示结果；不需要填任何 Key。
+          </div>
+          <div className='flex flex-wrap items-center gap-2'>
+            <select
+              className='h-8 rounded-md border bg-transparent px-2 text-sm'
+              value={oauthRealm}
+              onChange={(e) => setOauthRealm(e.target.value as 'cn' | 'global')}
+            >
+              <option value='cn'>国内版</option>
+              <option value='global'>国际版</option>
+            </select>
+            <button
+              type='button'
+              className='h-8 rounded-md border px-3 text-sm'
+              onClick={startOAuth}
+            >
+              {oauthSession ? '重新授权' : '开始授权'}
+            </button>
+            {oauthMsg ? <span className='text-xs'>{oauthMsg}</span> : null}
+          </div>
+        </div>
+
+        <div className='rounded border p-2'>
+          <div className='mb-1 text-xs font-medium'>
+            Trae 授权导入（回调链接或 refreshToken）
+          </div>
+          <div className='text-muted-foreground mb-2 text-xs'>
+            把 Trae 登录后的回调链接整段粘贴进来即可；刷新令牌会轮换并踢下同账号其他客户端，建议专号专用。
+          </div>
+          <textarea
+            className='h-16 w-full rounded-md border bg-transparent p-2 font-mono text-xs'
+            placeholder='https://…?code=…  或  refreshToken'
+            value={traeInput}
+            onChange={(e) => setTraeInput(e.target.value)}
+          />
+          <div className='mt-1 flex flex-wrap items-center gap-2'>
+            <input
+              className='h-8 w-32 rounded-md border bg-transparent px-2 text-sm'
+              placeholder='uid（可选）'
+              value={traeUid}
+              onChange={(e) => setTraeUid(e.target.value)}
+            />
+            <button
+              type='button'
+              className='h-8 rounded-md border px-3 text-sm'
+              onClick={submitTrae}
+            >
+              导入并开通
+            </button>
+            {traeMsg ? <span className='text-xs'>{traeMsg}</span> : null}
+          </div>
+        </div>
       </div>
 
       {rows.length > 0 && (
