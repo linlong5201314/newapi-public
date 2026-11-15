@@ -433,8 +433,8 @@
       "freeType": "reverse-proxy",
       "tos": "own-account",
       "poolKey": "cline",
-      "authMode": "oauth",
-      "hiddenEndpoint": true
+      "authMode": "key",
+      "hiddenEndpoint": false
     },
     {
       "id": "trae-cn",
@@ -619,8 +619,8 @@
       "freeType": "reverse-proxy",
       "tos": "own-account",
       "poolKey": "opencode",
-      "authMode": "account",
-      "hiddenEndpoint": true
+      "authMode": "key",
+      "hiddenEndpoint": false
     },
     {
       "id": "sensenova",
