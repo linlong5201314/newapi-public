@@ -118,3 +118,30 @@ export async function importTrae(payload: {
     notice: res.data?.data?.notice,
   }
 }
+
+export type MagpiePlugin = {
+  id: string
+  name: string
+  repo: string
+  desc: string
+  authMode: string
+  stars: number
+  url: string
+  install: string
+}
+
+export async function listMagpiePlugins(q?: string): Promise<{
+  items: MagpiePlugin[]
+  total: number
+  upstream?: string
+}> {
+  const res = await api.get<{
+    success: boolean
+    data?: { items?: MagpiePlugin[]; total?: number; upstream?: string }
+  }>(`/api/channel/self/magpie_plugins${q ? `?q=${encodeURIComponent(q)}` : ''}`, cfg())
+  return {
+    items: res.data?.data?.items ?? [],
+    total: res.data?.data?.total ?? 0,
+    upstream: res.data?.data?.upstream,
+  }
+}
