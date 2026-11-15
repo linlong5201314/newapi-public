@@ -53,6 +53,10 @@ export type FreeSourceTemplate = {
   tos?: string
   signupUrl?: string
   keyRequired?: boolean
+  /** 授权方式：account=账号密码 / oauth=跳转授权 / ip=IP 直连（无需密钥） / key=API Key */
+  authMode?: string
+  /** 是否隐藏部署地址（普通用户不可见，仅管理员） */
+  hiddenEndpoint?: boolean
 }
 
 export type FreeTemplateListResponse = {
@@ -157,6 +161,8 @@ export function normalizeFreeTemplates(data: unknown): FreeSourceTemplate[] {
       return {
         id,
         name,
+        authMode: asString(record.authMode ?? record.auth_mode),
+        hiddenEndpoint: Boolean(record.hiddenEndpoint ?? record.hidden_endpoint),
         channelType: asNumber(record.channelType ?? record.channel_type),
         baseUrl: asString(record.baseUrl ?? record.base_url),
         models: Array.isArray(record.models)
