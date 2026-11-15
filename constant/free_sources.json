@@ -684,6 +684,28 @@
       "freeType": "reverse-proxy",
       "tos": "caution",
       "poolKey": "gemini-2api"
+    },
+    {
+      "id": "magpie",
+      "name": "Magpie 聚合网关（插件生态）",
+      "channelType": 1,
+      "baseUrl": "{base}",
+      "signupUrl": "https://github.com/yetone/magpie",
+      "keyRequired": true,
+      "models": [],
+      "freeNote": "magpie 是「一个网关接所有账号」的本地网关（36.9k★）。平台已为你部署了一台：https://magpie-production-557f97bd.up.railway.app 。用法：先在 magpie 里装插件（magpie plugin add <仓库>，插件目录见「Magpie 插件」卡片）再 magpie provider add 加你自己的账号；然后用你的 gateway key 连本渠道，点「获取模型」把 magpie 的模型同步进来。⚠️ 账号风险自担，建议小号。",
+      "monthlyTokens": 0,
+      "freeType": "reverse-proxy",
+      "tos": "own-account",
+      "poolKey": "magpie",
+      "extraFields": [
+        "base"
+      ],
+      "defaultExtra": {
+        "base": "https://magpie-production-557f97bd.up.railway.app/v1"
+      },
+      "authMode": "key",
+      "hiddenEndpoint": false
     }
   ]
 }
