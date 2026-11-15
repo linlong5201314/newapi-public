@@ -90,6 +90,11 @@ export function FromTemplateDialog({
   const [extraValues, setExtraValues] = useState<Record<string, string>>({})
   const [proxyMode, setProxyMode] = useState<'pool' | 'direct' | 'custom'>('pool')
   const [proxyUrl, setProxyUrl] = useState('')
+  const [tier, setTier] = useState<'free' | 'api'>('api')
+  const [visibility, setVisibility] = useState(false)
+  const [multiKeys, setMultiKeys] = useState('')
+  const [multiKeyMode, setMultiKeyMode] = useState<'random' | 'polling'>('random')
+  const [allowIps, setAllowIps] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const { data: templates, isLoading } = useQuery({
@@ -108,6 +113,11 @@ export function FromTemplateDialog({
     setExtraValues({})
     setProxyMode('pool')
     setProxyUrl('')
+    setTier('api')
+    setVisibility(false)
+    setMultiKeys('')
+    setMultiKeyMode('random')
+    setAllowIps('')
     setIsSubmitting(false)
   }, [open])
 
@@ -119,10 +129,14 @@ export function FromTemplateDialog({
   const extrasComplete = extraFields.every(
     (field) => extraValue(field) !== ''
   )
+  // 多密钥：换行或逗号分隔，填了就优先于单密钥输入框。
+  const parsedKeys = multiKeys
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+  const hasAnyKey = apiKey.trim() !== '' || parsedKeys.length > 0
   const canSubmit =
-    selected !== null &&
-    (!keyRequired || apiKey.trim() !== '') &&
-    extrasComplete
+    selected !== null && (!keyRequired || hasAnyKey) && extrasComplete
 
   const handleSubmit = async () => {
     if (!selected || !canSubmit) return
@@ -143,6 +157,14 @@ export function FromTemplateDialog({
         ...(customName.trim() ? { name: customName.trim() } : {}),
         ...(extra ? { extra } : {}),
         ...(proxy ? { proxy } : {}),
+        visibility: visibility ? 1 : 0,
+        tier,
+        ...(parsedKeys.length > 0
+          ? { keys: parsedKeys, multi_key_mode: multiKeyMode }
+          : {}),
+        ...(tier === 'free' && allowIps.trim()
+          ? { allow_ips: allowIps.trim() }
+          : {}),
       })
       if (result.success) {
         toast.success(t('Channel created from free source'))
@@ -362,6 +384,61 @@ export function FromTemplateDialog({
               </p>
             </div>
 
+            <div className='flex flex-col gap-2'>
+              <Label htmlFor='from-template-tier'>{t('Channel tier')}</Label>
+              <select
+                id='from-template-tier'
+                value={tier}
+                onChange={(e) => setTier(e.target.value as 'free' | 'api')}
+                className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
+              >
+                <option value='api'>{t('API key tier')}</option>
+                <option value='free'>{t('Free tier (subscription IP)')}</option>
+              </select>
+              {tier === 'free' && (
+                <Input
+                  value={allowIps}
+                  onChange={(e) => setAllowIps(e.target.value)}
+                  placeholder={t('Allowed IPs (comma or newline separated, CIDR ok)')}
+                  autoComplete='off'
+                />
+              )}
+            </div>
+
+            <div className='flex flex-col gap-2'>
+              <Label htmlFor='from-template-multikey'>
+                {t('Multiple keys (optional, one per line)')}
+              </Label>
+              <textarea
+                id='from-template-multikey'
+                value={multiKeys}
+                onChange={(e) => setMultiKeys(e.target.value)}
+                placeholder={t('Leave empty to use the single API key above')}
+                className='border-input bg-background min-h-[72px] w-full rounded-md border px-3 py-2 text-sm'
+              />
+              {parsedKeys.length > 1 && (
+                <select
+                  value={multiKeyMode}
+                  onChange={(e) =>
+                    setMultiKeyMode(e.target.value as 'random' | 'polling')
+                  }
+                  className='border-input bg-background h-9 w-full rounded-md border px-3 text-sm'
+                >
+                  <option value='random'>{t('Random key each request')}</option>
+                  <option value='polling'>{t('Round-robin keys')}</option>
+                </select>
+              )}
+            </div>
+
+            <label className='flex items-center gap-2 text-sm'>
+              <input
+                type='checkbox'
+                checked={visibility}
+                onChange={(e) => setVisibility(e.target.checked)}
+                className='size-4'
+              />
+              {t('Publish to the public pool (others can call it)')}
+            </label>
             <div className='flex flex-col gap-2'>
               <Label htmlFor='from-template-name'>
                 {t('Channel Name (optional)')}
