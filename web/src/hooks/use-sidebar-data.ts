@@ -2,7 +2,7 @@
           {
           {
             // [PUBLIC-POOL] 公共池：用户公开出来的自建渠道，登录用户都能用
-            title: t('Public Pool'),
+            title: '公共池',
             url: '/public-pool',
             icon: Globe,
             requiredRole: ROLE.USER,
@@ -142,7 +142,7 @@ export function useSidebarData(badges: SidebarBadges = {}): SidebarData {
           },
           {
             // [PUBLIC-POOL] 公共池：用户公开出来的自建渠道，登录用户都能用
-            title: t('Public Pool'),
+            title: '公共池',
             url: '/public-pool',
             icon: Globe,
             requiredRole: ROLE.USER,
