@@ -159,9 +159,6 @@ func SetApiRouter(router *gin.Engine) {
 
 			adminRoute := userRoute.Group("/")
 			adminRoute.Use(middleware.AdminAuth())
-			adminRoute.GET("/channel/admin/bindings", controller.AdminListBindings)
-			adminRoute.POST("/channel/admin/visibility", controller.AdminSetChannelVisibility)
-			adminRoute.GET("/channel/admin/platform-channels", controller.AdminListPlatformChannels)
 			{
 				adminRoute.GET("/", controller.GetAllUsers)
 				adminRoute.GET("/topup", controller.GetAllTopUps)
@@ -290,6 +287,12 @@ func SetApiRouter(router *gin.Engine) {
 		handlePermissionRoute(apiRouter.Group("", middleware.AdminAuth()), http.MethodGet, "/task_plugin_options", authz.TaskPluginBind, controller.GetTaskPluginOptions)
 		registerChannelRoutes(apiRouter)
 		registerSelfChannelRoutes(apiRouter)
+
+		channelAdminRoute := apiRouter.Group("/channel/admin")
+		channelAdminRoute.Use(middleware.AdminAuth())
+		channelAdminRoute.GET("/bindings", controller.AdminListBindings)
+		channelAdminRoute.POST("/visibility", controller.AdminSetChannelVisibility)
+		channelAdminRoute.GET("/platform-channels", controller.AdminListPlatformChannels)
 		registerCheckinRoutes(apiRouter)
 		registerFreeSourcePoolRoutes(apiRouter)
 		registerPublicPoolRoutes(apiRouter)
