@@ -44,6 +44,14 @@ func AddSelfChannelFromTemplate(c *gin.Context) {
 		//   "direct"  → 强制直连（忽略用户出口池）
 		//   "http://…"/"socks5://…" → 该渠道固定走这个代理
 		Proxy string `json:"proxy"`
+		// Visibility 是否公开到公共池：0=私有（默认，仅自己可用），1=公开（所有登录用户可路由）
+		Visibility int `json:"visibility"`
+		// Tier 层级：free=免费层（只凭订阅来源/入口地址），api=密钥层（需要上游 API Key）
+		Tier string `json:"tier"`
+		// Keys 多密钥：非空时优先于 Key，合并成一个多 Key 渠道（轮询/随机）
+		Keys []string `json:"keys"`
+		// MultiKeyMode 多密钥模式：random / polling，缺省 random
+		MultiKeyMode string `json:"multi_key_mode"`
 	}{}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ApiErrorT(c, "Invalid parameters")
@@ -93,13 +101,15 @@ func AddSelfChannelFromTemplate(c *gin.Context) {
 		name = tpl.Name
 	}
 	channel := &model.Channel{
-		Type:    tpl.ChannelType,
-		Name:    name,
-		Key:     req.Key,
-		BaseURL: &baseURL,
-		Models:  strings.Join(tpl.Models, ","),
-		Group:   "default",
-		OwnerId: uid,
+		Type:       tpl.ChannelType,
+		Name:       name,
+		Key:        req.Key,
+		BaseURL:    &baseURL,
+		Models:     strings.Join(tpl.Models, ","),
+		Group:      "default",
+		OwnerId:    uid,
+		Visibility: normalizeChannelVisibility(req.Visibility),
+		Tier:       normalizeChannelTier(req.Tier),
 	}
 	channel.SetOtherInfo(map[string]any{
 		"templateId": tpl.Id,
@@ -121,7 +131,26 @@ func AddSelfChannelFromTemplate(c *gin.Context) {
 		setting.Proxy = proxy
 		channel.SetSetting(setting)
 	}
-	addChannelExecute(c, &AddChannelRequest{Mode: "single", Channel: channel})
+	// 多密钥：Keys 非空时合并成 one-channel-many-keys（复用 new-api 的 multi_to_single 模式），
+	// 这样用户不必为同一个上游建 N 个渠道。单密钥保持 single 模式不变。
+	addMode := "single"
+	if len(req.Keys) > 0 {
+		cleaned := make([]string, 0, len(req.Keys))
+		for _, k := range req.Keys {
+			if v := strings.TrimSpace(k); v != "" {
+				cleaned = append(cleaned, v)
+			}
+		}
+		if len(cleaned) > 0 {
+			channel.Key = strings.Join(cleaned, "\n")
+			addMode = "multi_to_single"
+		}
+	}
+	addChannelExecute(c, &AddChannelRequest{
+		Mode:         addMode,
+		Channel:      channel,
+		MultiKeyMode: normalizeMultiKeyMode(req.MultiKeyMode),
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -267,4 +296,56 @@ func GetSelfFreeUsage(c *gin.Context) {
 		})
 	}
 	common.ApiSuccess(c, gin.H{"items": items, "total": len(items)})
+}
+
+// ---------------------------------------------------------------------------
+// 可见性 / 层级 / 多密钥
+// ---------------------------------------------------------------------------
+
+// normalizeChannelVisibility 只允许 0/1，防止前端传任意值绕过私有默认。
+func normalizeChannelVisibility(v int) int {
+	if v == 1 {
+		return 1
+	}
+	return 0
+}
+
+// normalizeChannelTier 只允许 free / api，其余一律回落 api。
+func normalizeChannelTier(t string) string {
+	if strings.EqualFold(strings.TrimSpace(t), "free") {
+		return "free"
+	}
+	return "api"
+}
+
+// normalizeMultiKeyMode 多密钥模式：默认随机，兼容 polling。
+func normalizeMultiKeyMode(m string) constant.MultiKeyMode {
+	if strings.EqualFold(strings.TrimSpace(m), "polling") {
+		return constant.MultiKeyModePolling
+	}
+	return constant.MultiKeyModeRandom
+}
+
+// SetSelfChannelVisibility POST /api/channel/self/visibility
+// body: {"channelId":12,"visibility":1,"tier":"free"}
+// 只能改自己的渠道：owner_id 必须等于当前登录用户，平台渠道（owner_id=0）不可动。
+func SetSelfChannelVisibility(c *gin.Context) {
+	uid := c.GetInt("id")
+	req := struct {
+		ChannelId  int    `json:"channelId"`
+		Visibility int    `json:"visibility"`
+		Tier       string `json:"tier"`
+	}{}
+	if err := c.ShouldBindJSON(&req); err != nil || req.ChannelId <= 0 {
+		common.ApiErrorMsg(c, "Invalid parameters")
+		return
+	}
+	if err := model.SetSelfChannelVisibility(uid, req.ChannelId, normalizeChannelVisibility(req.Visibility), normalizeChannelTier(req.Tier)); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	// 可见性影响路由候选集（channel_cache 的 owner 桶合并），必须立刻重建缓存，
+	// 否则要等下一个同步周期才生效。
+	model.InitChannelCache()
+	common.ApiSuccess(c, gin.H{"channelId": req.ChannelId, "visibility": normalizeChannelVisibility(req.Visibility), "tier": normalizeChannelTier(req.Tier)})
 }
