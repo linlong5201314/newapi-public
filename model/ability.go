@@ -137,7 +137,9 @@ func getChannelByOwners(
 	filters []dto.ChannelFilter,
 	ownerIds []int,
 ) (*Channel, error) {
-	ownerChannelsSubQuery := DB.Model(&Channel{}).Select("id").Where("owner_id IN ? OR visibility = 1", ownerIds)
+	// 平台渠道（owner_id=0）必须显式公开（visibility=1）才可被用户路由到；
+	// 用户自建渠道始终可用，他人的渠道只有公开才可见。
+	ownerChannelsSubQuery := DB.Model(&Channel{}).Select("id").Where("(owner_id IN ? AND owner_id <> 0) OR visibility = 1", ownerIds)
 	var abilities []Ability
 	err := DB.Where(commonGroupCol+" = ? and model = ? and enabled = ? and channel_id in (?)", group, model, true, ownerChannelsSubQuery).Order("priority DESC, weight DESC").Find(&abilities).Error
 	if err != nil {
