@@ -48,3 +48,17 @@ export async function setVisibility(payload: {
 }): Promise<void> {
   await api.post(`${SELF_BASE}/visibility`, payload)
 }
+
+// [ADMIN] 平台渠道（owner_id=0）公开开关：只有公开的平台模型才会被普通用户路由到。
+export async function listPlatformChannels(): Promise<import('./types').PlatformChannelRow[]> {
+  const res = await api.get('/api/channel/admin/platform-channels')
+  return res.data?.data?.items ?? []
+}
+
+export async function setPlatformVisibility(payload: {
+  channelId: number
+  visibility: number
+  tier?: string
+}): Promise<void> {
+  await api.post('/api/channel/admin/visibility', payload)
+}
