@@ -132,6 +132,13 @@ func Distribute() func(c *gin.Context) {
 				return
 			}
 		}
+		// 免费层渠道的订阅 IP 白名单：只有白名单内的来源才能调用（为空则不限）。
+		if channel != nil && strings.EqualFold(strings.TrimSpace(channel.Tier), "free") &&
+			strings.TrimSpace(channel.AllowIps) != "" &&
+			!model.IpAllowedByRules(channel.AllowIps, c.ClientIP()) {
+			abortWithOpenAiMessage(c, http.StatusForbidden, "this free channel is restricted to its subscribed IP list")
+			return
+		}
 		common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
 		SetupContextForSelectedChannel(c, channel, modelRequest.Model)
 		c.Next()
