@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	"net"
 	"strings"
 	"time"
 )
@@ -153,4 +154,55 @@ func SetSelfChannelVisibility(ownerId int, channelId int, visibility int, tier s
 		return errors.New("channel not found or not owned by you")
 	}
 	return nil
+}
+
+// IpAllowedByRules 判断来源 IP 是否命中白名单规则。
+// 规则支持逗号/分号/空白/换行分隔，可混用精确 IP 与 CIDR；空规则表示不限制来源。
+func IpAllowedByRules(rules string, ip string) bool {
+	rules = strings.TrimSpace(rules)
+	if rules == "" {
+		return true
+	}
+	parsed := net.ParseIP(strings.TrimSpace(ip))
+	if parsed == nil {
+		return false
+	}
+	fields := strings.FieldsFunc(rules, func(r rune) bool {
+		return r == ',' || r == ';' || r == '\n' || r == '\r' || r == ' ' || r == '\t'
+	})
+	for _, raw := range fields {
+		rule := strings.TrimSpace(raw)
+		if rule == "" {
+			continue
+		}
+		if strings.Contains(rule, "/") {
+			if _, ipnet, err := net.ParseCIDR(rule); err == nil && ipnet.Contains(parsed) {
+				return true
+			}
+			continue
+		}
+		if target := net.ParseIP(rule); target != nil && target.Equal(parsed) {
+			return true
+		}
+	}
+	return false
+}
+
+// SetSelfChannelAllowIps 更新自建渠道的免费层订阅 IP 白名单（只能改自己的渠道）。
+func SetSelfChannelAllowIps(ownerId int, channelId int, allowIps string) error {
+	res := DB.Model(&Channel{}).
+		Where("id = ? AND owner_id = ?", channelId, ownerId).
+		Update("allow_ips", allowIps)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return errors.New("channel not found or not owned by you")
+	}
+	return nil
+}
+
+// UpdateUserAvatar 只更新头像字段（公共池署名用）。
+func UpdateUserAvatar(uid int, avatar string) error {
+	return DB.Model(&User{}).Where("id = ?", uid).Update("avatar", avatar).Error
 }
