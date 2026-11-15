@@ -29,6 +29,13 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/uptime/status", controller.GetUptimeKumaStatus)
 		apiRouter.GET("/models", middleware.UserAuth(), controller.DashboardListModels)
 		apiRouter.GET("/status/test", middleware.AdminAuth(), controller.TestStatus)
+		// 内部接口：仅面板 provisioner 使用（X-Internal-Secret == CRYPTO_SECRET）
+		internalRoute := apiRouter.Group("/internal")
+		{
+			internalRoute.GET("/bindings/pending", controller.InternalPendingBindings)
+			internalRoute.POST("/bindings/:id/status", controller.InternalMarkBinding)
+			internalRoute.POST("/refresh-cache", controller.InternalRefreshChannelCache)
+		}
 		apiRouter.GET("/notice", controller.GetNotice)
 		apiRouter.GET("/user-agreement", controller.GetUserAgreement)
 		apiRouter.GET("/privacy-policy", controller.GetPrivacyPolicy)
@@ -152,6 +159,7 @@ func SetApiRouter(router *gin.Engine) {
 
 			adminRoute := userRoute.Group("/")
 			adminRoute.Use(middleware.AdminAuth())
+			adminRoute.GET("/channel/admin/bindings", controller.AdminListBindings)
 			{
 				adminRoute.GET("/", controller.GetAllUsers)
 				adminRoute.GET("/topup", controller.GetAllTopUps)
