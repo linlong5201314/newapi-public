@@ -195,6 +195,9 @@ func InitDB() (err error) {
 			db = db.Debug()
 		}
 		DB = db
+		// 邮件投递队列（MAIL_OUTBOX_MODE=1 时接管 SendEmail，交本机面板发送）。
+		// 放在 SKIP_DB_MIGRATION 早退之前，保证所有节点都注入。
+		InitMailOutbox()
 		// MySQL charset/collation startup check: ensure Chinese-capable charset
 		if common.UsingMainDatabase(common.DatabaseTypeMySQL) {
 			if err := checkMySQLChineseSupport(DB); err != nil {
