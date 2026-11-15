@@ -8,8 +8,9 @@
 | 项 | 值 |
 | --- | --- |
 | 入口 | **https://gw.ailong.love** |
-| 解析 | `CNAME gw → z06s5r7j.up.railway.app`，Cloudflare **DNS-only（灰云，proxied=false）**，TTL 60 |
-| 后端 | Railway node1（`newapi-public-production`，project `27fb5007…` / env `a0bbf032…` / service `21e6779e-ed4f-485c-9578-fb95151c8bb1`） |
+| 解析 | `CNAME gw → ef4pfu0g.up.railway.app`（= `gw-lb` 前置代理，见 §0.2），Cloudflare **DNS-only（灰云，proxied=false）**，TTL 60 |
+| 后端 | **`gw-lb`（nginx on Railway）→ 7 台 new-api 轮转 + `/static/` 缓存**；2026-11-15 从「直连 node1」切到 LB |
+| 回退 | 面板 `src/failover.js` 60s 巡检，连续 3 次失败自动把 CNAME 切到 871（`s6e6pl5v`）或 node1（`z06s5r7j`）；CNAME 指向池外目标时只告警**不再自动改回** |
 | 证书 | Railway 自动签发；归属验证 TXT `_railway-verify.gw = railway-verify=<token>` |
 | 上线 | 2026-11-14，`certificateStatus = CERTIFICATE_STATUS_TYPE_VALID` |
 
@@ -161,5 +162,6 @@ GET /v1/models -> 首次会懒加载上游模型目录，无账号时会一直�
 - 托管实例的账号池是**共享**的，多用户混用会互相抢额度；要隔离请各自 fork 部署一份。
 - Qoder 的 COSY 签名、MiniMax 的 `yy` 签名会随客户端版本漂移，因此平台**不在 new-api 内复刻**，
   统一走这两个独立网关（它们自己跟进上游版本）。
+
 
 
