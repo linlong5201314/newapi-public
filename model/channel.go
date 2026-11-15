@@ -57,6 +57,8 @@ type Channel struct {
 	Visibility int `json:"visibility" gorm:"not null;default:0;index:idx_channels_visibility"`
 	// Tier 渠道层级：free=免费层（只凭订阅来源/入口地址即可用），api=密钥层（需要上游 API Key）
 	Tier string `json:"tier" gorm:"type:varchar(16);not null;default:'api'"`
+	// AllowIps 免费层渠道的订阅 IP 白名单：逗号/换行分隔的 IP 或 CIDR；为空表示不限来源
+	AllowIps string `json:"allow_ips" gorm:"type:text"`
 	// add after v0.8.5
 	ChannelInfo ChannelInfo `json:"channel_info" gorm:"type:json"`
 
