@@ -12,13 +12,16 @@ import { Skeleton } from '@/components/ui/skeleton'
 
 import {
   addPublicComment,
+  listPlatformChannels,
+  setPlatformVisibility,
   listMyChannels,
   listPublicComments,
   listPublicModels,
   setVisibility,
   updateAvatar,
 } from './api'
-import type { MyChannelRow, PublicComment, PublicModelItem } from './types'
+import type { MyChannelRow, PlatformChannelRow, PublicComment, PublicModelItem } from './types'
+import { useIsAdmin } from '@/hooks/use-admin'
 
 function initials(name?: string) {
   const n = (name || '?').trim()
@@ -189,7 +192,75 @@ function ModelCard(props: { item: PublicModelItem }) {
   )
 }
 
+
+function PlatformChannelsCard() {
+  const [rows, setRows] = useState<PlatformChannelRow[] | null>(null)
+  const [saving, setSaving] = useState<number | null>(null)
+  const load = useCallback(async () => {
+    try {
+      setRows(await listPlatformChannels())
+    } catch {
+      setRows([])
+    }
+  }, [])
+  useEffect(() => {
+    void load()
+  }, [load])
+  const toggle = async (row: PlatformChannelRow, next: number) => {
+    setSaving(row.id)
+    try {
+      await setPlatformVisibility({ channelId: row.id, visibility: next, tier: row.tier })
+      toast.success(next === 1 ? '已对普通用户开放' : '已收回（仅自己可用）')
+      await load()
+    } catch {
+      toast.error('切换失败，请稍后再试')
+    } finally {
+      setSaving(null)
+    }
+  }
+  return (
+    <Card>
+      <CardHeader className='pb-3'>
+        <CardTitle className='text-base'>平台渠道公开设置（管理员）</CardTitle>
+        <p className='text-xs text-muted-foreground'>
+          这里控制平台自带的免费渠道：取消勾选后，普通用户无法再通过该渠道调用模型（约 60 秒内全部节点生效）。
+        </p>
+      </CardHeader>
+      <CardContent className='space-y-2'>
+        {rows === null ? (
+          <Skeleton className='h-16 w-full' />
+        ) : rows.length === 0 ? (
+          <div className='text-xs text-muted-foreground'>没有可管理的平台渠道。</div>
+        ) : (
+          rows.map((row) => (
+            <div key={row.id} className='flex flex-wrap items-center gap-3 rounded border p-2 text-sm'>
+              <span className='font-mono text-xs text-muted-foreground'>#{row.id}</span>
+              <span className='font-medium'>{row.name}</span>
+              <span className='max-w-72 truncate text-xs text-muted-foreground'>{row.models}</span>
+              <span className='ml-auto inline-flex items-center gap-2 text-xs'>
+                <label className='inline-flex items-center gap-1'>
+                  <input
+                    type='checkbox'
+                    checked={row.visibility === 1}
+                    disabled={saving === row.id}
+                    onChange={(e) => void toggle(row, e.target.checked ? 1 : 0)}
+                  />
+                  对普通用户公开
+                </label>
+                <span className={row.visibility === 1 ? 'text-emerald-600' : 'text-muted-foreground'}>
+                  {row.visibility === 1 ? '公开中' : '仅自己'}
+                </span>
+              </span>
+            </div>
+          ))
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 export function PublicPoolPage() {
+  const isAdmin = useIsAdmin()
   const [models, setModels] = useState<PublicModelItem[] | null>(null)
   const [mine, setMine] = useState<MyChannelRow[] | null>(null)
   const [saving, setSaving] = useState<number | null>(null)
@@ -377,6 +448,8 @@ export function PublicPoolPage() {
           )}
         </CardContent>
       </Card>
+
+      {isAdmin ? <PlatformChannelsCard /> : null}
 
       <div className='flex items-center justify-between'>
         <h2 className='text-base font-semibold'>公开中的模型</h2>
