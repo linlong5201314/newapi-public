@@ -21,7 +21,7 @@ import (
 // group2model2channels 内存索引：group -> model -> ownerId -> enabled channelIds。
 // ownerId=0 为平台公共渠道桶，>0 为用户自建渠道桶（多租户路由隔离）。
 var group2model2channels map[string]map[string]map[int][]int // enabled channel
-var channelsIDM map[int]*Channel                              // all channels include disabled
+var channelsIDM map[int]*Channel                             // all channels include disabled
 // channel2advancedCustomConfig caches parsed Advanced Custom (type 58) configs so
 // path-aware selection avoids re-parsing JSON per request. Refreshed on full sync.
 var channel2advancedCustomConfig map[int]*kitdto.AdvancedCustomConfig
@@ -129,8 +129,27 @@ func selectOwnerBucketIDs(owner2channels map[int][]int, ownerUserId int) []int {
 	if len(owner2channels) == 0 {
 		return nil
 	}
+	// 公共池合并：owner_id>0 且 Visibility=1 的渠道对所有登录用户可路由。
+	// 这些渠道散布在各自 owner 桶里，这里按 channel.Visibility 挑出来合并进候选集，
+	// 否则公开出去等于没公开（用户只能命中自己的桶）。
+	pickPublic := func(excludeOwner int) []int {
+		var ids []int
+		for owner, list := range owner2channels {
+			if owner == excludeOwner || owner == 0 {
+				continue
+			}
+			for _, id := range list {
+				if ch, ok := channelsIDM[id]; ok && ch != nil && ch.Visibility == 1 {
+					ids = append(ids, id)
+				}
+			}
+		}
+		return ids
+	}
 	if ownerUserId > 0 {
-		if ids := owner2channels[ownerUserId]; len(ids) > 0 {
+		ids := append([]int{}, owner2channels[ownerUserId]...)
+		ids = append(ids, pickPublic(ownerUserId)...)
+		if len(ids) > 0 {
 			return ids
 		}
 		if operation_setting.SelfChannelUsePublicFallback {
@@ -138,7 +157,10 @@ func selectOwnerBucketIDs(owner2channels map[int][]int, ownerUserId int) []int {
 		}
 		return nil
 	}
-	return owner2channels[0]
+	// 平台/系统上下文：公共渠道 + 所有公开出来的自建渠道
+	ids := append([]int{}, owner2channels[0]...)
+	ids = append(ids, pickPublic(0)...)
+	return ids
 }
 
 func GetRandomSatisfiedChannel(
