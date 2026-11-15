@@ -47,3 +47,14 @@ export interface MyChannelRow {
   status?: number
   allow_ips?: string
 }
+
+export interface PlatformChannelRow {
+  id: number
+  name: string
+  models: string
+  group: string
+  status: number
+  visibility: number
+  tier: string
+  allow_ips: string
+}
