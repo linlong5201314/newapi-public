@@ -26,6 +26,7 @@ func registerSelfChannelRoutes(apiRouter *gin.RouterGroup) {
 		selfChannelRoute.GET("/free_templates", controller.GetFreeSourceTemplates)
 		selfChannelRoute.POST("/from_template", controller.AddSelfChannelFromTemplate)
 		selfChannelRoute.GET("/free_usage", controller.GetSelfFreeUsage)
+		selfChannelRoute.POST("/visibility", controller.SetSelfChannelVisibility)
 		selfChannelRoute.GET("/:id", controller.GetSelfChannel)
 		selfChannelRoute.POST("/", controller.AddSelfChannel)
 		selfChannelRoute.PUT("/", controller.UpdateSelfChannel)
