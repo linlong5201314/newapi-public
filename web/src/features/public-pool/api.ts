@@ -35,10 +35,16 @@ export async function listMyChannels(): Promise<MyChannelRow[]> {
   return data?.items ?? data?.data ?? []
 }
 
+export async function updateAvatar(avatar: string): Promise<string> {
+  const res = await api.put('/api/user/self', { avatar })
+  return (res.data?.data?.avatar as string) || avatar
+}
+
 export async function setVisibility(payload: {
   channelId: number
   visibility: number
   tier: string
+  allowIps?: string
 }): Promise<void> {
   await api.post(`${SELF_BASE}/visibility`, payload)
 }
