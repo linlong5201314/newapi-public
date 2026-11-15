@@ -160,6 +160,8 @@ func SetApiRouter(router *gin.Engine) {
 			adminRoute := userRoute.Group("/")
 			adminRoute.Use(middleware.AdminAuth())
 			adminRoute.GET("/channel/admin/bindings", controller.AdminListBindings)
+			adminRoute.POST("/channel/admin/visibility", controller.AdminSetChannelVisibility)
+			adminRoute.GET("/channel/admin/platform-channels", controller.AdminListPlatformChannels)
 			{
 				adminRoute.GET("/", controller.GetAllUsers)
 				adminRoute.GET("/topup", controller.GetAllTopUps)
