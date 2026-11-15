@@ -24,9 +24,25 @@ import (
 
 // GetFreeSourceTemplates GET /api/channel/self/free_templates
 func GetFreeSourceTemplates(c *gin.Context) {
+	items := constant.GetFreeSourceTemplates()
+	// 普通用户看不到反代部署地址：账号/授权型模板隐藏 baseUrl / defaultExtra / signupUrl / extraFields。
+	if c.GetInt("role") < common.RoleAdminUser {
+		safe := make([]*constant.FreeSourceTemplate, 0, len(items))
+		for _, t := range items {
+			cp := *t
+			if cp.HiddenEndpoint || cp.AuthMode == "account" || cp.AuthMode == "oauth" {
+				cp.BaseUrl = ""
+				cp.DefaultExtra = nil
+				cp.SignupUrl = ""
+				cp.ExtraFields = nil
+			}
+			safe = append(safe, &cp)
+		}
+		items = safe
+	}
 	common.ApiSuccess(c, gin.H{
-		"items": constant.GetFreeSourceTemplates(),
-		"total": len(constant.GetFreeSourceTemplates()),
+		"items": items,
+		"total": len(items),
 	})
 }
 
@@ -65,7 +81,8 @@ func AddSelfChannelFromTemplate(c *gin.Context) {
 		return
 	}
 	req.Key = strings.TrimSpace(req.Key)
-	if tpl.KeyRequired && req.Key == "" {
+	// authMode=ip 的来源只按订阅来源放行，不需要 API Key
+	if tpl.KeyRequired && tpl.AuthMode != "ip" && req.Key == "" && len(req.Keys) == 0 {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "API key is required for this template"})
 		return
 	}
