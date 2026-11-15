@@ -71,6 +71,16 @@ export type CreateFromTemplateRequest = {
    * "direct" = 强制直连；其余按 http(s)/socks5 代理 URL 解析。
    */
   proxy?: string
+  /** 是否公开到公共池：0=私有（默认），1=公开 */
+  visibility?: number
+  /** 层级：free=免费层（可配订阅 IP 白名单），api=密钥层 */
+  tier?: string
+  /** 多密钥：非空时合并成一个多 Key 渠道，优先于 key */
+  keys?: string[]
+  /** 多密钥模式：random / polling */
+  multi_key_mode?: string
+  /** 免费层的订阅 IP 白名单（逗号/换行分隔，支持 CIDR） */
+  allow_ips?: string
 }
 
 export type CreateFromTemplateResponse = {
