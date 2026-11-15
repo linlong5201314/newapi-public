@@ -75,7 +75,14 @@ func newSMTPClient(addr string) (*smtp.Client, error) {
 	return client, nil
 }
 
+// MailOutboxSink 由 model 包在 MAIL_OUTBOX_MODE=1 时注入：
+// 出站 SMTP 被云厂商封禁时，把邮件写入本地队列，交给常驻面板用本机 SMTP 投递。
+var MailOutboxSink func(subject string, receiver string, content string) error
+
 func SendEmail(subject string, receiver string, content string) error {
+	if MailOutboxSink != nil {
+		return MailOutboxSink(subject, receiver, content)
+	}
 	OptionMapRWMutex.RLock()
 	provider := OptionMap["EmailProvider"]
 	resendKey := OptionMap["ResendApiKey"]
