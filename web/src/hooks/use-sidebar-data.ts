@@ -1,4 +1,12 @@
 /*
+          {
+          {
+            // [PUBLIC-POOL] 公共池：用户公开出来的自建渠道，登录用户都能用
+            title: t('Public Pool'),
+            url: '/public-pool',
+            icon: Globe,
+            requiredRole: ROLE.USER,
+          },
 Copyright (C) 2023-2026 QuantumNous
 
 This program is free software: you can redistribute it and/or modify
@@ -131,7 +139,15 @@ export function useSidebarData(badges: SidebarBadges = {}): SidebarData {
             url: '/free-pool',
             icon: Star,
             requiredRole: ROLE.USER,
-          },          {
+          },
+          {
+            // [PUBLIC-POOL] 公共池：用户公开出来的自建渠道，登录用户都能用
+            title: t('Public Pool'),
+            url: '/public-pool',
+            icon: Globe,
+            requiredRole: ROLE.USER,
+          },
+          {
             // [PROXY-POOL] Per-user egress IP pool: airport subscriptions,
             // residential proxies and client-only nodes rotate per request,
             // which multiplies the per-IP free quota by the number of exits.
