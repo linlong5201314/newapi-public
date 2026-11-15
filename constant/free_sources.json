@@ -467,7 +467,7 @@
         "gpt-5-codex",
         "deepseek-v3.1"
       ],
-      "freeNote": "Qoder 国内版：用 shuishuipingan/qoder2api-hub（590★）自建网关，支持 OAuth 设备授权+签到+双区多账号。此处 base 填网关地址（如 http://你的机器:8788/v1）。⚠️ 反代账号有风险，建议用小号（小号被风控/封禁不影响主号）。",
+      "freeNote": "Qoder 需要账号授权（COSY 签名随客户端版本变化），本平台不复刻：请自建 qoder2api 类网关，在网关里登录 Qoder 账号后把地址填到 base。⚠️ 反代账号风险自担。",
       "monthlyTokens": 0,
       "freeType": "reverse-proxy",
       "tos": "own-account",
@@ -489,7 +489,7 @@
         "gpt-5-codex",
         "deepseek-v3.1"
       ],
-      "freeNote": "Qoder 国际版（api3.qoder.sh）：同 qoder2api-hub，realm 选 intl。此处 base 填网关地址（如 http://你的机器:8789/v1）。⚠️ 反代账号有风险，建议用小号（小号被风控/封禁不影响主号）。",
+      "freeNote": "同上：Qoder 国际站需在自建网关里用账号登录授权，new-api 只做路由与计费。⚠️ 反代账号风险自担。",
       "monthlyTokens": 0,
       "freeType": "reverse-proxy",
       "tos": "own-account",
@@ -510,7 +510,7 @@
         "MiniMax-Text-01",
         "MiniMax-VL-01"
       ],
-      "freeNote": "MiniMax Agent 国际版（agent.minimax.io）：同上，region=intl。此处 base 填网关地址（如 http://你的机器:8790/v1）。⚠️ 反代账号有风险，建议用小号（小号被风控/封禁不影响主号）。",
+      "freeNote": "同上：MiniMax 国际站需在自建网关里账号登录。⚠️ 反代账号风险自担。",
       "monthlyTokens": 0,
       "freeType": "reverse-proxy",
       "tos": "own-account",
@@ -531,7 +531,7 @@
         "MiniMax-Text-01",
         "MiniMax-VL-01"
       ],
-      "freeNote": "MiniMax Agent 国内版（agent.minimaxi.com）：用 juangchuank-ops/minimax2api 自建网关（带签名与 session 协议）。此处 base 填网关地址（如 http://你的机器:8791/v1）。⚠️ 反代账号有风险，建议用小号（小号被风控/封禁不影响主号）。",
+      "freeNote": "MiniMax 需要账号授权（yy 签名随版本漂移），请自建 minimax2api 类网关登录账号后填 base。⚠️ 反代账号风险自担。",
       "monthlyTokens": 0,
       "freeType": "reverse-proxy",
       "tos": "own-account",
@@ -545,7 +545,7 @@
       "name": "DeepSeek 网页版（ds2api 网关）",
       "channelType": 1,
       "baseUrl": "{base}",
-      "signupUrl": "https://chat.deepseek.com",
+      "signupUrl": "https://ds2api-production-24fcbc11.up.railway.app/admin",
       "keyRequired": true,
       "models": [
         "deepseek-chat",
@@ -553,7 +553,7 @@
         "deepseek-v4",
         "deepseek-v4-flash"
       ],
-      "freeNote": "DeepSeek 网页端反代网关（平台已部署：https://ds2api-production-24fcbc11.up.railway.app ，管理后台 /admin）。填你自己的 ds2api 地址可覆盖。⚠️ 反代账号有风险，建议用小号（小号被风控/封禁不影响主号）。",
+      "freeNote": "平台已部署：https://ds2api-production-24fcbc11.up.railway.app/v1（后台 /admin，管理员口令在部署变量里）。到后台「账号」里填 DeepSeek 网页端的邮箱+密码（或手机号+密码）授权，不是填 API Key；授权后本渠道即可用 deepseek-v4-flash 等模型。⚠️ 反代账号风险自担，建议用小号。",
       "monthlyTokens": 0,
       "freeType": "reverse-proxy",
       "tos": "own-account",
@@ -581,7 +581,7 @@
         "mimo-v2.6-flash-free",
         "nemotron-3.5-lightning-free"
       ],
-      "freeNote": "免费模型清单公开（/zen/v1/models 直接可读），但调用需要 OpenCode 账号签发的 key；匿名方式实测已返回 429 FreeUsageLimitError（按来源限流）。⚠️ 反代/小号风险自担。",
+      "freeNote": "OpenCode Zen 免费模型清单公开可读，但调用必须用 OpenCode 账号登录后签发的 key（匿名/换 IP 实测 429 FreeUsageLimitError）。在 OpenCode 里 `opencode auth login` 后复制 key 填这里。⚠️ 小号风险自担。",
       "monthlyTokens": 0,
       "freeType": "reverse-proxy",
       "tos": "own-account",
@@ -616,7 +616,7 @@
         "gpt-5.4",
         "glm-5.1"
       ],
-      "freeNote": "开源反代：把 cto.new 的免费 GPT-5.4 / GLM-5.1 暴露成 OpenAI 兼容接口，单账号每日 300 配额、支持号池热加载。填你自己部署的地址（含 /v1）。⚠️ 反代账号风险自担。",
+      "freeNote": "开源反代（cto.new 免费 GPT-5.4/GLM-5.1，单账号 300/日）：自己部署 https://github.com/1837620622/cto-new-openai-proxy ，在它的号池里填 cto.new 账号密码，再把地址（含 /v1）填到 base。⚠️ 反代账号风险自担。",
       "monthlyTokens": 0,
       "freeType": "reverse-proxy",
       "tos": "caution",
