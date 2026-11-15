@@ -52,6 +52,8 @@ func AddSelfChannelFromTemplate(c *gin.Context) {
 		Keys []string `json:"keys"`
 		// MultiKeyMode 多密钥模式：random / polling，缺省 random
 		MultiKeyMode string `json:"multi_key_mode"`
+		// AllowIps 免费层渠道的订阅 IP 白名单（逗号/换行分隔，支持 CIDR）；为空表示不限来源
+		AllowIps string `json:"allow_ips"`
 	}{}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ApiErrorT(c, "Invalid parameters")
@@ -110,6 +112,7 @@ func AddSelfChannelFromTemplate(c *gin.Context) {
 		OwnerId:    uid,
 		Visibility: normalizeChannelVisibility(req.Visibility),
 		Tier:       normalizeChannelTier(req.Tier),
+		AllowIps:   strings.TrimSpace(req.AllowIps),
 	}
 	channel.SetOtherInfo(map[string]any{
 		"templateId": tpl.Id,
@@ -335,6 +338,7 @@ func SetSelfChannelVisibility(c *gin.Context) {
 		ChannelId  int    `json:"channelId"`
 		Visibility int    `json:"visibility"`
 		Tier       string `json:"tier"`
+		AllowIps   string `json:"allowIps"`
 	}{}
 	if err := c.ShouldBindJSON(&req); err != nil || req.ChannelId <= 0 {
 		common.ApiErrorMsg(c, "Invalid parameters")
@@ -346,6 +350,13 @@ func SetSelfChannelVisibility(c *gin.Context) {
 	}
 	// 可见性影响路由候选集（channel_cache 的 owner 桶合并），必须立刻重建缓存，
 	// 否则要等下一个同步周期才生效。
+	// 白名单只有前端显式传了才更新，避免旧客户端把已有白名单清空。
+	if strings.TrimSpace(req.AllowIps) != "" {
+		if err := model.SetSelfChannelAllowIps(uid, req.ChannelId, strings.TrimSpace(req.AllowIps)); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	}
 	model.InitChannelCache()
 	common.ApiSuccess(c, gin.H{"channelId": req.ChannelId, "visibility": normalizeChannelVisibility(req.Visibility), "tier": normalizeChannelTier(req.Tier)})
 }
