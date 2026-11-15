@@ -146,9 +146,21 @@ func selectOwnerBucketIDs(owner2channels map[int][]int, ownerUserId int) []int {
 		}
 		return ids
 	}
+	// 平台渠道（owner_id=0）由管理员维护：只有 visibility=1 才对外公开，
+	// 否则仅管理员自己可见，避免“管理员一加账号所有人都能用”。
+	pickPlatformPublic := func() []int {
+		var ids []int
+		for _, id := range owner2channels[0] {
+			if ch, ok := channelsIDM[id]; ok && ch != nil && ch.Visibility == 1 {
+				ids = append(ids, id)
+			}
+		}
+		return ids
+	}
 	if ownerUserId > 0 {
 		ids := append([]int{}, owner2channels[ownerUserId]...)
 		ids = append(ids, pickPublic(ownerUserId)...)
+		ids = append(ids, pickPlatformPublic()...)
 		if len(ids) > 0 {
 			return ids
 		}
@@ -157,8 +169,8 @@ func selectOwnerBucketIDs(owner2channels map[int][]int, ownerUserId int) []int {
 		}
 		return nil
 	}
-	// 平台/系统上下文：公共渠道 + 所有公开出来的自建渠道
-	ids := append([]int{}, owner2channels[0]...)
+	// 平台/系统上下文：只取管理员公开出来的平台渠道 + 所有公开出来的自建渠道
+	ids := append([]int{}, pickPlatformPublic()...)
 	ids = append(ids, pickPublic(0)...)
 	return ids
 }
