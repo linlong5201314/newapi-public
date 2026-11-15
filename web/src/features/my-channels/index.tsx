@@ -28,6 +28,7 @@ import { ChannelsProvider } from './components/channels-provider'
 import { ChannelsTable } from './components/channels-table'
 import { FreeUsageCards } from './components/free-usage-cards'
 import { AccountBindingsCard } from '@/features/account-bindings'
+import { MagpiePluginsCard } from '@/features/account-bindings/magpie-plugins'
 
 export function MyChannels() {
   const { t } = useTranslation()
@@ -53,6 +54,7 @@ export function MyChannels() {
           {/* [M2-FE] Free quota pool cards (fail-soft, hidden guidance when empty) */}
           <FreeUsageCards />
           <AccountBindingsCard />
+        <MagpiePluginsCard />
           <ChannelsTable />
         </SectionPageLayout.Content>
       </SectionPageLayout>
