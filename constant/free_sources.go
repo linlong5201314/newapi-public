@@ -36,6 +36,10 @@ type FreeSourceTemplate struct {
 	FreeType      string            `json:"freeType"` // recurring-daily / recurring-monthly / recurring-uncapped
 	Tos           string            `json:"tos"`
 	PoolKey       string            `json:"poolKey"`
+	// AuthMode 授权方式：account=账号密码 / oauth=跳转授权登录 / ip=IP 直连（无需密钥） / key=API Key
+	AuthMode string `json:"authMode,omitempty"`
+	// HiddenEndpoint 为 true 时，普通用户拿到的模板不含 baseUrl / defaultExtra（只有管理员能看部署地址）
+	HiddenEndpoint bool `json:"hiddenEndpoint,omitempty"`
 }
 
 type freeSourcesFile struct {
