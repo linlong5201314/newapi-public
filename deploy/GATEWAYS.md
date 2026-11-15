@@ -50,6 +50,32 @@ gw2.ailong.love   / 200 1.861s   /api/status 200 0.774s   index.be5eecfb28.js 20
 
 > `gw2` 首次访问偏慢是冷启动；两个入口都是「一个域名对一个节点」，域名级真分流仍需要前置代理
 > （VPS nginx 或面板驱动的 CNAME 故障切换）。
+### 0.2 同域名真分流：`gw-lb`（nginx on Railway，已验证）
+
+单域名在 DNS 只能指一个目标，要「一个域名分到多台」必须有一台前置代理。Cloudflare 代理那条路已废
+（大文件 2.2 KB/s），所以前置代理放在 Railway 上：
+
+| 项 | 值 |
+| --- | --- |
+| 服务 | `gw-lb`，service `e14f340e-f201-4453-b26d-9c60da014f1b`（**在 871 的 project** `55fd279d…` / env `01521139…` 下——438 的 free plan 已 `Free plan resource provision limit exceeded`，建不了第 3 个服务） |
+| 代码 | `deploy/nginx-lb/{Dockerfile,nginx.conf}`，`rootDirectory=deploy/nginx-lb`，镜像 `nginx:1.27-alpine`，监听 **8080** |
+| 临时域名 | `https://gw-lb-production.up.railway.app`（targetPort 8080，已 200） |
+| 分流方式 | `split_clients "$request_id"` 按权重 18/14/14/14/14/13/13 选 node1/842/196/850/733/964/871；每个请求**独立**选，长连接 SSE 不受影响 |
+| Host 头 | 必须用**裸主机名**（`map $nodekey $node_host`），`$node_url` 带 `https://` 会被上游拒（实测 404） |
+| 静态缓存 | `/static/` 走 `proxy_cache`（key 只用 `$request_uri`，各节点同一 bundle），`X-LB-Cache` 返回 HIT/MISS |
+
+实测：
+
+```
+/api/status × 20   -> 分布 n1×3 n2×3 n4×3 n5×2 n6×1 n7×5 n8×3
+index.be5eecfb28.js 第 1 次 200 1537ms MISS（回源 node=n8）
+index.be5eecfb28.js 第 2 次 200  341ms HIT （node=n5）
+index.be5eecfb28.js 第 3 次 200  317ms HIT （node=n1）
+```
+
+即：首访与直连相当，**回访静态资源快 5–8 倍**（5.3 MB 从 2.6 s 降到 0.32 s）。
+把 `gw` 切到它需要：删 node1 上的 `gw` 自定义域 → 在 `gw-lb` 上重建 → 改 CF CNAME → 等证书约 4 分钟；
+期间 `gw` 会短暂 502，所以这一步单独确认后再做。
 六台节点（同一个 Supabase 库、同一 rootadmin）：
 
 | 节点 | 域名 | 说明 |
@@ -135,4 +161,5 @@ GET /v1/models -> 首次会懒加载上游模型目录，无账号时会一直�
 - 托管实例的账号池是**共享**的，多用户混用会互相抢额度；要隔离请各自 fork 部署一份。
 - Qoder 的 COSY 签名、MiniMax 的 `yy` 签名会随客户端版本漂移，因此平台**不在 new-api 内复刻**，
   统一走这两个独立网关（它们自己跟进上游版本）。
+
 
