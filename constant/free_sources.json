@@ -21,11 +21,12 @@
       "monthlyTokens": 15000000,
       "freeType": "recurring-daily",
       "tos": "caution",
-      "poolKey": "groq"
+      "poolKey": "groq",
+      "authMode": "key"
     },
     {
       "id": "gemini",
-      "name": "Gemini AI Studio 免费层",
+      "name": "Google Gemini 免费层",
       "channelType": 24,
       "baseUrl": "https://generativelanguage.googleapis.com",
       "signupUrl": "https://aistudio.google.com",
@@ -41,11 +42,12 @@
       "monthlyTokens": 60000000,
       "freeType": "recurring-daily",
       "tos": "caution",
-      "poolKey": "gemini-free"
+      "poolKey": "gemini-free",
+      "authMode": "key"
     },
     {
       "id": "cerebras",
-      "name": "Cerebras 免费试用",
+      "name": "Cerebras 免费层",
       "channelType": 1,
       "baseUrl": "https://api.cerebras.ai",
       "signupUrl": "https://inference.cerebras.ai",
@@ -58,11 +60,12 @@
       "monthlyTokens": 30000000,
       "freeType": "recurring-daily",
       "tos": "caution",
-      "poolKey": "cerebras"
+      "poolKey": "cerebras",
+      "authMode": "key"
     },
     {
       "id": "sambanova",
-      "name": "SambaNova 免费额度",
+      "name": "SambaNova 免费层",
       "channelType": 1,
       "baseUrl": "https://api.sambanova.ai",
       "signupUrl": "https://sambanova.ai",
@@ -78,7 +81,8 @@
       "monthlyTokens": 6000000,
       "freeType": "recurring-daily",
       "tos": "caution",
-      "poolKey": "sambanova"
+      "poolKey": "sambanova",
+      "authMode": "key"
     },
     {
       "id": "cloudflare-ai",
@@ -101,7 +105,8 @@
       "monthlyTokens": 30000000,
       "freeType": "recurring-daily",
       "tos": "caution",
-      "poolKey": "cloudflare-ai"
+      "poolKey": "cloudflare-ai",
+      "authMode": "key"
     },
     {
       "id": "openrouter-free",
@@ -117,7 +122,8 @@
       "monthlyTokens": 1200000,
       "freeType": "recurring-daily",
       "tos": "caution",
-      "poolKey": "openrouter-free"
+      "poolKey": "openrouter-free",
+      "authMode": "key"
     },
     {
       "id": "mistral",
@@ -137,7 +143,8 @@
       "monthlyTokens": 1000000000,
       "freeType": "recurring-monthly",
       "tos": "caution",
-      "poolKey": "mistral"
+      "poolKey": "mistral",
+      "authMode": "key"
     },
     {
       "id": "github-models",
@@ -156,11 +163,12 @@
       "monthlyTokens": 0,
       "freeType": "recurring-daily",
       "tos": "caution",
-      "poolKey": "github-models"
+      "poolKey": "github-models",
+      "authMode": "key"
     },
     {
       "id": "siliconflow",
-      "name": "SiliconFlow 免费模型",
+      "name": "硅基流动 免费模型",
       "channelType": 1,
       "baseUrl": "https://api.siliconflow.com",
       "signupUrl": "https://cloud.siliconflow.com",
@@ -176,7 +184,8 @@
       "monthlyTokens": 0,
       "freeType": "recurring-uncapped",
       "tos": "caution",
-      "poolKey": "siliconflow"
+      "poolKey": "siliconflow",
+      "authMode": "key"
     },
     {
       "id": "glm-cn",
@@ -194,7 +203,8 @@
       "monthlyTokens": 0,
       "freeType": "recurring-uncapped",
       "tos": "ok",
-      "poolKey": "zhipu-flash-free"
+      "poolKey": "zhipu-flash-free",
+      "authMode": "key"
     },
     {
       "id": "arcee-free",
@@ -210,7 +220,8 @@
       "monthlyTokens": 4800000,
       "freeType": "recurring-daily",
       "tos": "caution",
-      "poolKey": "arcee-free"
+      "poolKey": "arcee-free",
+      "authMode": "key"
     },
     {
       "id": "llm7",
@@ -229,11 +240,12 @@
       "monthlyTokens": 150000000,
       "freeType": "recurring-daily",
       "tos": "caution",
-      "poolKey": "llm7-free"
+      "poolKey": "llm7-free",
+      "authMode": "key"
     },
     {
       "id": "cohere",
-      "name": "Cohere Trial 免费层",
+      "name": "Cohere 试用额度",
       "channelType": 1,
       "baseUrl": "https://api.cohere.ai/compatibility",
       "signupUrl": "https://dashboard.cohere.com/api-keys",
@@ -249,7 +261,8 @@
       "monthlyTokens": 2000000,
       "freeType": "recurring-monthly",
       "tos": "caution",
-      "poolKey": "cohere"
+      "poolKey": "cohere",
+      "authMode": "key"
     },
     {
       "id": "nvidia-nim",
@@ -268,11 +281,12 @@
       "monthlyTokens": 20000000,
       "freeType": "recurring-daily",
       "tos": "caution",
-      "poolKey": "nvidia-nim"
+      "poolKey": "nvidia-nim",
+      "authMode": "key"
     },
     {
       "id": "modelscope",
-      "name": "ModelScope 免费推理",
+      "name": "魔搭 ModelScope",
       "channelType": 1,
       "baseUrl": "https://api-inference.modelscope.cn",
       "signupUrl": "https://modelscope.cn/my/myaccesstoken",
@@ -285,7 +299,8 @@
       "monthlyTokens": 30000000,
       "freeType": "recurring-daily",
       "tos": "caution",
-      "poolKey": "modelscope"
+      "poolKey": "modelscope",
+      "authMode": "key"
     },
     {
       "id": "ovhcloud",
@@ -309,7 +324,8 @@
       "monthlyTokens": 5000000,
       "freeType": "recurring-uncapped",
       "tos": "ok",
-      "poolKey": "ovhcloud"
+      "poolKey": "ovhcloud",
+      "authMode": "key"
     },
     {
       "id": "kilo-code",
@@ -329,7 +345,8 @@
       "monthlyTokens": 10000000,
       "freeType": "recurring-daily",
       "tos": "caution",
-      "poolKey": "kilo-code"
+      "poolKey": "kilo-code",
+      "authMode": "key"
     },
     {
       "id": "aion-labs",
@@ -348,7 +365,8 @@
       "monthlyTokens": 600000,
       "freeType": "recurring-daily",
       "tos": "caution",
-      "poolKey": "aion-labs"
+      "poolKey": "aion-labs",
+      "authMode": "key"
     },
     {
       "id": "gonka-broker",
@@ -367,11 +385,12 @@
       "monthlyTokens": 1000000,
       "freeType": "recurring-monthly",
       "tos": "caution",
-      "poolKey": "gonka-broker"
+      "poolKey": "gonka-broker",
+      "authMode": "key"
     },
     {
       "id": "pollinations",
-      "name": "Pollinations 免费层",
+      "name": "Pollinations 匿名免费",
       "channelType": 1,
       "baseUrl": "https://text.pollinations.ai/openai",
       "signupUrl": "https://pollinations.ai",
@@ -387,7 +406,8 @@
       "monthlyTokens": 5000000,
       "freeType": "recurring-uncapped",
       "tos": "ok",
-      "poolKey": "pollinations"
+      "poolKey": "pollinations",
+      "authMode": "ip"
     },
     {
       "id": "cline-account",
@@ -412,7 +432,9 @@
       "monthlyTokens": 0,
       "freeType": "reverse-proxy",
       "tos": "own-account",
-      "poolKey": "cline"
+      "poolKey": "cline",
+      "authMode": "oauth",
+      "hiddenEndpoint": true
     },
     {
       "id": "trae-cn",
@@ -432,7 +454,9 @@
       "monthlyTokens": 0,
       "freeType": "reverse-proxy",
       "tos": "own-account",
-      "poolKey": "trae-cn"
+      "poolKey": "trae-cn",
+      "authMode": "account",
+      "hiddenEndpoint": true
     },
     {
       "id": "trae-intl",
@@ -452,7 +476,9 @@
       "monthlyTokens": 0,
       "freeType": "reverse-proxy",
       "tos": "own-account",
-      "poolKey": "trae-intl"
+      "poolKey": "trae-intl",
+      "authMode": "account",
+      "hiddenEndpoint": true
     },
     {
       "id": "qoder-cn",
@@ -474,7 +500,9 @@
       "poolKey": "qoder-cn",
       "extraFields": [
         "base"
-      ]
+      ],
+      "authMode": "account",
+      "hiddenEndpoint": true
     },
     {
       "id": "qoder-intl",
@@ -496,7 +524,9 @@
       "poolKey": "qoder-intl",
       "extraFields": [
         "base"
-      ]
+      ],
+      "authMode": "account",
+      "hiddenEndpoint": true
     },
     {
       "id": "minimax-code-intl",
@@ -517,7 +547,9 @@
       "poolKey": "minimax-intl",
       "extraFields": [
         "base"
-      ]
+      ],
+      "authMode": "account",
+      "hiddenEndpoint": true
     },
     {
       "id": "minimax-code-cn",
@@ -538,20 +570,19 @@
       "poolKey": "minimax-cn",
       "extraFields": [
         "base"
-      ]
+      ],
+      "authMode": "account",
+      "hiddenEndpoint": true
     },
     {
       "id": "ds2api",
-      "name": "DeepSeek 网页版（ds2api 网关）",
+      "name": "DS2API（DeepSeek 网页版账号）",
       "channelType": 1,
       "baseUrl": "{base}",
       "signupUrl": "https://ds2api-production-24fcbc11.up.railway.app/admin",
       "keyRequired": true,
       "models": [
-        "deepseek-chat",
-        "deepseek-reasoner",
-        "deepseek-v4",
-        "deepseek-v4-flash"
+        "deepseek-v4.1-flash"
       ],
       "freeNote": "平台已部署：https://ds2api-production-24fcbc11.up.railway.app/v1（后台 /admin，管理员口令在部署变量里）。到后台「账号」里填 DeepSeek 网页端的邮箱+密码（或手机号+密码）授权，不是填 API Key；授权后本渠道即可用 deepseek-v4-flash 等模型。⚠️ 反代账号风险自担，建议用小号。",
       "monthlyTokens": 0,
@@ -563,7 +594,9 @@
       ],
       "defaultExtra": {
         "base": "https://ds2api-production-24fcbc11.up.railway.app/v1"
-      }
+      },
+      "authMode": "account",
+      "hiddenEndpoint": true
     },
     {
       "id": "opencode-zen",
@@ -585,7 +618,9 @@
       "monthlyTokens": 0,
       "freeType": "reverse-proxy",
       "tos": "own-account",
-      "poolKey": "opencode"
+      "poolKey": "opencode",
+      "authMode": "account",
+      "hiddenEndpoint": true
     },
     {
       "id": "sensenova",
@@ -603,7 +638,8 @@
       "monthlyTokens": 0,
       "freeType": "recurring-monthly",
       "tos": "caution",
-      "poolKey": "sensenova"
+      "poolKey": "sensenova",
+      "authMode": "key"
     },
     {
       "id": "cto-new-proxy",
@@ -623,7 +659,31 @@
       "poolKey": "cto-new",
       "extraFields": [
         "base"
-      ]
+      ],
+      "authMode": "account",
+      "hiddenEndpoint": true
+    },
+    {
+      "id": "gemini-2api",
+      "name": "Gemini 2API（网页版账号）",
+      "channelType": 1,
+      "baseUrl": "{base}",
+      "signupUrl": "https://github.com/",
+      "keyRequired": false,
+      "extraFields": [
+        "base"
+      ],
+      "models": [
+        "gemini-2.5-pro",
+        "gemini-2.5-flash"
+      ],
+      "authMode": "account",
+      "hiddenEndpoint": true,
+      "freeNote": "开源的 Gemini 网页版转 API（gemini-2api 类项目）：在自建服务里填 Google 账号 Cookie/授权，本平台只负责路由与计费。⚠️ 反代账号风险自担，建议用小号。",
+      "monthlyTokens": 0,
+      "freeType": "reverse-proxy",
+      "tos": "caution",
+      "poolKey": "gemini-2api"
     }
   ]
 }
