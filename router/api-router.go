@@ -282,6 +282,7 @@ func SetApiRouter(router *gin.Engine) {
 		registerSelfChannelRoutes(apiRouter)
 		registerCheckinRoutes(apiRouter)
 		registerFreeSourcePoolRoutes(apiRouter)
+		registerPublicPoolRoutes(apiRouter)
 		registerProxyPoolRoutes(apiRouter)
 		registerRouteRuleRoutes(apiRouter)
 		registerExtLinkRoutes(apiRouter)
