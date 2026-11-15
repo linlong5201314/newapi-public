@@ -564,6 +564,66 @@
       "defaultExtra": {
         "base": "https://ds2api-production-24fcbc11.up.railway.app/v1"
       }
+    },
+    {
+      "id": "opencode-zen",
+      "name": "OpenCode Zen 免费模型",
+      "channelType": 1,
+      "baseUrl": "https://opencode.ai/zen/v1",
+      "signupUrl": "https://opencode.ai/auth",
+      "keyRequired": true,
+      "models": [
+        "big-pickle",
+        "deepseek-v4.1-flash-free",
+        "glm-5.3-flash-free",
+        "longcat-2.5-free",
+        "minimax-m3.1-flash-free",
+        "mimo-v2.6-flash-free",
+        "nemotron-3.5-lightning-free"
+      ],
+      "freeNote": "免费模型清单公开（/zen/v1/models 直接可读），但调用需要 OpenCode 账号签发的 key；匿名方式实测已返回 429 FreeUsageLimitError（按来源限流）。⚠️ 反代/小号风险自担。",
+      "monthlyTokens": 0,
+      "freeType": "reverse-proxy",
+      "tos": "own-account",
+      "poolKey": "opencode"
+    },
+    {
+      "id": "sensenova",
+      "name": "商汤日日新 Token Plan（免费额度）",
+      "channelType": 1,
+      "baseUrl": "https://token.sensenova.cn/v1",
+      "signupUrl": "https://platform.sensenova.cn",
+      "keyRequired": true,
+      "models": [
+        "SenseChat-5",
+        "SenseChat-5-1202",
+        "sensenova-v6-pro"
+      ],
+      "freeNote": "商汤 2026 上线的免费 Token Plan，注册后在控制台创建 API Key；模型名以控制台「模型列表」为准（本模板预填常用项）。",
+      "monthlyTokens": 0,
+      "freeType": "recurring-monthly",
+      "tos": "caution",
+      "poolKey": "sensenova"
+    },
+    {
+      "id": "cto-new-proxy",
+      "name": "cto.new 免费反代（自建）",
+      "channelType": 1,
+      "baseUrl": "{base}",
+      "signupUrl": "https://github.com/1837620622/cto-new-openai-proxy",
+      "keyRequired": false,
+      "models": [
+        "gpt-5.4",
+        "glm-5.1"
+      ],
+      "freeNote": "开源反代：把 cto.new 的免费 GPT-5.4 / GLM-5.1 暴露成 OpenAI 兼容接口，单账号每日 300 配额、支持号池热加载。填你自己部署的地址（含 /v1）。⚠️ 反代账号风险自担。",
+      "monthlyTokens": 0,
+      "freeType": "reverse-proxy",
+      "tos": "caution",
+      "poolKey": "cto-new",
+      "extraFields": [
+        "base"
+      ]
     }
   ]
 }
