@@ -27,6 +27,11 @@ func registerSelfChannelRoutes(apiRouter *gin.RouterGroup) {
 		selfChannelRoute.POST("/from_template", controller.AddSelfChannelFromTemplate)
 		selfChannelRoute.GET("/free_usage", controller.GetSelfFreeUsage)
 		selfChannelRoute.POST("/visibility", controller.SetSelfChannelVisibility)
+		// 账号授权型反代：用户提交「账号----密码」，平台后台开通独立实例
+		selfChannelRoute.POST("/bindings", controller.CreateSelfBinding)
+		selfChannelRoute.GET("/bindings", controller.GetSelfBindings)
+		selfChannelRoute.DELETE("/bindings/:id", controller.DeleteSelfBinding)
+		selfChannelRoute.POST("/bindings/:id/public", controller.SetSelfBindingPublic)
 		selfChannelRoute.GET("/:id", controller.GetSelfChannel)
 		selfChannelRoute.POST("/", controller.AddSelfChannel)
 		selfChannelRoute.PUT("/", controller.UpdateSelfChannel)
