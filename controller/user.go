@@ -499,6 +499,7 @@ func buildSelfUserData(user *model.User) map[string]any {
 		"id":                user.Id,
 		"username":          user.Username,
 		"display_name":      user.DisplayName,
+		"avatar":            user.Avatar,
 		"has_password":      user.HasPassword,
 		"role":              user.Role,
 		"status":            user.Status,
@@ -795,6 +796,21 @@ func UpdateSelf(c *gin.Context) {
 		defer func() {
 			recordUserSecurityAudit(c, c.GetInt("id"), "user.password_change", map[string]any{"success": succeeded, "notification_failed": notificationFailed})
 		}()
+	}
+	// 头像更新：只改头像字段，避免和其它资料/密码更新逻辑互相干扰。
+	if avatarRaw, avatarExists := requestData["avatar"]; avatarExists && !passwordRequested {
+		userId := c.GetInt("id")
+		avatar, _ := avatarRaw.(string)
+		avatar = strings.TrimSpace(avatar)
+		if len(avatar) > 255 {
+			avatar = avatar[:255]
+		}
+		if err := model.UpdateUserAvatar(userId, avatar); err != nil {
+			common.ApiErrorT(c, "Update failed")
+			return
+		}
+		common.ApiSuccessT(c, "Update successful", gin.H{"avatar": avatar})
+		return
 	}
 	// 检查是否是用户设置更新请求 (sidebar_modules 或 language)
 	if sidebarModules, sidebarExists := requestData["sidebar_modules"]; sidebarExists && !passwordRequested {
