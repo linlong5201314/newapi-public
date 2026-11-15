@@ -3,6 +3,7 @@ import { Globe, MessageSquare, Timer, Users } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { api } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -15,6 +16,7 @@ import {
   listPublicComments,
   listPublicModels,
   setVisibility,
+  updateAvatar,
 } from './api'
 import type { MyChannelRow, PublicComment, PublicModelItem } from './types'
 
@@ -191,6 +193,8 @@ export function PublicPoolPage() {
   const [models, setModels] = useState<PublicModelItem[] | null>(null)
   const [mine, setMine] = useState<MyChannelRow[] | null>(null)
   const [saving, setSaving] = useState<number | null>(null)
+  const [avatar, setAvatar] = useState('')
+  const [ipDrafts, setIpDrafts] = useState<Record<number, string>>({})
 
   const refresh = useCallback(async () => {
     try {
@@ -207,6 +211,42 @@ export function PublicPoolPage() {
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  useEffect(() => {
+    api
+      .get('/api/user/self')
+      .then((res) => setAvatar((res.data?.data?.avatar as string) || ''))
+      .catch(() => undefined)
+  }, [])
+
+  const saveAvatar = async () => {
+    try {
+      await updateAvatar(avatar.trim())
+      toast.success('头像已保存')
+      await refresh()
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || '保存头像失败')
+    }
+  }
+
+  const saveIps = async (row: MyChannelRow) => {
+    const value = (ipDrafts[row.id] ?? row.allow_ips ?? '').trim()
+    setSaving(row.id)
+    try {
+      await setVisibility({
+        channelId: row.id,
+        visibility: row.visibility === 1 ? 1 : 0,
+        tier: row.tier || 'api',
+        allowIps: value,
+      })
+      toast.success('订阅 IP 白名单已保存')
+      await refresh()
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || '保存失败')
+    } finally {
+      setSaving(null)
+    }
+  }
 
   const toggle = async (row: MyChannelRow, next: boolean) => {
     setSaving(row.id)
@@ -253,6 +293,29 @@ export function PublicPoolPage() {
 
       <Card>
         <CardHeader className='pb-2'>
+          <CardTitle className='text-base'>我的署名</CardTitle>
+          <p className='text-xs text-muted-foreground'>
+            公开模型和评论会显示这个名字与头像，填图片直链（http/https）。
+          </p>
+        </CardHeader>
+        <CardContent className='flex flex-wrap items-center gap-2'>
+          <Avatar className='h-9 w-9'>
+            {avatar ? <AvatarImage src={avatar} alt='avatar' /> : null}
+            <AvatarFallback className='text-xs'>ME</AvatarFallback>
+          </Avatar>
+          <Input
+            className='max-w-md'
+            value={avatar}
+            onChange={(e) => setAvatar(e.target.value)}
+            placeholder='https://example.com/avatar.png'
+          />
+          <Button size='sm' onClick={() => void saveAvatar()}>
+            保存头像
+          </Button>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader className='pb-2'>
           <CardTitle className='text-base'>我的渠道公开设置</CardTitle>
           <p className='text-xs text-muted-foreground'>
             默认私有：只有你自己能路由。勾选公开后其他用户才能看见并使用；公开者昵称与头像会显示给所有人。
@@ -277,7 +340,30 @@ export function PublicPoolPage() {
                   />
                   公开到公共池
                 </label>
-                <select
+                {row.tier === 'free' && (
+                  <span className='flex items-center gap-1'>
+                    <Input
+                      className='h-7 w-56 text-xs'
+                      value={ipDrafts[row.id] ?? row.allow_ips ?? ''}
+                      onChange={(e) =>
+                        setIpDrafts((prev) => ({
+                          ...prev,
+                          [row.id]: e.target.value,
+                        }))
+                      }
+                      placeholder='订阅 IP（逗号分隔，空=不限）'
+                    />
+                    <Button
+                      size='sm'
+                      variant='outline'
+                      className='h-7 px-2 text-xs'
+                      disabled={saving === row.id}
+                      onClick={() => void saveIps(row)}
+                    >
+                      保存
+                    </Button>
+                  </span>
+                )}                <select
                   className='h-7 rounded border bg-background px-1 text-xs'
                   value={row.tier || 'api'}
                   disabled={saving === row.id}
