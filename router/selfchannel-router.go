@@ -30,6 +30,8 @@ func registerSelfChannelRoutes(apiRouter *gin.RouterGroup) {
 		// 账号授权型反代：用户提交「账号----密码」，平台后台开通独立实例
 		selfChannelRoute.POST("/bindings", controller.CreateSelfBinding)
 		selfChannelRoute.GET("/bindings", controller.GetSelfBindings)
+		// magpie 插件目录（provider 生态：卡片展示 + 一键复制安装命令）
+		selfChannelRoute.GET("/magpie_plugins", controller.GetMagpiePlugins)
 		selfChannelRoute.DELETE("/bindings/:id", controller.DeleteSelfBinding)
 		selfChannelRoute.POST("/bindings/:id/public", controller.SetSelfBindingPublic)
 		selfChannelRoute.GET("/:id", controller.GetSelfChannel)
