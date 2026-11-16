@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "curatedAt": "2026-11-12",
   "source": "assets/free-pools.json + assets/free-model-catalog.json + OmniRoute provider registry",
   "templates": [
@@ -603,18 +603,31 @@
     },
     {
       "id": "xiaohuanxiong",
-      "name": "商汤小浣熊（客户端登录态反代）",
-      "baseUrl": "{base}",
-      "channelType": 1,
-      "authMode": "bridge",
+      "name": "商汤小浣熊（浏览器授权，平台直连）",
+      "baseUrl": "https://xiaohuanxiong.com/api/web/llm/v2",
+      "channelType": 68,
+      "authMode": "oauth",
       "hiddenEndpoint": true,
       "keyRequired": false,
       "models": [],
-      "extraFields": [
-        "base"
-      ],
-      "signupUrl": "https://xiaohuanxiong.com/",
-      "freeNote": "小浣熊没有公开 API（官方客户端免费账号，无第三方订阅额度），只能用登录态反代。按「access_token----refresh_token」粘贴（每行一个账号），平台会为你代建配套网关并自动接好；模型目录由网关自动发现。⚠️ 登录态等同账号，建议用小号。"
+      "modelsList": [],
+      "extraFields": [],
+      "homepageUrl": "https://xiaohuanxiong.com/",
+      "freeNote": "不需要 API Key，也不需要自己部署任何东西。\n① 点这个链接登录并同意授权：https://xiaohuanxiong.com/code/authorize?login_source=desktop&appname=%E5%8A%9E%E5%85%AC%E5%B0%8F%E6%B5%A3%E7%86%8A%E5%AE%A2%E6%88%B7%E7%AB%AF&state=0000000000000000000000000000000000000000000000000000000000000000&desktop_callback=loopback&redirect=http%3A%2F%2F127.0.0.1%3A64650%2Fauth%2Fcallback\n② 浏览器会跳到 http://127.0.0.1:64650/auth/callback?code=...（页面打不开是正常的，因为本机没有监听），把地址栏那一整段复制下来；\n③ 在下面「账号授权」里粘贴这段地址（含 code=），或直接粘贴 access_token。\n平台会用你给的 code 换票、直连官方网页接口，并把模型挂到你的账号下；不会显示任何部署地址。同一时刻小浣熊只允许一个桌面会话，登录第二个账号会顶掉第一个。⚠️ 登录态等同账号，建议用小号。"
+    },
+    {
+      "id": "internlm-inkstone",
+      "name": "书生·端砚（Token Plan 授权）",
+      "baseUrl": "https://discovery-api.intern-ai.org.cn/v1",
+      "channelType": 1,
+      "authMode": "oauth",
+      "hiddenEndpoint": true,
+      "keyRequired": false,
+      "models": [],
+      "modelsList": [],
+      "extraFields": [],
+      "homepageUrl": "https://discovery.intern-ai.org.cn/",
+      "freeNote": "不需要 API Key：打开 https://discovery.intern-ai.org.cn/ 登录，\n按 F12 → Application/存储 → Cookies → 复制 uaa-token 的值，粘贴到下面「账号授权」。\n平台会用它在你的账号下创建一把 ink- 前缀的 API Key（明文只返回一次），并接到 OpenAI 兼容端点；单账号最多 10 把，删号时只清理 ink- 前缀。"
     }
   ]
 }
