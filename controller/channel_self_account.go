@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel/cline"
+	"github.com/QuantumNous/new-api/relay/channel/raccoon"
 	"github.com/QuantumNous/new-api/relay/channel/trae"
 	"github.com/QuantumNous/new-api/relay/channel/workbuddy"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -143,6 +144,146 @@ func SelfImportTrae(c *gin.Context) {
 		// 刷新会踢同账号其他客户端下线（ExchangeToken 整族轮换）——前端必须明示。
 		"notice": "Trae 刷新令牌会轮换整族 token 并踢下同账号其他客户端；建议专号专用。",
 	}})
+}
+
+// SelfRaccoonOAuthStart 发起小浣熊浏览器授权。
+// body 可带 {"redirect":"..."} 覆盖回调地址（一般不用）。
+// 返回 {sessionId(=state), authUrl, callbackUrl, expiresIn}；用户打开 authUrl 登录后
+// 浏览器会跳回我们的回调路由，服务端自动换票，前端轮询 poll 即可拿到渠道。
+func SelfRaccoonOAuthStart(c *gin.Context) {
+	sess, err := raccoon.Start()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"sessionId":   sess.State,
+			"authUrl":     raccoon.AuthorizeURL(sess.State),
+			"callbackUrl": raccoon.CallbackURL(),
+			"expiresIn":   int(raccoon.SessionTTL.Seconds()),
+		},
+	})
+}
+
+// SelfRaccoonOAuthCallback 浏览器授权回跳。
+// 这个端点由浏览器直接访问（没有 JWT），所以只做 state 校验 + 换票，
+// 然后回一段 HTML 让用户关掉标签页。
+func SelfRaccoonOAuthCallback(c *gin.Context) {
+	state := strings.TrimSpace(c.Query("state"))
+	code := strings.TrimSpace(c.Query("code"))
+	if state == "" || code == "" {
+		c.Header("Content-Type", "text/html; charset=utf-8")
+		c.String(http.StatusBadRequest, "<html><body style=\"font-family:system-ui;padding:32px\"><h3>授权回调缺少参数</h3><p>请回到平台页面重新点击「小浣熊授权」。</p></body></html>")
+		return
+	}
+	sess, err := raccoon.Finish(state, code)
+	c.Header("Content-Type", "text/html; charset=utf-8")
+	if err != nil {
+		common.SysLog("raccoon oauth callback failed: " + err.Error())
+		c.String(http.StatusOK, "<html><body style=\"font-family:system-ui;padding:32px\"><h3>授权失败</h3><p>"+err.Error()+"</p><p>请回到平台页面重新点击授权。</p></body></html>")
+		return
+	}
+	phone := sess.Phone
+	if phone == "" {
+		phone = sess.AccountID
+	}
+	c.String(http.StatusOK, "<html><body style=\"font-family:system-ui;padding:32px\"><h3>授权成功</h3><p>账号："+phone+"</p><p>可以关闭此页面，回到平台即可看到已开通的渠道。</p></body></html>")
+}
+
+// SelfRaccoonOAuthPoll 轮询小浣熊授权结果。
+// mode=create（默认）成功后直接建 type 68 渠道；mode=preview 只返回脱敏凭据。
+func SelfRaccoonOAuthPoll(c *gin.Context) {
+	state := strings.TrimSpace(c.Query("sessionId"))
+	if state == "" {
+		common.ApiErrorMsg(c, "missing sessionId")
+		return
+	}
+	sess := raccoon.Get(state)
+	if sess == nil {
+		common.ApiErrorMsg(c, "授权会话不存在或已过期，请重新发起授权")
+		return
+	}
+	if sess.Err != "" {
+		common.ApiErrorMsg(c, sess.Err)
+		return
+	}
+	if !sess.Done {
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"done": false}})
+		return
+	}
+	keyJSON, _ := common.Marshal(map[string]string{
+		"access":  sess.Access,
+		"refresh": sess.Refresh,
+	})
+	if c.DefaultQuery("mode", "create") == "preview" {
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{
+			"done": true,
+			"credential": gin.H{
+				"account": maskTail(sess.Phone),
+				"access":  maskTail(sess.Access),
+			},
+			"key": string(keyJSON),
+		}})
+		return
+	}
+	// 模型目录用真实 token 现拉，拉不到回退内置列表。
+	models := raccoon.ModelList
+	if got, err := raccoon.FetchUpstreamModels("", sess.Access); err == nil && len(got) > 0 {
+		models = got
+	}
+	channel, err := createAccountChannelWithModels(c, constant.ChannelTypeRaccoon, "小浣熊 "+maskTail(sess.Phone), string(keyJSON), models)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"done": true, "channel": channel, "models": models}})
+}
+
+// maskTail 把手机号/token 脱敏成 前3****后4 形式。
+func maskTail(s string) string {
+	if len(s) <= 7 {
+		if len(s) <= 2 {
+			return "**"
+		}
+		return s[:1] + "***"
+	}
+	return s[:3] + "****" + s[len(s)-4:]
+}
+
+// createAccountChannelWithModels 同 createAccountChannel，但模型列表由调用方给出。
+func createAccountChannelWithModels(c *gin.Context, channelType int, name, keyJSON string, models []string) (*model.Channel, error) {
+	userId := c.GetInt("id")
+	if !checkSelfChannelLimit(c, 1) {
+		return nil, common.NewMessage("self channel count limit reached")
+	}
+	if name == "" {
+		name = constant.GetChannelTypeName(channelType) + " · " + time.Now().Format("0102")
+	}
+	weight := uint(0)
+	autoBan := 1
+	channel := &model.Channel{
+		Type:        channelType,
+		Name:        name,
+		Key:         keyJSON,
+		Group:       "default",
+		Models:      strings.Join(models, ","),
+		OwnerId:     userId,
+		Status:      common.ChannelStatusEnabled,
+		Weight:      &weight,
+		AutoBan:     &autoBan,
+		CreatedTime: common.GetTimestamp(),
+	}
+	if err := channel.Insert(); err != nil {
+		return nil, err
+	}
+	if err := channel.AddAbilities(nil); err != nil {
+		common.SysLog("account channel add abilities failed: " + err.Error())
+	}
+	model.InitChannelCache()
+	channel.Key = ""
+	return channel, nil
 }
 
 // createAccountChannel 用导入的凭据直接建渠道（owner=当前用户，复用自服务限额）。
