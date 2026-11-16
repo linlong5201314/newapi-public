@@ -248,7 +248,13 @@ func ListModels(c *gin.Context, modelType int) {
 			tokenModelLimit = map[string]bool{}
 		}
 	}
-	models := service.GetGroupsEnabledModels(ownerGroups)
+	// 多租户可见性：普通用户只看到「自己渠道 + 已公开渠道」的模型，
+	// 管理员/root 保持全量（便于运维排查）。
+	viewerId := c.GetInt("id")
+	if c.GetInt("role") >= common.RoleAdminUser {
+		viewerId = 0
+	}
+	models := service.GetGroupsEnabledModelsForOwner(ownerGroups, viewerId)
 	for _, modelName := range models {
 		if modelLimitEnable {
 			matchingName := ratio_setting.RoutingMatchModelName(modelName)
