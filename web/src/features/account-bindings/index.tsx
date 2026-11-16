@@ -40,10 +40,18 @@ export function AccountBindingsCard() {
   const accountTemplates = useMemo(
     () =>
       templates.filter(
-        (item) => item.authMode === 'account' || item.authMode === 'oauth'
+        (item) => item.authMode === 'account' || item.authMode === 'oauth' || item.authMode === 'gateway'
       ),
     [templates]
   )
+
+  const selectedTemplate = useMemo(
+    () => templates.find((item) => item.id === provider),
+    [templates, provider]
+  )
+  const mode = selectedTemplate?.authMode || 'account'
+  const isGateway = mode === 'gateway'
+  const isOAuth = mode === 'oauth'
 
   const reload = useCallback(async () => {
     setRows(await listBindings())
@@ -56,7 +64,7 @@ export function AccountBindingsCard() {
       if (!alive) return
       setTemplates(list)
       const first = list.find(
-        (item) => item.authMode === 'account' || item.authMode === 'oauth'
+        (item) => item.authMode === 'account' || item.authMode === 'oauth' || item.authMode === 'gateway'
       )
       if (first) setProvider(first.id)
     })()
@@ -71,8 +79,12 @@ export function AccountBindingsCard() {
       setMsg('请选择要授权的来源')
       return
     }
-    if (!accounts.trim()) {
-      setMsg('请按「账号----密码」每行一个填写')
+    if (!accounts.trim() && !isGateway) {
+      setMsg(
+        isOAuth
+          ? '请粘贴浏览器授权后的回调链接或 Token（每行一个）'
+          : '请按「账号----密码」每行一个填写'
+      )
       return
     }
     setBusy(true)
@@ -154,10 +166,10 @@ export function AccountBindingsCard() {
   return (
     <div className='mb-3 rounded-lg border p-3'>
       <div className='mb-1 text-sm font-medium'>
-        上游账号授权（账号密码加入代理）
+        上游账号授权（账号密码 / 浏览器授权 / 配套网关）
       </div>
       <div className='text-muted-foreground mb-2 text-xs'>
-        只支持你自己账号：填入后平台为你单独开通实例，账号不会与其他人共用；不需要填写任何 API Key，也看不到部署地址。
+        只支持你自己的账号：提交后平台为你单独开通（一用户一实例），凭据与实例都不与其他用户共用，也看不到任何部署地址。选「Magpie 配套网关」则填上游「供应商----密钥」，平台为你单独起一台网关。
       </div>
       <div className='flex flex-wrap gap-2'>
         <select
@@ -180,7 +192,13 @@ export function AccountBindingsCard() {
       </div>
       <textarea
         className='mt-2 h-24 w-full rounded-md border bg-transparent p-2 font-mono text-xs'
-        placeholder={'账号----密码\n账号----密码（每行一个，可一次粘贴多个）'}
+        placeholder={
+          isGateway
+            ? '供应商----密钥\n如 deepseek----sk-xxx（每行一个，可留空先开网关）'
+            : isOAuth
+              ? '浏览器授权后的回调链接或 Token（每行一个）'
+              : '账号----密码\n账号----密码（每行一个，可一次粘贴多个）'
+        }
         value={accounts}
         onChange={(e) => setAccounts(e.target.value)}
       />
@@ -191,7 +209,7 @@ export function AccountBindingsCard() {
             checked={isPublic}
             onChange={(e) => setIsPublic(e.target.checked)}
           />
-          公开到公共池（其他人可调用，显示你的昵称头像）
+          公开到公共池（模型对其他人可见可调用，展示你的昵称头像）
         </label>
         <button
           type='button'
