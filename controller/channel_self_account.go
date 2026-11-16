@@ -147,20 +147,31 @@ func SelfImportTrae(c *gin.Context) {
 }
 
 // SelfRaccoonOAuthStart 发起小浣熊浏览器授权。
-// body 可带 {"redirect":"..."} 覆盖回调地址（一般不用）。
 // 返回 {sessionId(=state), authUrl, callbackUrl, expiresIn}；用户打开 authUrl 登录后
 // 浏览器会跳回我们的回调路由，服务端自动换票，前端轮询 poll 即可拿到渠道。
+//
+// 会话落库（self_oauth_sessions）而不是放进程内：授权链路要经过 gw.ailong.love
+// 前置负载均衡，start 与 callback 可能落在不同节点。
 func SelfRaccoonOAuthStart(c *gin.Context) {
-	sess, err := raccoon.Start()
+	state, err := raccoon.NewState()
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
+	if err := model.CreateSelfOAuthSession(&model.SelfOAuthSession{
+		State:    state,
+		Provider: "raccoon",
+		Status:   "pending",
+	}); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	model.PurgeExpiredSelfOAuthSessions(raccoon.SessionTTL * 2)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"sessionId":   sess.State,
-			"authUrl":     raccoon.AuthorizeURL(sess.State),
+			"sessionId":   state,
+			"authUrl":     raccoon.AuthorizeURL(state),
 			"callbackUrl": raccoon.CallbackURL(),
 			"expiresIn":   int(raccoon.SessionTTL.Seconds()),
 		},
@@ -173,23 +184,38 @@ func SelfRaccoonOAuthStart(c *gin.Context) {
 func SelfRaccoonOAuthCallback(c *gin.Context) {
 	state := strings.TrimSpace(c.Query("state"))
 	code := strings.TrimSpace(c.Query("code"))
+	c.Header("Content-Type", "text/html; charset=utf-8")
 	if state == "" || code == "" {
-		c.Header("Content-Type", "text/html; charset=utf-8")
 		c.String(http.StatusBadRequest, "<html><body style=\"font-family:system-ui;padding:32px\"><h3>授权回调缺少参数</h3><p>请回到平台页面重新点击「小浣熊授权」。</p></body></html>")
 		return
 	}
-	sess, err := raccoon.Finish(state, code)
-	c.Header("Content-Type", "text/html; charset=utf-8")
-	if err != nil {
-		common.SysLog("raccoon oauth callback failed: " + err.Error())
-		c.String(http.StatusOK, "<html><body style=\"font-family:system-ui;padding:32px\"><h3>授权失败</h3><p>"+err.Error()+"</p><p>请回到平台页面重新点击授权。</p></body></html>")
+	sess, err := model.GetSelfOAuthSession(state, raccoon.SessionTTL)
+	if err != nil || sess == nil {
+		c.String(http.StatusOK, "<html><body style=\"font-family:system-ui;padding:32px\"><h3>授权会话不存在或已过期</h3><p>请回到平台页面重新点击授权。</p></body></html>")
 		return
 	}
-	phone := sess.Phone
-	if phone == "" {
-		phone = sess.AccountID
+	access, refresh, accountID, phone, xerr := raccoon.Exchange(code)
+	if xerr != nil {
+		common.SysLog("raccoon oauth callback failed: " + xerr.Error())
+		_ = model.UpdateSelfOAuthSession(state, map[string]interface{}{"status": "failed", "err": xerr.Error()})
+		c.String(http.StatusOK, "<html><body style=\"font-family:system-ui;padding:32px\"><h3>授权失败</h3><p>"+xerr.Error()+"</p><p>请回到平台页面重新点击授权。</p></body></html>")
+		return
 	}
-	c.String(http.StatusOK, "<html><body style=\"font-family:system-ui;padding:32px\"><h3>授权成功</h3><p>账号："+phone+"</p><p>可以关闭此页面，回到平台即可看到已开通的渠道。</p></body></html>")
+	if err := model.UpdateSelfOAuthSession(state, map[string]interface{}{
+		"status":     "done",
+		"access":     access,
+		"refresh":    refresh,
+		"account_id": accountID,
+		"phone":      phone,
+		"err":        "",
+	}); err != nil {
+		common.SysLog("raccoon oauth session save failed: " + err.Error())
+	}
+	shown := phone
+	if shown == "" {
+		shown = accountID
+	}
+	c.String(http.StatusOK, "<html><body style=\"font-family:system-ui;padding:32px\"><h3>授权成功</h3><p>账号："+shown+"</p><p>可以关闭此页面，回到平台即可看到已开通的渠道。</p></body></html>")
 }
 
 // SelfRaccoonOAuthPoll 轮询小浣熊授权结果。
@@ -200,16 +226,16 @@ func SelfRaccoonOAuthPoll(c *gin.Context) {
 		common.ApiErrorMsg(c, "missing sessionId")
 		return
 	}
-	sess := raccoon.Get(state)
-	if sess == nil {
+	sess, err := model.GetSelfOAuthSession(state, raccoon.SessionTTL)
+	if err != nil || sess == nil {
 		common.ApiErrorMsg(c, "授权会话不存在或已过期，请重新发起授权")
 		return
 	}
-	if sess.Err != "" {
+	if sess.Status == "failed" {
 		common.ApiErrorMsg(c, sess.Err)
 		return
 	}
-	if !sess.Done {
+	if sess.Status != "done" {
 		c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"done": false}})
 		return
 	}
@@ -228,14 +254,23 @@ func SelfRaccoonOAuthPoll(c *gin.Context) {
 		}})
 		return
 	}
+	// 同一会话只允许开通一次：先原子地把 status 改成 consumed，抢到的那次才建渠道。
+	affected := model.DB.Model(&model.SelfOAuthSession{}).
+		Where("state = ? and status = ?", state, "done").
+		Update("status", "consumed").RowsAffected
+	if affected == 0 {
+		common.ApiErrorMsg(c, "该授权已开通渠道，如需再开请重新授权")
+		return
+	}
 	// 模型目录用真实 token 现拉，拉不到回退内置列表。
 	models := raccoon.ModelList
-	if got, err := raccoon.FetchUpstreamModels("", sess.Access); err == nil && len(got) > 0 {
+	if got, ferr := raccoon.FetchUpstreamModels("", sess.Access); ferr == nil && len(got) > 0 {
 		models = got
 	}
-	channel, err := createAccountChannelWithModels(c, constant.ChannelTypeRaccoon, "小浣熊 "+maskTail(sess.Phone), string(keyJSON), models)
-	if err != nil {
-		common.ApiError(c, err)
+	channel, cerr := createAccountChannelWithModels(c, constant.ChannelTypeRaccoon, "小浣熊 "+maskTail(sess.Phone), string(keyJSON), models)
+	if cerr != nil {
+		_ = model.UpdateSelfOAuthSession(state, map[string]interface{}{"status": "done"})
+		common.ApiError(c, cerr)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"done": true, "channel": channel, "models": models}})
