@@ -40,7 +40,7 @@ export function AccountBindingsCard() {
   const accountTemplates = useMemo(
     () =>
       templates.filter(
-        (item) => item.authMode === 'account' || item.authMode === 'oauth' || item.authMode === 'gateway'
+        (item) => item.authMode === 'account' || item.authMode === 'oauth' || item.authMode === 'gateway' || item.authMode === 'bridge'
       ),
     [templates]
   )
@@ -52,6 +52,7 @@ export function AccountBindingsCard() {
   const mode = selectedTemplate?.authMode || 'account'
   const isGateway = mode === 'gateway'
   const isOAuth = mode === 'oauth'
+  const isBridge = mode === 'bridge'
 
   const reload = useCallback(async () => {
     setRows(await listBindings())
@@ -64,7 +65,7 @@ export function AccountBindingsCard() {
       if (!alive) return
       setTemplates(list)
       const first = list.find(
-        (item) => item.authMode === 'account' || item.authMode === 'oauth' || item.authMode === 'gateway'
+        (item) => item.authMode === 'account' || item.authMode === 'oauth' || item.authMode === 'gateway' || item.authMode === 'bridge'
       )
       if (first) setProvider(first.id)
     })()
@@ -169,7 +170,7 @@ export function AccountBindingsCard() {
         上游账号授权（账号密码 / 浏览器授权 / 配套网关）
       </div>
       <div className='text-muted-foreground mb-2 text-xs'>
-        只支持你自己的账号：提交后平台为你单独开通（一用户一实例），凭据与实例都不与其他用户共用，也看不到任何部署地址。选「Magpie 配套网关」则填上游「供应商----密钥」，平台为你单独起一台网关。
+        只支持你自己的账号：提交后平台为你单独开通（一用户一实例），凭据与实例都不与其他用户共用，也看不到任何部署地址。选「Magpie 配套网关」填上游「供应商----密钥」，平台为你单独起一台网关；选「小浣熊」这类客户端登录态来源，需要配套网关（xhx2api / Buddy2api），平台不代持他人客户端登录态。
       </div>
       <div className='flex flex-wrap gap-2'>
         <select
@@ -195,9 +196,11 @@ export function AccountBindingsCard() {
         placeholder={
           isGateway
             ? '供应商----密钥\n如 deepseek----sk-xxx（每行一个，可留空先开网关）'
-            : isOAuth
-              ? '浏览器授权后的回调链接或 Token（每行一个）'
-              : '账号----密码\n账号----密码（每行一个，可一次粘贴多个）'
+            : isBridge
+              ? 'access_token----refresh_token\n（每行一个账号，来源：小浣熊 auth.json）'
+              : isOAuth
+                ? '浏览器授权后的回调链接或 Token（每行一个）'
+                : '账号----密码\n账号----密码（每行一个，可一次粘贴多个）'
         }
         value={accounts}
         onChange={(e) => setAccounts(e.target.value)}
