@@ -23,6 +23,7 @@ import type {
   FreePoolReview,
   PoolSort,
   SubmitPoolPayload,
+  UpdatePoolPayload,
 } from './types'
 
 // [FREE-POOL] 公共免费模型提交池 API（/api/free_source_pools）。
@@ -70,4 +71,12 @@ export async function listReviews(id: number): Promise<FreePoolReview[]> {
 
 export async function deletePool(id: number): Promise<void> {
   await api.delete(`${BASE}/${id}`)
+}
+
+// [FREE-POOL] 编辑条目（提交者本人或管理员）。只提交要改的字段。
+export async function updatePool(
+  id: number,
+  payload: UpdatePoolPayload
+): Promise<void> {
+  await api.patch(`${BASE}/${id}`, payload)
 }
