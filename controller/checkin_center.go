@@ -21,15 +21,6 @@ import (
 // （workbuddy/trae）不渲染凭据表单，改为选择「我的渠道」。
 var checkinSiteMetas = []gin.H{
 	{
-		"site":        "workbuddy",
-		"name":        "WorkBuddy/CodeBuddy",
-		"mode":        "api",
-		"icon":        "workbuddy",
-		"cred":        gin.H{"kind": "channel_ref", "channelType": 65, "desc": "引用「我的渠道」中的 WorkBuddy 渠道凭据；或粘贴独立凭据 JSON"},
-		"cred_fields": []gin.H{},
-		"guide":       "每日签到 + 连登管家闭环（补签卡/礼包/补偿/streak 兑换/抽奖）+ 任务中心幂等清扫。行为链任务（expert/template/canvas 等）暂不支持。",
-	},
-	{
 		"site":        "trae",
 		"name":        "Trae SOLO",
 		"mode":        "api",
