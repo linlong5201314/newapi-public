@@ -13,9 +13,11 @@ import (
 // SelfAccountBinding 用户提交的上游账号（账号----密码 多行），用于账号授权型反代。
 // 账号密文存 accounts_enc，明文只在离线上架/转发时解密使用；普通用户 API 只返回掩码。
 type SelfAccountBinding struct {
-	Id           int       `json:"id" gorm:"primaryKey;autoIncrement"`
-	UserId       int       `json:"user_id" gorm:"not null;index:idx_sab_user"`
-	Provider     string    `json:"provider" gorm:"type:varchar(64);not null;index:idx_sab_provider"`
+	Id       int    `json:"id" gorm:"primaryKey;autoIncrement"`
+	UserId   int    `json:"user_id" gorm:"not null;index:idx_sab_user"`
+	Provider string `json:"provider" gorm:"type:varchar(64);not null;index:idx_sab_provider"`
+	// Kind 绑定类型：password=账号密码（账号型反代）、oauth=授权登录（粘贴授权码/Token）、gateway=配套网关（如 magpie，一用户一实例）
+	Kind         string    `json:"kind" gorm:"type:varchar(16);not null;default:'password'"`
 	DisplayName  string    `json:"display_name" gorm:"type:varchar(64);default:''"`
 	AccountsEnc  string    `json:"-" gorm:"type:text;not null"`
 	AccountMask  string    `json:"account_mask" gorm:"type:text"`
@@ -199,4 +201,82 @@ func GetBindingById(id int) (*SelfAccountBinding, error) {
 		return nil, errors.New("binding not found")
 	}
 	return &b, err
+}
+
+// ParseOAuthToken 解析授权登录凭据：一行一个授权码 / 回调链接 / Token，
+// 形如 https://host/callback?code=xxxx、token=xxxx 或直接粘贴 token。
+func ParseOAuthToken(raw string) ([]SelfAccountCred, error) {
+	var out []SelfAccountCred
+	seen := map[string]bool{}
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		val := line
+		for _, marker := range []string{"code=", "token=", "access_token=", "refresh_token=", "id_token="} {
+			if idx := strings.Index(val, marker); idx >= 0 {
+				rest := val[idx+len(marker):]
+				if end := strings.IndexAny(rest, "&#"); end >= 0 {
+					rest = rest[:end]
+				}
+				if rest != "" {
+					val = rest
+					break
+				}
+			}
+		}
+		if seen[val] {
+			continue
+		}
+		seen[val] = true
+		out = append(out, SelfAccountCred{Account: val, Password: ""})
+	}
+	if len(out) == 0 {
+		return nil, errors.New("没有解析到授权凭据：请粘贴浏览器授权后的回调链接或 Token，每行一个")
+	}
+	if len(out) > 10 {
+		return nil, errors.New("单个绑定最多 10 条授权凭据")
+	}
+	return out, nil
+}
+
+// ParseGatewayKeys 解析配套网关的上游凭据：每行「供应商----密钥」（也接受 \t / | 分隔），
+// 例如 deepseek----sk-xxx；留空表示先开通网关、稍后再加。
+func ParseGatewayKeys(raw string) ([]SelfAccountCred, error) {
+	var out []SelfAccountCred
+	seen := map[string]bool{}
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		sep := "----"
+		if !strings.Contains(line, sep) {
+			switch {
+			case strings.Contains(line, "\t"):
+				sep = "\t"
+			case strings.Contains(line, "|"):
+				sep = "|"
+			default:
+				return nil, fmt.Errorf("上游凭据格式不对：%s（应为 供应商----密钥，例如 deepseek----sk-xxx）", line)
+			}
+		}
+		parts := strings.SplitN(line, sep, 2)
+		name := strings.TrimSpace(parts[0])
+		key := strings.TrimSpace(parts[1])
+		if name == "" || key == "" {
+			return nil, fmt.Errorf("供应商或密钥为空：%s", line)
+		}
+		k := strings.ToLower(name + "|" + key)
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		out = append(out, SelfAccountCred{Account: name, Password: key})
+	}
+	if len(out) > 20 {
+		return nil, errors.New("单个网关绑定最多 20 个上游凭据")
+	}
+	return out, nil
 }
