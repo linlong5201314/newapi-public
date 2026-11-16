@@ -85,11 +85,71 @@ func FetchUpstreamModels(base, key string) ([]string, error) {
 	if err := json.Unmarshal(buf, &root); err != nil {
 		return nil, fmt.Errorf("raccoon: 模型目录不是合法 JSON: %s", truncate(string(buf), 160))
 	}
-	ids := collectModelIDs(root, nil)
+	ids := catalogModelIDs(root)
+	if len(ids) == 0 {
+		ids = collectModelIDs(root, nil)
+	}
 	if len(ids) == 0 {
 		return nil, fmt.Errorf("raccoon: 模型目录里没有模型条目: %s", truncate(string(buf), 160))
 	}
 	return ids, nil
+}
+
+// catalogModelIDs 按小浣熊真实返回结构取模型 id：
+// {"data":{"categories":[{"type":"chat","models":[{"name":"sn-glm-5-3","model_name":"sn-glm-5-3",...}]}]}}
+//
+// 真实目录里没有 id 字段（只有 name / model_name），所以不能只靠
+// collectModelIDs 的递归兜底，否则永远只能拿到回退列表。
+func catalogModelIDs(root any) []string {
+	seen := map[string]struct{}{}
+	var out []string
+	push := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return
+		}
+		if _, dup := seen[s]; dup {
+			return
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	obj, ok := root.(map[string]any)
+	if !ok {
+		return nil
+	}
+	data, ok := obj["data"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	cats, ok := data["categories"].([]any)
+	if !ok {
+		return nil
+	}
+	for _, c := range cats {
+		cm, ok := c.(map[string]any)
+		if !ok {
+			continue
+		}
+		models, ok := cm["models"].([]any)
+		if !ok {
+			continue
+		}
+		for _, m := range models {
+			mm, ok := m.(map[string]any)
+			if !ok {
+				continue
+			}
+			if v, ok := mm["model_name"].(string); ok && strings.TrimSpace(v) != "" {
+				push(v)
+				continue
+			}
+			if v, ok := mm["name"].(string); ok {
+				push(v)
+			}
+		}
+	}
+	return out
 }
 
 // collectModelIDs 递归找所有形如 {"id":"..."} 的条目，按出现顺序去重。
