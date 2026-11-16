@@ -69,6 +69,12 @@ export interface ProxySubscription {
   url: string
   format: string
   node_count: number
+  /** 已用流量（字节），来自订阅头 subscription-userinfo。 */
+  traffic_used?: number
+  /** 总流量（字节），0 或缺失表示机场未上报。 */
+  traffic_total?: number
+  /** 到期时间（RFC3339），机场未上报则为空。 */
+  expire_at?: string
   last_error: string
   enabled: boolean
   last_sync_at?: string
