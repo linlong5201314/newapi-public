@@ -19,6 +19,7 @@ func registerFreeSourcePoolRoutes(apiRouter *gin.RouterGroup) {
 		poolRoute.GET("/:id", controller.GetFreeSourcePoolDetail)
 		poolRoute.POST("", controller.SubmitFreeSourcePool)
 		poolRoute.DELETE("/:id", controller.DeleteFreeSourcePool)
+		poolRoute.PATCH("/:id", controller.UpdateFreeSourcePool)
 		poolRoute.POST("/:id/rate", controller.RateFreeSourcePool)
 		poolRoute.POST("/:id/review", controller.ReviewFreeSourcePool)
 		poolRoute.GET("/:id/reviews", controller.GetFreeSourcePoolReviews)
