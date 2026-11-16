@@ -17,7 +17,9 @@ type SelfAccountBinding struct {
 	UserId   int    `json:"user_id" gorm:"not null;index:idx_sab_user"`
 	Provider string `json:"provider" gorm:"type:varchar(64);not null;index:idx_sab_provider"`
 	// Kind 绑定类型：password=账号密码（账号型反代）、oauth=授权登录（粘贴授权码/Token）、gateway=配套网关（如 magpie，一用户一实例）
-	Kind         string    `json:"kind" gorm:"type:varchar(16);not null;default:'password'"`
+	Kind string `json:"kind" gorm:"type:varchar(16);not null;default:'password'"`
+	// Proxy 出口代理：''=跟随平台默认（用户出口池）、'direct'=强制直连、其它=固定代理 URL（http/https/socks5）。
+	Proxy        string    `json:"proxy" gorm:"type:varchar(255);not null;default:''"`
 	DisplayName  string    `json:"display_name" gorm:"type:varchar(64);default:''"`
 	AccountsEnc  string    `json:"-" gorm:"type:text;not null"`
 	AccountMask  string    `json:"account_mask" gorm:"type:text"`
