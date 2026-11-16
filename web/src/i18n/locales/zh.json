@@ -7462,7 +7462,7 @@
     "Enter the API key for {{name}}.": "填写 {{name}} 的 API 密钥。",
     "No free source templates available yet. Check back after the backend ships them.": "暂无可用的免费源模板，待后端发布后重试。",
     "ToS: friendly": "条款：友好",
-    "ToS: review recommended": "条款：建议审阅",
+    "ToS: review recommended": "条款：建议先看",
     "ToS: risky": "条款：有风险",
     "ToS: unknown": "条款：未知",
     "Get an API key": "获取 API 密钥",
@@ -7909,6 +7909,19 @@
     "Direct connection (no proxy)": "直连（不使用代理）",
     "Fixed proxy URL": "固定代理地址",
     "e.g. http://1.2.3.4:8080 or socks5://host:1080": "例如 http://1.2.3.4:8080 或 socks5://host:1080",
-    "Reverse-proxy accounts carry risk: use a throwaway account, never your main one.": "反代账号有风险：请用小号，不要用主号。"
+    "Reverse-proxy accounts carry risk: use a throwaway account, never your main one.": "反代账号有风险：请用小号，不要用主号。",
+    "Channel tier": "渠道层级",
+    "API key tier": "密钥层（按 API 密钥调用）",
+    "Free tier (subscription IP)": "免费层（绑定订阅 IP）",
+    "Allowed IPs (comma or newline separated, CIDR ok)": "允许的 IP（逗号或换行分隔，支持 CIDR）",
+    "Multiple keys (optional, one per line)": "多密钥（可选，每行一个）",
+    "Leave empty to use the single API key above": "留空则使用上面的单个 API 密钥",
+    "Random key each request": "每次请求随机取一个密钥",
+    "Round-robin keys": "密钥轮询",
+    "Publish to the public pool (others can call it)": "公开到公共池（其他人可以调用）",
+    "{{name}} is an account-authorized source — submit it in the account authorization card instead of entering an API key.": "{{name}} 是账号授权来源——请到下方「上游账号授权」卡片提交，这里不用填 API 密钥。",
+    "Own account": "自有账号",
+    "Reverse proxy": "反代",
+    "Official API": "官方 API"
   }
 }
