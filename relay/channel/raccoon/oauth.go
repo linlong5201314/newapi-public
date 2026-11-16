@@ -10,9 +10,12 @@ package raccoon
 //  3. 换票 POST https://xiaohuanxiong.com/api/web/auth/v1/login_with_authorization_code
 //     body {"authorization_code": code} → data.access_token / data.refresh_token
 //
-// 关键点：redirect 指向我们自己的公网地址（默认 https://gw.ailong.love），
+// 关键点：redirect 指向我们自己的公网地址（生产 https://gw.ailong.love），
 // 这样浏览器会把 code 直接送到服务端，用户不需要手工复制回调链接。
 // 假 code 实测返回 400 {"code":200035,"message":"authorization_code_not_found_error"}。
+//
+// 会话状态不放在进程内：授权链路要经过 gw 前置负载均衡，start 与 callback
+// 可能落在不同节点，所以状态由调用方（controller）落到共享库。
 
 import (
 	"bytes"
@@ -26,7 +29,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -39,23 +41,8 @@ const (
 	AppName = "办公小浣熊客户端"
 	// SessionTTL 授权会话有效期（用户从点授权到扫码登录完成的时间窗）。
 	SessionTTL = 15 * time.Minute
-)
-
-// OAuthSession 一次浏览器授权会话。
-type OAuthSession struct {
-	State     string
-	CreatedAt time.Time
-	Done      bool
-	Access    string
-	Refresh   string
-	AccountID string
-	Phone     string
-	Err       string
-}
-
-var (
-	sessMu   sync.Mutex
-	sessions = map[string]*OAuthSession{}
+	// CallbackPath 我们的回调路由。
+	CallbackPath = "/api/channel/self/oauth/raccoon/callback"
 )
 
 // PublicBaseURL 返回对外可访问的基址，用于拼接回调地址。
@@ -70,15 +57,13 @@ func PublicBaseURL() string {
 	return "http://localhost:3000"
 }
 
-// CallbackPath 我们的回调路由（挂在 /api/channel/self/oauth/raccoon/callback）。
-const CallbackPath = "/api/channel/self/oauth/raccoon/callback"
-
 // CallbackURL 拼出完整回调地址。
 func CallbackURL() string {
 	return PublicBaseURL() + CallbackPath
 }
 
-func randomState() (string, error) {
+// NewState 生成 64 位 hex 的 state。
+func NewState() (string, error) {
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
 		return "", err
@@ -86,26 +71,7 @@ func randomState() (string, error) {
 	return hex.EncodeToString(buf), nil
 }
 
-// Start 创建授权会话并返回可打开的授权页地址。
-func Start() (*OAuthSession, error) {
-	state, err := randomState()
-	if err != nil {
-		return nil, err
-	}
-	sess := &OAuthSession{State: state, CreatedAt: time.Now()}
-	sessMu.Lock()
-	// 顺手清理过期会话，避免内存无限增长。
-	for k, v := range sessions {
-		if time.Since(v.CreatedAt) > SessionTTL {
-			delete(sessions, k)
-		}
-	}
-	sessions[state] = sess
-	sessMu.Unlock()
-	return sess, nil
-}
-
-// AuthorizeURL 由会话 state 拼出授权页地址。
+// AuthorizeURL 由 state 拼出授权页地址。
 func AuthorizeURL(state string) string {
 	q := url.Values{}
 	q.Set("login_source", "desktop")
@@ -114,54 +80,6 @@ func AuthorizeURL(state string) string {
 	q.Set("desktop_callback", "loopback")
 	q.Set("redirect", CallbackURL())
 	return AuthorizeBase + "?" + q.Encode()
-}
-
-// Get 读取会话（返回副本，避免并发读写同一结构）。
-func Get(state string) *OAuthSession {
-	sessMu.Lock()
-	defer sessMu.Unlock()
-	s, ok := sessions[state]
-	if !ok {
-		return nil
-	}
-	cp := *s
-	return &cp
-}
-
-// Finish 由回调处理函数调用：校验 state → 换票 → 写回会话。
-func Finish(state, code string) (*OAuthSession, error) {
-	if strings.TrimSpace(state) == "" {
-		return nil, errors.New("缺少 state，无法确认授权来源")
-	}
-	if strings.TrimSpace(code) == "" {
-		return nil, errors.New("缺少授权码 code")
-	}
-	sessMu.Lock()
-	s, ok := sessions[state]
-	sessMu.Unlock()
-	if !ok {
-		return nil, errors.New("授权会话不存在或已过期，请重新点一次授权")
-	}
-	if time.Since(s.CreatedAt) > SessionTTL {
-		return nil, errors.New("授权会话已过期，请重新点一次授权")
-	}
-	access, refresh, accountID, phone, err := Exchange(code)
-	if err != nil {
-		sessMu.Lock()
-		s.Err = err.Error()
-		sessMu.Unlock()
-		return nil, err
-	}
-	sessMu.Lock()
-	s.Done = true
-	s.Access = access
-	s.Refresh = refresh
-	s.AccountID = accountID
-	s.Phone = phone
-	s.Err = ""
-	sessMu.Unlock()
-	cp := *s
-	return &cp, nil
 }
 
 // Exchange 用授权码换 access/refresh token。
