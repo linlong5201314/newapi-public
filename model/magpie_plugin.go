@@ -34,7 +34,14 @@ func loadMagpiePlugins() []MagpiePlugin {
 		return nil
 	}
 	for i := range rows {
-		rows[i].Url = "https://github.com/" + rows[i].Repo
+		// repo 既可以是 GitHub 的 owner/repo，也可以是 npm 包名（以 @ 开头，
+		// 如 @magpie-community/opencode-orcaterm-auth）。npm 包的正确安装命令
+		// 就是 magpie plugin add <包名>，链接指向 npmjs 页面。
+		if strings.HasPrefix(rows[i].Repo, "@") {
+			rows[i].Url = "https://www.npmjs.com/package/" + rows[i].Repo
+		} else {
+			rows[i].Url = "https://github.com/" + rows[i].Repo
+		}
 		rows[i].Install = "magpie plugin add " + rows[i].Repo
 	}
 	magpiePluginCache = rows
