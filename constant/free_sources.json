@@ -706,6 +706,37 @@
       },
       "authMode": "gateway",
       "hiddenEndpoint": true
+    },
+    {
+      "id": "internlm",
+      "name": "书生·浦语 InternLM（官方 API）",
+      "baseUrl": "https://internlm.intern-ai.org.cn/api/v1",
+      "channelType": 1,
+      "authMode": "key",
+      "keyRequired": true,
+      "models": [
+        "Intern-S2"
+      ],
+      "modelsList": [
+        "Intern-S2"
+      ],
+      "signupUrl": "https://internlm.intern-ai.org.cn/api/tokens",
+      "freeNote": "官方 API Token（注册后在 API Tokens 页生成，免费额度按账号）。注意：2026-11-09 起旧入口只保留 Intern-S2，其它模型 id 会自动路由到它；2027-01-26 旧入口停服，改走 InternLM Discovery 的 Token Plan。"
+    },
+    {
+      "id": "xiaohuanxiong",
+      "name": "商汤小浣熊（客户端登录态反代）",
+      "baseUrl": "{base}",
+      "channelType": 1,
+      "authMode": "bridge",
+      "hiddenEndpoint": true,
+      "keyRequired": false,
+      "models": [],
+      "extraFields": [
+        "base"
+      ],
+      "signupUrl": "https://xiaohuanxiong.com/",
+      "freeNote": "小浣熊没有公开 API（官方客户端免费账号，无第三方订阅额度），只能用登录态反代：配套网关 xhx2api（haoxinyu1/xiaohuanxiong2api）、Buddy2api（wicm84266964/Buddy2api）、Coding2API（RobbsLuo/Coding2API）。按「access_token----refresh_token」粘贴即可，模型目录由网关自动发现。"
     }
   ]
 }
