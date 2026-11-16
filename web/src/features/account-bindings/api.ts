@@ -33,6 +33,7 @@ export async function createBinding(payload: {
   accounts: string
   displayName?: string
   public?: boolean
+  proxy?: string
 }): Promise<{ ok: boolean; message?: string }> {
   const res = await api.post<{ success: boolean; message?: string }>(
     '/api/channel/self/bindings',
