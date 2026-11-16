@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ExternalLink, Link2, MessageSquare, Plus, Star, Trash2 } from 'lucide-react'
+import { ExternalLink, Link2, MessageSquare, Pencil, Plus, Star, Trash2 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -48,7 +48,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { handleServerError } from '@/lib/handle-server-error'
 
-import { deletePool, listPool, listReviews, ratePool, reviewPool, submitPool } from './api'
+import { deletePool, listPool, listReviews, ratePool, reviewPool, submitPool, updatePool } from './api'
 import type { FreePoolEntry, PoolSort } from './types'
 
 const TAG_PRESETS = ['free', 'quota-limited', 'checkin'] as const
@@ -77,6 +77,7 @@ export function FreePoolPage() {
   const [sort, setSort] = useState<PoolSort>('rating')
   const [submitOpen, setSubmitOpen] = useState(false)
   const [reviewTarget, setReviewTarget] = useState<FreePoolEntry | null>(null)
+  const [editTarget, setEditTarget] = useState<FreePoolEntry | null>(null)
 
   const listQuery = useQuery({
     queryKey: ['free-pool', sort],
@@ -129,6 +130,7 @@ export function FreePoolPage() {
               rateMutation.mutate({ id: entry.id, rating, comment: '' })
             }
             onReview={() => setReviewTarget(entry)}
+            onEdit={() => setEditTarget(entry)}
             onDelete={() => deleteMutation.mutate(entry.id)}
           />
         ))}
@@ -165,6 +167,7 @@ export function FreePoolPage() {
       <SectionPageLayout.Content>{content}</SectionPageLayout.Content>
 
       <SubmitDialog open={submitOpen} onOpenChange={setSubmitOpen} />
+      <EditDialog target={editTarget} onClose={() => setEditTarget(null)} />
       <ReviewDialog target={reviewTarget} onClose={() => setReviewTarget(null)} />
     </SectionPageLayout>
   )
@@ -174,13 +177,14 @@ interface PoolCardProps {
   entry: FreePoolEntry
   onRate: (rating: number) => void
   onReview: () => void
+  onEdit: () => void
   onDelete: () => void
 }
 
 function PoolCard(props: PoolCardProps) {
   const { t } = useTranslation()
   const entry = props.entry
-  const quota = parseQuota(entry.tags)
+  const quota = entry.quota?.trim() || parseQuota(entry.tags)
   const tags = (entry.tags ?? []).filter((tag) => !tag.startsWith('quota:'))
 
   return (
@@ -207,7 +211,10 @@ function PoolCard(props: PoolCardProps) {
             >
               <ExternalLink className='h-4 w-4' />
             </a>
-            <Button variant='ghost' size='icon' onClick={props.onDelete}>
+            <Button variant='ghost' size='icon' onClick={props.onEdit} title={t('Edit')}>
+              <Pencil className='h-4 w-4' />
+            </Button>
+            <Button variant='ghost' size='icon' onClick={props.onDelete} title={t('Delete')}>
               <Trash2 className='h-4 w-4' />
             </Button>
           </div>
@@ -222,6 +229,16 @@ function PoolCard(props: PoolCardProps) {
 
         <div className='flex flex-wrap gap-1'>
           {quota ? <Badge variant='secondary'>{t('Quota')}: {quota}</Badge> : null}
+          {entry.proxy ? (
+            <Badge variant='outline' className='font-mono text-xs'>
+              {t('Proxy')}: {entry.proxy}
+            </Badge>
+          ) : null}
+          {entry.api_base ? (
+            <Badge variant='outline' className='max-w-56 truncate font-mono text-xs'>
+              {entry.api_base}
+            </Badge>
+          ) : null}
           {tags.map((tag) => (
             <Badge key={tag} variant='outline'>
               {t(tag)}
@@ -287,6 +304,8 @@ function SubmitDialog(props: SubmitDialogProps) {
   const [models, setModels] = useState('')
   const [description, setDescription] = useState('')
   const [quota, setQuota] = useState('')
+  const [proxy, setProxy] = useState('')
+  const [apiBase, setApiBase] = useState('')
   const [tags, setTags] = useState<string[]>(['free'])
 
   const mutation = useMutation({
@@ -302,6 +321,9 @@ function SubmitDialog(props: SubmitDialogProps) {
           .filter(Boolean),
         description,
         tags: quota.trim() ? [...tags, `quota:${quota.trim()}`] : tags,
+        quota: quota.trim() || undefined,
+        proxy: proxy.trim() || undefined,
+        api_base: apiBase.trim() || undefined,
       }),
     onSuccess: () => {
       toast.success(t('Submitted'))
@@ -405,6 +427,24 @@ function SubmitDialog(props: SubmitDialogProps) {
             </div>
           </div>
           <div className='space-y-1'>
+            <Label htmlFor='pool-proxy'>{t('Egress proxy (optional)')}</Label>
+            <Input
+              id='pool-proxy'
+              value={proxy}
+              onChange={(event) => setProxy(event.target.value)}
+              placeholder='http://127.0.0.1:7897'
+            />
+          </div>
+          <div className='space-y-1'>
+            <Label htmlFor='pool-apibase'>{t('API base (optional)')}</Label>
+            <Input
+              id='pool-apibase'
+              value={apiBase}
+              onChange={(event) => setApiBase(event.target.value)}
+              placeholder='https://api.example.com/v1'
+            />
+          </div>
+          <div className='space-y-1'>
             <Label htmlFor='pool-desc'>{t('Description')}</Label>
             <Textarea
               id='pool-desc'
@@ -423,6 +463,157 @@ function SubmitDialog(props: SubmitDialogProps) {
             onClick={() => mutation.mutate()}
           >
             {t('Submit')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+interface EditDialogProps {
+  target: FreePoolEntry | null
+  onClose: () => void
+}
+
+// [FREE-POOL] 编辑弹窗：提交者本人或管理员可改名称/URL/模型/描述/标签/额度/代理/接入地址。
+function EditDialog(props: EditDialogProps) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const entry = props.target
+  const [name, setName] = useState('')
+  const [url, setUrl] = useState('')
+  const [models, setModels] = useState('')
+  const [description, setDescription] = useState('')
+  const [quota, setQuota] = useState('')
+  const [proxy, setProxy] = useState('')
+  const [apiBase, setApiBase] = useState('')
+  const [loadedId, setLoadedId] = useState<number | null>(null)
+
+  // 目标切换时把现有值灌进表单（render 阶段同步，避免 useEffect 抖动）
+  if (entry && loadedId !== entry.id) {
+    setLoadedId(entry.id)
+    setName(entry.name ?? '')
+    setUrl(entry.url ?? '')
+    setModels((entry.models ?? []).join(', '))
+    setDescription(entry.description ?? '')
+    setQuota(entry.quota ?? '')
+    setProxy(entry.proxy ?? '')
+    setApiBase(entry.api_base ?? '')
+  }
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      if (!entry) return
+      await updatePool(entry.id, {
+        name: name.trim(),
+        url: url.trim(),
+        models: models
+          .split(',')
+          .map((model) => model.trim())
+          .filter(Boolean),
+        description: description.trim(),
+        quota: quota.trim(),
+        proxy: proxy.trim(),
+        api_base: apiBase.trim(),
+      })
+    },
+    onSuccess: () => {
+      toast.success(t('Saved'))
+      void queryClient.invalidateQueries({ queryKey: ['free-pool'] })
+      props.onClose()
+    },
+    onError: (error) => handleServerError(error, t('Failed to save')),
+  })
+
+  return (
+    <Dialog
+      open={Boolean(entry)}
+      onOpenChange={(open) => {
+        if (!open) {
+          setLoadedId(null)
+          props.onClose()
+        }
+      }}
+    >
+      <DialogContent className='sm:max-w-lg'>
+        <DialogHeader>
+          <DialogTitle>{t('Edit free source')}</DialogTitle>
+          <DialogDescription>
+            {t('Update quota, models, proxy and description of this entry.')}
+          </DialogDescription>
+        </DialogHeader>
+        <div className='max-h-[60vh] space-y-3 overflow-y-auto pe-1'>
+          <div className='space-y-1'>
+            <Label htmlFor='edit-pool-name'>{t('Name')}</Label>
+            <Input
+              id='edit-pool-name'
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+          </div>
+          <div className='space-y-1'>
+            <Label htmlFor='edit-pool-url'>{t('URL')}</Label>
+            <Input
+              id='edit-pool-url'
+              value={url}
+              onChange={(event) => setUrl(event.target.value)}
+            />
+          </div>
+          <div className='space-y-1'>
+            <Label htmlFor='edit-pool-models'>{t('Models')}</Label>
+            <Input
+              id='edit-pool-models'
+              value={models}
+              onChange={(event) => setModels(event.target.value)}
+              placeholder='llama-3.3-70b, whisper-large-v3'
+            />
+          </div>
+          <div className='space-y-1'>
+            <Label htmlFor='edit-pool-quota'>{t('Remaining quota')}</Label>
+            <Input
+              id='edit-pool-quota'
+              value={quota}
+              onChange={(event) => setQuota(event.target.value)}
+              placeholder={t('e.g. 1.2M tokens left')}
+            />
+          </div>
+          <div className='space-y-1'>
+            <Label htmlFor='edit-pool-proxy'>{t('Egress proxy in use')}</Label>
+            <Input
+              id='edit-pool-proxy'
+              value={proxy}
+              onChange={(event) => setProxy(event.target.value)}
+              placeholder='http://127.0.0.1:7897'
+            />
+          </div>
+          <div className='space-y-1'>
+            <Label htmlFor='edit-pool-apibase'>{t('API base (optional)')}</Label>
+            <Input
+              id='edit-pool-apibase'
+              value={apiBase}
+              onChange={(event) => setApiBase(event.target.value)}
+              placeholder='https://api.example.com/v1'
+            />
+          </div>
+          <div className='space-y-1'>
+            <Label htmlFor='edit-pool-desc'>{t('Description')}</Label>
+            <Textarea
+              id='edit-pool-desc'
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              rows={3}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant='outline' onClick={props.onClose}>
+            {t('Cancel')}
+          </Button>
+          <Button
+            disabled={!name.trim() || !url.trim() || mutation.isPending}
+            onClick={() => mutation.mutate()}
+          >
+            {t('Save')}
           </Button>
         </DialogFooter>
       </DialogContent>
