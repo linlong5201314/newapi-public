@@ -32,7 +32,7 @@ func CreateSelfBinding(c *gin.Context) {
 		common.ApiErrorMsg(c, "未知的提供方")
 		return
 	}
-	if tpl.AuthMode != "account" && tpl.AuthMode != "oauth" && tpl.AuthMode != "gateway" {
+	if tpl.AuthMode != "account" && tpl.AuthMode != "oauth" && tpl.AuthMode != "gateway" && tpl.AuthMode != "bridge" {
 		common.ApiErrorMsg(c, "该来源不是账号授权类型，请直接用模板添加渠道")
 		return
 	}
@@ -43,6 +43,10 @@ func CreateSelfBinding(c *gin.Context) {
 	case tpl.AuthMode == "gateway" || tpl.Id == "magpie":
 		kind = "gateway"
 		creds, err = model.ParseGatewayKeys(req.Accounts)
+	case tpl.AuthMode == "bridge":
+		// 客户端登录态反代（小浣熊等）：access_token----refresh_token 每行一个
+		kind = "bridge"
+		creds, err = model.ParseAccountLines(req.Accounts)
 	case tpl.AuthMode == "oauth":
 		kind = "oauth"
 		creds, err = model.ParseOAuthToken(req.Accounts)
