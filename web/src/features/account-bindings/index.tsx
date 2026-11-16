@@ -27,6 +27,7 @@ export function AccountBindingsCard() {
   const [displayName, setDisplayName] = useState('')
   const [accounts, setAccounts] = useState('')
   const [isPublic, setIsPublic] = useState(false)
+  const [proxy, setProxy] = useState('')
   const [rows, setRows] = useState<AccountBinding[]>([])
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
@@ -95,10 +96,12 @@ export function AccountBindingsCard() {
       accounts,
       displayName,
       public: isPublic,
+      proxy,
     })
     setBusy(false)
     if (res.ok) {
       setAccounts('')
+      setProxy('')
       setMsg('已提交，平台正在为你单独开通（进度见下方列表）')
       await reload()
     } else {
@@ -205,6 +208,19 @@ export function AccountBindingsCard() {
         value={accounts}
         onChange={(e) => setAccounts(e.target.value)}
       />
+      {!isGateway && (
+        <div className='mt-2'>
+          <input
+            className='h-8 w-full rounded-md border bg-transparent px-2 text-xs'
+            placeholder='出口代理（可选）：http://127.0.0.1:7890 或 socks5://127.0.0.1:1080；填 direct 表示强制直连'
+            value={proxy}
+            onChange={(e) => setProxy(e.target.value)}
+          />
+          <div className='text-muted-foreground mt-1 text-xs'>
+            不填=跟随平台出口池；填 direct=强制直连；填地址=该账号专用固定代理。
+          </div>
+        </div>
+      )}
       <div className='mt-2 flex flex-wrap items-center gap-3'>
         <label className='flex items-center gap-1 text-xs'>
           <input
