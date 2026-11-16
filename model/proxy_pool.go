@@ -39,17 +39,20 @@ func (ProxyEndpoint) TableName() string { return "proxy_endpoints" }
 
 // ProxySubscription 用户添加的机场订阅。
 type ProxySubscription struct {
-	Id         int        `json:"id" gorm:"primaryKey;autoIncrement"`
-	UserId     int        `json:"user_id" gorm:"index;not null"`
-	Name       string     `json:"name" gorm:"type:varchar(120)"`
-	Url        string     `json:"url" gorm:"type:text"`           // 订阅链接（返回给前端时脱敏，只回 host+前缀）
-	Format     string     `json:"format" gorm:"type:varchar(20)"` // clash|base64|uri-list|auto
-	NodeCount  int        `json:"node_count" gorm:"default:0"`
-	LastSyncAt *time.Time `json:"last_sync_at"`
-	LastError  string     `json:"last_error" gorm:"type:varchar(500)"`
-	Enabled    bool       `json:"enabled" gorm:"default:true"`
-	CreatedAt  time.Time  `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt  time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
+	Id           int        `json:"id" gorm:"primaryKey;autoIncrement"`
+	UserId       int        `json:"user_id" gorm:"index;not null"`
+	Name         string     `json:"name" gorm:"type:varchar(120)"`
+	Url          string     `json:"url" gorm:"type:text"`           // 订阅链接（返回给前端时脱敏，只回 host+前缀）
+	Format       string     `json:"format" gorm:"type:varchar(20)"` // clash|base64|uri-list|auto
+	NodeCount    int        `json:"node_count" gorm:"default:0"`
+	TrafficUsed  int64      `json:"traffic_used" gorm:"default:0"`  // 已用流量（字节，订阅头/手填）
+	TrafficTotal int64      `json:"traffic_total" gorm:"default:0"` // 总流量（字节，0=未知）
+	ExpireAt     *time.Time `json:"expire_at"`                      // 到期时间（可选）
+	LastSyncAt   *time.Time `json:"last_sync_at"`
+	LastError    string     `json:"last_error" gorm:"type:varchar(500)"`
+	Enabled      bool       `json:"enabled" gorm:"default:true"`
+	CreatedAt    time.Time  `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt    time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
 func (ProxySubscription) TableName() string { return "proxy_subscriptions" }
