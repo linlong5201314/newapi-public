@@ -30,6 +30,9 @@ export interface FreePoolEntry {
   models: string[] | null
   description: string
   tags: string[] | null
+  quota?: string
+  proxy?: string
+  api_base?: string
   rating: number
   rating_count: number
   recommended: boolean
@@ -60,4 +63,21 @@ export interface SubmitPoolPayload {
   models: string[]
   description: string
   tags: string[]
+  quota?: string
+  proxy?: string
+  api_base?: string
+}
+
+// [FREE-POOL] 编辑载荷：只带要改的字段。
+export interface UpdatePoolPayload {
+  name?: string
+  url?: string
+  signup_url?: string
+  homepage_url?: string
+  models?: string[]
+  description?: string
+  tags?: string[]
+  quota?: string
+  proxy?: string
+  api_base?: string
 }
