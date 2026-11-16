@@ -46,8 +46,13 @@ func registerSelfChannelRoutes(apiRouter *gin.RouterGroup) {
 		// M3 账号型渠道登录/导入（workbuddy OAuth 设备流 / trae 凭据导入）
 		selfChannelRoute.POST("/oauth/start", controller.SelfOAuthStart)
 		selfChannelRoute.GET("/oauth/poll", controller.SelfOAuthPoll)
+		// 小浣熊浏览器授权：start 出授权页 → 浏览器回跳 callback（无 JWT）→ poll 取渠道
+		selfChannelRoute.POST("/oauth/raccoon/start", controller.SelfRaccoonOAuthStart)
+		selfChannelRoute.GET("/oauth/raccoon/poll", controller.SelfRaccoonOAuthPoll)
 		selfChannelRoute.POST("/import_trae", controller.SelfImportTrae)
 	}
+	// 授权回跳由浏览器直接访问，不能挂 UserAuth。
+	apiRouter.GET("/channel/self/oauth/raccoon/callback", controller.SelfRaccoonOAuthCallback)
 }
 
 // selfChannelEnabledGuard 平台总开关：SelfChannelEnabled=false 时全组 404。
