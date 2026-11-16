@@ -493,9 +493,29 @@ interface SubscriptionRowProps {
   onDelete: () => void
 }
 
+/** 字节数 → 人类可读（1024 进制）。 */
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
+  let value = bytes
+  let index = 0
+  while (value >= 1024 && index < units.length - 1) {
+    value /= 1024
+    index += 1
+  }
+  return `${value >= 100 || index === 0 ? Math.round(value) : value.toFixed(1)} ${units[index]}`
+}
 function SubscriptionRow(props: SubscriptionRowProps) {
   const { t } = useTranslation()
   const subscription = props.subscription
+
+  // 机场额度展示：优先用订阅头里的 total/used，没有 total 时只显示已用。
+  const total = subscription.traffic_total ?? 0
+  const used = subscription.traffic_used ?? 0
+  const trafficText = total > 0 ? `${formatBytes(used)} / ${formatBytes(total)}` : used > 0 ? `${formatBytes(used)}` : ''
+  const expireText = subscription.expire_at
+    ? new Date(subscription.expire_at).toLocaleDateString()
+    : ''
 
   return (
     <div className='flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2'>
@@ -504,8 +524,18 @@ function SubscriptionRow(props: SubscriptionRowProps) {
           <span className='truncate text-sm font-medium'>{subscription.name}</span>
           <Badge variant='outline'>{subscription.format || 'auto'}</Badge>
           <Badge variant='secondary'>
-            {t('{{n}} nodes', { n: subscription.node_count })}
+            {t('{{n}} IPs', { n: subscription.node_count })}
           </Badge>
+          {trafficText ? (
+            <Badge variant='outline' className='font-mono text-xs'>
+              {trafficText}
+            </Badge>
+          ) : null}
+          {expireText ? (
+            <Badge variant='outline' className='text-xs'>
+              {t('Expires')} {expireText}
+            </Badge>
+          ) : null}
         </div>
         <div className='text-muted-foreground truncate font-mono text-xs'>
           {subscription.url}
