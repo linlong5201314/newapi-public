@@ -7923,5 +7923,22 @@
     "Own account": "自有账号",
     "Reverse proxy": "反代",
     "Official API": "官方 API"
-  }
+  },
+  "Proxy": "代理",
+  "Egress proxy (optional)": "出口代理（可选）",
+  "Egress proxy in use": "当前出口代理",
+  "API base (optional)": "接入地址（可选）",
+  "Edit free source": "编辑免费源",
+  "Update quota, models, proxy and description of this entry.": "修改该条目的额度、模型、代理与说明。",
+  "Saved": "已保存",
+  "{{n}} IPs": "{{n}} 个 IP",
+  "e.g. 1.2M tokens left": "例如：剩余 120 万 tokens",
+  "Traffic": "流量",
+  "Expires": "到期",
+  "IPs": "IP 数",
+  "Saving": "保存中",
+  "Edit entry": "编辑条目",
+  "Node count": "节点数",
+  "Last synced": "最近同步",
+  "Free tier (IP allowlist) needs no API key": "免费层（IP 白名单）不需要 API Key"
 }
