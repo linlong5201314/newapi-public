@@ -62,7 +62,37 @@ export type OAuthSession = {
   sessionId: string
   authUrl: string
   realm?: string
+  callbackUrl?: string
   expiresIn?: number
+}
+
+// 小浣熊（办公小浣熊 / Raccoon Work）走浏览器授权回跳：
+// 点「开始授权」→ 打开 xiaohuanxiong.com 授权页 → 登录后浏览器跳回我们的
+// /api/channel/self/oauth/raccoon/callback?code=… → 服务端自动换票建渠道。
+export async function startRaccoonOAuth(): Promise<OAuthSession | null> {
+  const res = await api.post<{
+    success: boolean
+    data?: OAuthSession
+    message?: string
+  }>('/api/channel/self/oauth/raccoon/start', {}, cfg())
+  return res.data?.success ? (res.data.data ?? null) : null
+}
+
+export async function pollRaccoonOAuth(
+  sessionId: string
+): Promise<OAuthPollResult> {
+  const res = await api.get<{
+    success: boolean
+    data?: OAuthPollResult & { models?: string[] }
+    message?: string
+  }>(
+    `/api/channel/self/oauth/raccoon/poll?sessionId=${encodeURIComponent(sessionId)}&mode=create`,
+    cfg()
+  )
+  if (!res.data?.success) {
+    return { done: false, message: res.data?.message }
+  }
+  return res.data.data ?? { done: false }
 }
 
 // WorkBuddy 采用设备授权流：先拿 authUrl 让用户在自己浏览器里完成 Google/邮箱登录，
