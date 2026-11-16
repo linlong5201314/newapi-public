@@ -121,8 +121,14 @@ export function FromTemplateDialog({
     setIsSubmitting(false)
   }, [open])
 
-  const keyRequired = selected?.keyRequired !== false
-  const extraFields = selected?.extraFields ?? []
+  // 账号授权类来源（账号密码 / 浏览器授权 / 配套网关 / 登录态反代）不在本弹窗里要 API Key，
+  // 统一走「上游账号授权」卡片提交账号，由平台代建实例后自动建渠道。
+  const needsAccountAuth =
+    selected !== null &&
+    selected.authMode !== 'key' &&
+    selected.authMode !== 'ip'
+  const keyRequired = selected?.keyRequired !== false && !needsAccountAuth
+  const extraFields = needsAccountAuth ? [] : (selected?.extraFields ?? [])
   // 用户没填时回落到模板默认值（如 ds2api 平台已部署的网关地址）
   const extraValue = (field: string) =>
     (extraValues[field] ?? selected?.defaultExtra?.[field] ?? '').trim()
@@ -136,7 +142,10 @@ export function FromTemplateDialog({
     .filter(Boolean)
   const hasAnyKey = apiKey.trim() !== '' || parsedKeys.length > 0
   const canSubmit =
-    selected !== null && (!keyRequired || hasAnyKey) && extrasComplete
+    selected !== null &&
+    !needsAccountAuth &&
+    (!keyRequired || hasAnyKey) &&
+    extrasComplete
 
   const handleSubmit = async () => {
     if (!selected || !canSubmit) return
@@ -195,7 +204,12 @@ export function FromTemplateDialog({
           </DialogTitle>
           <DialogDescription>
             {selected
-              ? t('Enter the API key for {{name}}.', { name: selected.name })
+              ? needsAccountAuth
+                ? t(
+                    '{{name}} is an account-authorized source — submit it in the account authorization card instead of entering an API key.',
+                    { name: selected.name }
+                  )
+                : t('Enter the API key for {{name}}.', { name: selected.name })
               : t(
                   'Pick a free provider template. Models and endpoint are prefilled.'
                 )}
@@ -308,6 +322,21 @@ export function FromTemplateDialog({
               )}
             </div>
 
+            {needsAccountAuth && (
+              <div className='rounded-md border border-dashed p-3 text-sm'>
+                <div className='font-medium'>
+                  这是账号授权来源，不需要 API Key
+                </div>
+                <div className='text-muted-foreground mt-1 text-xs'>
+                  请到本页「上游账号授权」卡片里选「{selected.name}
+                  」，填「账号----密码」（登录态来源填
+                  access_token----refresh_token，配套网关填
+                  供应商----密钥），需要固定出口时在那里选代理。平台会为你单独开通实例并自动建好渠道，全程不显示部署地址。
+                </div>
+              </div>
+            )}
+            {!needsAccountAuth && (
+              <>
             <div className='flex flex-col gap-2'>
               <Label htmlFor='from-template-key'>
                 {t('API Key')}
@@ -451,6 +480,8 @@ export function FromTemplateDialog({
                 maxLength={64}
               />
             </div>
+              </>
+            )}
           </div>
         )}
 
