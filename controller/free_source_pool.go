@@ -32,6 +32,9 @@ func GetFreeSourcePools(c *gin.Context) {
 			"models":       p.Models,
 			"description":  p.Description,
 			"tags":         p.Tags,
+			"quota":        p.Quota,
+			"proxy":        p.Proxy,
+			"api_base":     p.ApiBase,
 			"rating":       p.Rating,
 			"rating_count": p.RatingCount,
 			"recommended":  p.Recommended,
@@ -64,6 +67,9 @@ func GetFreeSourcePoolDetail(c *gin.Context) {
 		"models":       p.Models,
 		"description":  p.Description,
 		"tags":         p.Tags,
+		"quota":        p.Quota,
+		"proxy":        p.Proxy,
+		"api_base":     p.ApiBase,
 		"rating":       p.Rating,
 		"rating_count": p.RatingCount,
 		"recommended":  p.Recommended,
@@ -83,6 +89,9 @@ func SubmitFreeSourcePool(c *gin.Context) {
 		Models      []string `json:"models"`
 		Description string   `json:"description"`
 		Tags        []string `json:"tags"`
+		Quota       string   `json:"quota"`
+		Proxy       string   `json:"proxy"`
+		ApiBase     string   `json:"api_base"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ApiErrorMsg(c, "invalid request body")
@@ -108,6 +117,9 @@ func SubmitFreeSourcePool(c *gin.Context) {
 		Models:        req.Models,
 		Description:   strings.TrimSpace(req.Description),
 		Tags:          req.Tags,
+		Quota:         strings.TrimSpace(req.Quota),
+		Proxy:         strings.TrimSpace(req.Proxy),
+		ApiBase:       strings.TrimSpace(req.ApiBase),
 		SubmitterId:   userId,
 		SubmitterName: username,
 	}
@@ -116,6 +128,95 @@ func SubmitFreeSourcePool(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"id": pool.Id}})
+}
+
+// UpdateFreeSourcePool PATCH /api/free_source_pools/:id — 编辑条目。
+// 权限：提交者本人或管理员；只更新请求里出现的字段（额度/代理/接入地址也可改）。
+func UpdateFreeSourcePool(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		common.ApiErrorMsg(c, "invalid id")
+		return
+	}
+	pool, err := model.GetFreeSourcePoolById(id)
+	if err != nil || pool == nil {
+		common.ApiErrorMsg(c, "pool not found")
+		return
+	}
+	userId := c.GetInt("id")
+	role := c.GetInt("role")
+	if pool.SubmitterId != userId && role < common.RoleAdminUser {
+		common.ApiErrorMsg(c, "permission denied")
+		return
+	}
+
+	var req struct {
+		Name        *string   `json:"name"`
+		Url         *string   `json:"url"`
+		SignupUrl   *string   `json:"signup_url"`
+		HomepageUrl *string   `json:"homepage_url"`
+		Models      *[]string `json:"models"`
+		Description *string   `json:"description"`
+		Tags        *[]string `json:"tags"`
+		Quota       *string   `json:"quota"`
+		Proxy       *string   `json:"proxy"`
+		ApiBase     *string   `json:"api_base"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiErrorMsg(c, "invalid request body")
+		return
+	}
+
+	updates := map[string]interface{}{}
+	if req.Name != nil {
+		name := strings.TrimSpace(*req.Name)
+		if name == "" {
+			common.ApiErrorMsg(c, "name cannot be empty")
+			return
+		}
+		updates["name"] = name
+	}
+	if req.Url != nil {
+		url := strings.TrimSpace(*req.Url)
+		if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+			common.ApiErrorMsg(c, "url must start with http:// or https://")
+			return
+		}
+		updates["url"] = url
+	}
+	if req.SignupUrl != nil {
+		updates["signup_url"] = strings.TrimSpace(*req.SignupUrl)
+	}
+	if req.HomepageUrl != nil {
+		updates["homepage_url"] = strings.TrimSpace(*req.HomepageUrl)
+	}
+	if req.Models != nil {
+		updates["models"] = *req.Models
+	}
+	if req.Description != nil {
+		updates["description"] = strings.TrimSpace(*req.Description)
+	}
+	if req.Tags != nil {
+		updates["tags"] = *req.Tags
+	}
+	if req.Quota != nil {
+		updates["quota"] = strings.TrimSpace(*req.Quota)
+	}
+	if req.Proxy != nil {
+		updates["proxy"] = strings.TrimSpace(*req.Proxy)
+	}
+	if req.ApiBase != nil {
+		updates["api_base"] = strings.TrimSpace(*req.ApiBase)
+	}
+	if len(updates) == 0 {
+		common.ApiErrorMsg(c, "nothing to update")
+		return
+	}
+	if err := model.UpdateFreeSourcePool(id, updates); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
 // RateFreeSourcePool POST /api/free_source_pools/:id/rate — 评分（1-5星）。
