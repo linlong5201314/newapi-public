@@ -2,9 +2,11 @@ package raccoon
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
+	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/gin-gonic/gin"
@@ -53,6 +55,17 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 		path = "/chat/completions"
 	}
 	return base + path, nil
+}
+
+// DoRequest 必须由本类型自己实现。
+//
+// 原因（真踩过的坑）：openai.Adaptor.DoRequest 的接收者是 *openai.Adaptor，
+// 里面调用 channel.DoApiRequest(a, …) 时传进去的是 openai 适配器本身，
+// 于是 GetRequestURL / SetupRequestHeader 走的是 OpenAI 版本，
+// 我们覆写的方法根本不会被调用 —— 表现为请求 URL 里多出 /v1、上游返回 404，
+// 同时 Authorization 也没被改写成小浣熊 JWT。这里显式传入 a，才会用本包的实现。
+func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
+	return channel.DoApiRequest(a, c, info, requestBody)
 }
 
 // SetupRequestHeader 先走 OpenAI 默认逻辑（含 Header Override），再改写成小浣熊形态。
