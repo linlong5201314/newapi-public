@@ -167,7 +167,7 @@ export const CHECKIN_FALLBACK_SITES: CheckinSiteTemplate[] = [
 ]
 
 /** Sites that reference an existing own channel instead of standalone creds. */
-export const CHECKIN_CHANNEL_SITES = new Set(['workbuddy', 'trae'])
+export const CHECKIN_CHANNEL_SITES = new Set(['trae'])
 
 /** Field keys that carry secrets; rendered as password inputs. */
 export const CHECKIN_SECRET_FIELD_KEYS = new Set([
