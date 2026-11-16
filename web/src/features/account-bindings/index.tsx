@@ -7,8 +7,10 @@ import {
   deleteBinding,
   importTrae,
   listBindings,
+  pollRaccoonOAuth,
   pollWorkbuddyOAuth,
   setBindingPublic,
+  startRaccoonOAuth,
   startWorkbuddyOAuth,
   type AccountBinding,
   type OAuthSession,
@@ -34,6 +36,8 @@ export function AccountBindingsCard() {
   const [oauthRealm, setOauthRealm] = useState<'cn' | 'global'>('cn')
   const [oauthSession, setOauthSession] = useState<OAuthSession | null>(null)
   const [oauthMsg, setOauthMsg] = useState('')
+  const [raccoonSession, setRaccoonSession] = useState<OAuthSession | null>(null)
+  const [raccoonMsg, setRaccoonMsg] = useState('')
   const [traeInput, setTraeInput] = useState('')
   const [traeUid, setTraeUid] = useState('')
   const [traeMsg, setTraeMsg] = useState('')
@@ -145,6 +149,46 @@ export function AccountBindingsCard() {
     window.open(sess.authUrl, '_blank', 'noopener,noreferrer')
   }
 
+  // 小浣熊浏览器授权：授权页登录后浏览器直接回跳到本服务，前端只轮询结果。
+  useEffect(() => {
+    if (!raccoonSession) return
+    let alive = true
+    const timer = window.setInterval(async () => {
+      const res = await pollRaccoonOAuth(raccoonSession.sessionId)
+      if (!alive) return
+      if (res.done) {
+        window.clearInterval(timer)
+        setRaccoonSession(null)
+        setRaccoonMsg(
+          res.channel?.id
+            ? `授权成功，已为你开通渠道 #${res.channel.id}`
+            : '授权成功，渠道已开通'
+        )
+        await reload()
+      } else if (res.message) {
+        window.clearInterval(timer)
+        setRaccoonSession(null)
+        setRaccoonMsg(res.message)
+      }
+    }, 3000)
+    return () => {
+      alive = false
+      window.clearInterval(timer)
+    }
+  }, [raccoonSession, reload])
+
+  const startRaccoon = async () => {
+    setRaccoonMsg('正在创建授权会话…')
+    const sess = await startRaccoonOAuth()
+    if (!sess) {
+      setRaccoonMsg('发起授权失败，请稍后再试')
+      return
+    }
+    setRaccoonSession(sess)
+    setRaccoonMsg('请在新窗口登录小浣熊账号，授权后本页会自动开通渠道')
+    window.open(sess.authUrl, '_blank', 'noopener,noreferrer')
+  }
+
   const submitTrae = async () => {
     const raw = traeInput.trim()
     if (!raw) {
@@ -244,10 +288,10 @@ export function AccountBindingsCard() {
       <div className='mt-3 grid gap-3 md:grid-cols-2'>
         <div className='rounded border p-2'>
           <div className='mb-1 text-xs font-medium'>
-            WorkBuddy 设备授权（Google / 邮箱登录）
+            WorkBuddy 设备授权（Google / 邮箱登录，仅国内版有签到）
           </div>
           <div className='text-muted-foreground mb-2 text-xs'>
-            点「开始授权」后在新窗口完成登录，回来这里会自动显示结果；不需要填任何 Key。
+            点「开始授权」后在新窗口完成登录，回来这里会自动显示结果；不需要填任何 Key。国际版没有签到功能，只用于授权调用。
           </div>
           <div className='flex flex-wrap items-center gap-2'>
             <select
@@ -266,6 +310,27 @@ export function AccountBindingsCard() {
               {oauthSession ? '重新授权' : '开始授权'}
             </button>
             {oauthMsg ? <span className='text-xs'>{oauthMsg}</span> : null}
+          </div>
+        </div>
+
+        <div className='rounded border p-2'>
+          <div className='mb-1 text-xs font-medium'>
+            小浣熊浏览器授权（办公小浣熊客户端）
+          </div>
+          <div className='text-muted-foreground mb-2 text-xs'>
+            点「开始授权」会打开小浣熊授权页，用你自己的账号登录后浏览器自动回跳，平台直接用返回的授权码换取凭据并开通渠道；不需要填 Key，也看不到任何部署地址。
+          </div>
+          <div className='flex flex-wrap items-center gap-2'>
+            <button
+              type='button'
+              className='h-8 rounded-md border px-3 text-sm'
+              onClick={startRaccoon}
+            >
+              {raccoonSession ? '重新授权' : '开始授权'}
+            </button>
+            {raccoonMsg ? (
+              <span className='text-xs'>{raccoonMsg}</span>
+            ) : null}
           </div>
         </div>
 
