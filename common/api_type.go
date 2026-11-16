@@ -87,6 +87,8 @@ func ChannelType2APIType(channelType int) (int, bool) {
 		apiType = constant.APITypeTrae
 	case constant.ChannelTypeCline:
 		apiType = constant.APITypeCline
+	case constant.ChannelTypeRaccoon:
+		apiType = constant.APITypeRaccoon
 	}
 	if apiType == -1 {
 		// Task plugin channels are served by the task relay and must never
