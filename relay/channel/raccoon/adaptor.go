@@ -41,13 +41,16 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	if path == "" {
 		path = "/v1/chat/completions"
 	}
-	if strings.HasPrefix(path, "/v1/") {
-		path = strings.TrimPrefix(path, "/v1")
-	} else if path == "/v1" {
-		path = "/chat/completions"
-	}
+	// 先把路径规范化成以 "/" 开头：上游 relay 传进来的可能是 "v1/chat/completions"，
+	// 直接拼会变成 .../v2/v1/chat/completions（实测就是这一步导致 404）。
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
+	}
+	switch {
+	case strings.HasPrefix(path, "/v1/"):
+		path = strings.TrimPrefix(path, "/v1")
+	case path == "/v1":
+		path = "/chat/completions"
 	}
 	return base + path, nil
 }
