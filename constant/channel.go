@@ -70,6 +70,7 @@ const (
 	ChannelTypeWorkBuddy      = 65
 	ChannelTypeTrae           = 66
 	ChannelTypeCline          = 67
+	ChannelTypeRaccoon        = 68
 	ChannelTypeDummy          // this one is only for count, do not add any channel after this
 
 )
@@ -145,6 +146,7 @@ var ChannelBaseURLs = []string{
 	"",                                          //65 WorkBuddy（账号型渠道，默认四域内置，BaseURL 可整体覆盖走 mock）
 	"",                                          //66 Trae（账号型渠道，默认三 host 内置，BaseURL 可整体覆盖走 mock）
 	"https://api.cline.bot/api/v1",              //67 Cline（官方 API base 已含 /api/v1，路径为 /chat/completions）
+	"https://xiaohuanxiong.com/api/web/llm/v2", //68 商汤小浣熊（网页登录态 JWT，路径为 /chat/completions）
 }
 
 func GetChannelBaseURL(channelType int) string {
@@ -233,6 +235,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeOmniRoute:      "OmniRoute",
 	ChannelTypeWorkBuddy:      "WorkBuddy",
 	ChannelTypeCline:          "Cline",
+	ChannelTypeRaccoon:        "商汤小浣熊",
 	ChannelTypeTrae:           "Trae",
 }
 
