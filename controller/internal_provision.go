@@ -40,6 +40,7 @@ func InternalPendingBindings(c *gin.Context) {
 		UserId   int                     `json:"user_id"`
 		Provider string                  `json:"provider"`
 		Kind     string                  `json:"kind"`
+		Proxy    string                  `json:"proxy"`
 		Public   int                     `json:"public"`
 		Accounts []model.SelfAccountCred `json:"accounts"`
 	}
@@ -50,7 +51,7 @@ func InternalPendingBindings(c *gin.Context) {
 			_ = model.MarkBindingStatus(rows[i].Id, "failed", 0, "", "解密账号失败: "+err.Error())
 			continue
 		}
-		out = append(out, item{Id: rows[i].Id, UserId: rows[i].UserId, Provider: rows[i].Provider, Kind: rows[i].Kind, Public: rows[i].Public, Accounts: creds})
+		out = append(out, item{Id: rows[i].Id, UserId: rows[i].UserId, Provider: rows[i].Provider, Kind: rows[i].Kind, Proxy: rows[i].Proxy, Public: rows[i].Public, Accounts: creds})
 	}
 	common.ApiSuccess(c, gin.H{"items": out, "total": len(out)})
 }
