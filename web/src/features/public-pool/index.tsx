@@ -355,7 +355,7 @@ export function PublicPoolPage() {
   const totalModels = useMemo(() => models?.length ?? 0, [models])
 
   return (
-    <div className='space-y-4 p-4'>
+    <div className='min-h-0 flex-1 space-y-4 overflow-y-auto p-4'>
       <div className='flex items-center gap-2'>
         <Globe className='h-5 w-5' />
         <h1 className='text-xl font-semibold'>公共池</h1>
