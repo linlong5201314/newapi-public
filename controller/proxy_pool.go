@@ -374,7 +374,7 @@ func SyncProxySubscription(c *gin.Context) {
 // 返回 (节点数, 实际格式, 错误)。重建时同订阅内按节点名去重。
 func syncProxySubscription(sub *model.ProxySubscription) (int, string, error) {
 	now := time.Now()
-	body, fetchErr := fetchProxySubscription(sub.Url)
+	body, traffic, fetchErr := fetchProxySubscription(sub.Url)
 	if fetchErr != nil {
 		message := truncateProxyError(fetchErr.Error())
 		if err := model.UpdateProxySubscription(sub.UserId, sub.Id, map[string]any{
@@ -384,6 +384,17 @@ func syncProxySubscription(sub *model.ProxySubscription) (int, string, error) {
 			return 0, "", err
 		}
 		return 0, sub.Format, fetchErr
+	}
+	// 订阅头里的流量/到期信息随同步一起落库，前端据此显示「大概多少额度」。
+	trafficUpdate := map[string]any{
+		"traffic_used":  traffic.Used,
+		"traffic_total": traffic.Total,
+	}
+	if traffic.ExpireAt != nil {
+		trafficUpdate["expire_at"] = *traffic.ExpireAt
+	}
+	if err := model.UpdateProxySubscription(sub.UserId, sub.Id, trafficUpdate); err != nil {
+		common.SysLog("failed to update proxy subscription traffic: " + err.Error())
 	}
 
 	nodes, detectedFormat, parseErr := proxy_pool.ParseSubscription(body, sub.Format)
@@ -457,10 +468,53 @@ func syncProxySubscription(sub *model.ProxySubscription) (int, string, error) {
 }
 
 // fetchProxySubscription 直连拉取订阅内容（不走代理，避免代理依赖循环）。
-func fetchProxySubscription(rawUrl string) ([]byte, error) {
+// proxyTrafficInfo 机场订阅在响应头 subscription-userinfo 里给出的流量与到期信息。
+// 典型格式：upload=123; download=456; total=789; expire=1700000000
+type proxyTrafficInfo struct {
+	Used     int64
+	Total    int64
+	ExpireAt *time.Time
+}
+
+// parseSubscriptionUserInfo 解析 subscription-userinfo 头，解析不到的字段保持零值。
+func parseSubscriptionUserInfo(header string) proxyTrafficInfo {
+	var info proxyTrafficInfo
+	if strings.TrimSpace(header) == "" {
+		return info
+	}
+	var upload, download int64
+	for _, part := range strings.Split(header, ";") {
+		kv := strings.SplitN(strings.TrimSpace(part), "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		key := strings.ToLower(strings.TrimSpace(kv[0]))
+		value, err := strconv.ParseInt(strings.TrimSpace(kv[1]), 10, 64)
+		if err != nil {
+			continue
+		}
+		switch key {
+		case "upload":
+			upload = value
+		case "download":
+			download = value
+		case "total":
+			info.Total = value
+		case "expire":
+			if value > 0 {
+				t := time.Unix(value, 0)
+				info.ExpireAt = &t
+			}
+		}
+	}
+	info.Used = upload + download
+	return info
+}
+
+func fetchProxySubscription(rawUrl string) ([]byte, proxyTrafficInfo, error) {
 	client, err := service.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
 	if err != nil {
-		return nil, err
+		return nil, proxyTrafficInfo{}, err
 	}
 	// 共享 client 只复制超时；请求级设置 UA 等头部。
 	fetchClient := *client
@@ -468,27 +522,28 @@ func fetchProxySubscription(rawUrl string) ([]byte, error) {
 
 	req, err := http.NewRequest(http.MethodGet, rawUrl, nil)
 	if err != nil {
-		return nil, err
+		return nil, proxyTrafficInfo{}, err
 	}
 	req.Header.Set("User-Agent", proxySubscriptionUserAgent)
 	req.Header.Set("Accept", "*/*")
 
 	resp, err := fetchClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, proxyTrafficInfo{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("subscription endpoint returned status %d", resp.StatusCode)
+		return nil, proxyTrafficInfo{}, fmt.Errorf("subscription endpoint returned status %d", resp.StatusCode)
 	}
+	traffic := parseSubscriptionUserInfo(resp.Header.Get("subscription-userinfo"))
 	body, err := io.ReadAll(io.LimitReader(resp.Body, proxySubscriptionBodyLimit))
 	if err != nil {
-		return nil, err
+		return nil, traffic, err
 	}
 	if len(body) == 0 {
-		return nil, fmt.Errorf("subscription body is empty")
+		return nil, traffic, fmt.Errorf("subscription body is empty")
 	}
-	return body, nil
+	return body, traffic, nil
 }
 
 // DeleteProxySubscription DELETE /api/proxy-pool/subscriptions/:id — 删订阅及其节点。
@@ -597,18 +652,23 @@ func proxyEndpointView(endpoint model.ProxyEndpoint) gin.H {
 // proxySubscriptionView 订阅的对外视图：订阅链接只保留 scheme + host。
 func proxySubscriptionView(sub model.ProxySubscription) gin.H {
 	view := gin.H{
-		"id":         sub.Id,
-		"name":       sub.Name,
-		"url":        maskSubscriptionUrl(sub.Url),
-		"format":     sub.Format,
-		"node_count": sub.NodeCount,
-		"last_error": sub.LastError,
-		"enabled":    sub.Enabled,
-		"created_at": sub.CreatedAt.Format(time.RFC3339),
-		"updated_at": sub.UpdatedAt.Format(time.RFC3339),
+		"id":            sub.Id,
+		"name":          sub.Name,
+		"url":           maskSubscriptionUrl(sub.Url),
+		"format":        sub.Format,
+		"node_count":    sub.NodeCount,
+		"traffic_used":  sub.TrafficUsed,
+		"traffic_total": sub.TrafficTotal,
+		"last_error":    sub.LastError,
+		"enabled":       sub.Enabled,
+		"created_at":    sub.CreatedAt.Format(time.RFC3339),
+		"updated_at":    sub.UpdatedAt.Format(time.RFC3339),
 	}
 	if sub.LastSyncAt != nil {
 		view["last_sync_at"] = sub.LastSyncAt.Format(time.RFC3339)
+	}
+	if sub.ExpireAt != nil {
+		view["expire_at"] = sub.ExpireAt.Format(time.RFC3339)
 	}
 	return view
 }
