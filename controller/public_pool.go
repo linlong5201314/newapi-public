@@ -100,7 +100,16 @@ func GetPublicPoolModels(c *gin.Context) {
 		})
 		items = append(items, agg)
 	}
+	// 排序口径：多人公开时优先用响应快的模型；没有测速数据（<=0）排到最后；
+	// 速度相同再按公开人数降序，最后按模型名稳定排序。
 	sort.Slice(items, func(i, j int) bool {
+		fi, fj := items[i].FastestMs, items[j].FastestMs
+		if (fi > 0) != (fj > 0) {
+			return fi > 0
+		}
+		if fi > 0 && fj > 0 && fi != fj {
+			return fi < fj
+		}
 		if items[i].Providers != items[j].Providers {
 			return items[i].Providers > items[j].Providers
 		}
