@@ -81,8 +81,10 @@ func AddSelfChannelFromTemplate(c *gin.Context) {
 		return
 	}
 	req.Key = strings.TrimSpace(req.Key)
-	// authMode=ip 的来源只按订阅来源放行，不需要 API Key
-	if tpl.KeyRequired && tpl.AuthMode != "ip" && req.Key == "" && len(req.Keys) == 0 {
+	// 免费层（tier=free）按出口 IP 白名单放行，不需要也不保存上游密钥；
+	// authMode=ip 的来源同样只按订阅来源放行。其余情况才强制要 key。
+	freeTier := normalizeChannelTier(req.Tier) == "free"
+	if !freeTier && tpl.KeyRequired && tpl.AuthMode != "ip" && req.Key == "" && len(req.Keys) == 0 {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "API key is required for this template"})
 		return
 	}
