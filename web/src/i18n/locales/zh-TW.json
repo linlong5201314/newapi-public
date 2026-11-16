@@ -7539,6 +7539,23 @@
     "Direct connection (no proxy)": "直連（不使用代理）",
     "Fixed proxy URL": "固定代理位址",
     "e.g. http://1.2.3.4:8080 or socks5://host:1080": "例如 http://1.2.3.4:8080 或 socks5://host:1080",
-    "Reverse-proxy accounts carry risk: use a throwaway account, never your main one.": "反代帳號有風險：請用小號，不要用主號。"
+    "Reverse-proxy accounts carry risk: use a throwaway account, never your main one.": "反代帳號有風險：請用小號，不要用主號。",
+    "Channel tier": "渠道層級",
+    "API key tier": "金鑰層（以 API 金鑰呼叫）",
+    "Free tier (subscription IP)": "免費層（綁定訂閱 IP）",
+    "Allowed IPs (comma or newline separated, CIDR ok)": "允許的 IP（逗號或換行分隔，支援 CIDR）",
+    "Multiple keys (optional, one per line)": "多金鑰（可選，每行一個）",
+    "Leave empty to use the single API key above": "留空則使用上面的單一 API 金鑰",
+    "Random key each request": "每次請求隨機取一個金鑰",
+    "Round-robin keys": "金鑰輪詢",
+    "Publish to the public pool (others can call it)": "公開到公共池（其他人可以呼叫）",
+    "{{name}} is an account-authorized source — submit it in the account authorization card instead of entering an API key.": "{{name}} 是帳號授權來源——請到下方「上游帳號授權」卡片提交，這裡不用填 API 金鑰。",
+    "ToS: friendly": "條款：友善",
+    "ToS: review recommended": "條款：建議先看",
+    "ToS: risky": "條款：有風險",
+    "ToS: unknown": "條款：未知",
+    "Own account": "自有帳號",
+    "Reverse proxy": "反代",
+    "Official API": "官方 API"
   }
 }
