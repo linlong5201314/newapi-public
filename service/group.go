@@ -122,6 +122,22 @@ func GetGroupsEnabledModels(groups []string) []string {
 	return models
 }
 
+// GetGroupsEnabledModelsForOwner 按租户归属返回各分组下当前用户可见的模型并去重。
+// ownerUserId>0：只含自己渠道 + 已公开渠道；ownerUserId<=0：全量（管理员/系统）。
+func GetGroupsEnabledModelsForOwner(groups []string, ownerUserId int) []string {
+	seen := make(map[string]struct{})
+	models := make([]string, 0)
+	for _, group := range groups {
+		for _, modelName := range model.GetGroupEnabledModelsForOwner(group, ownerUserId) {
+			if _, ok := seen[modelName]; !ok {
+				seen[modelName] = struct{}{}
+				models = append(models, modelName)
+			}
+		}
+	}
+	return models
+}
+
 // GetUserGroupRatio 获取用户使用某个分组的倍率
 // userGroup 用户分组
 // group 需要获取倍率的分组
