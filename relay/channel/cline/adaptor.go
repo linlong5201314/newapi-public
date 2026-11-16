@@ -2,10 +2,12 @@ package cline
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/gin-gonic/gin"
@@ -79,6 +81,16 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, header *http.Header, info *
 		header.Set("X-Task-ID", newTaskID())
 	}
 	return nil
+}
+
+// DoRequest 必须由本类型自己实现。
+//
+// 原因（真踩过的坑）：openai.Adaptor.DoRequest 的接收者是 *openai.Adaptor，
+// 内部 channel.DoApiRequest(a, …) 传的是 openai 适配器本身，于是
+// GetRequestURL / SetupRequestHeader 走 OpenAI 版本 —— 覆写全部失效：
+// URL 多出 /v1（被上游 404），Cline 必需的客户端指纹头也不会被设置。
+func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
+	return channel.DoApiRequest(a, c, info, requestBody)
 }
 
 // newTaskID 生成 X-Task-ID。Cline 只要求「一次会话一个 id」，用时间戳 + 纳秒
