@@ -1,24 +1,202 @@
 [
-  {"id":"marvis","name":"腾讯 Marvis","repo":"MYCF711/magpie-marvis","desc":"腾讯 Marvis（DeepSeek V4.1 Flash），QQ 扫码登录后作为 provider 接入","authMode":"account","stars":20},
-  {"id":"atomcode","name":"AtomCode / AtomGit","repo":"aqiu817/magpie-atomcode","desc":"AtomGit CodingPlan，浏览器 OAuth 授权","authMode":"oauth","stars":3},
-  {"id":"officeace","name":"华为云 OfficeAce","repo":"MYCF711/magpie-officeace","desc":"华为云 AgentArts / MaaS，26 个模型，账号授权","authMode":"account","stars":3},
-  {"id":"loomy","name":"讯飞 Loomy","repo":"MYCF711/magpie-loomy-auth","desc":"讯飞 Loomy 账号登录","authMode":"account","stars":4},
-  {"id":"comate","name":"百度 Comate","repo":"qaz139688/magpie-comate-auth","desc":"百度 Comate 账号授权","authMode":"account","stars":1},
-  {"id":"dumate","name":"百度搭子 DuMate","repo":"s-silt/magpie-dumate-local","desc":"百度搭子 DuMate 本地登录","authMode":"account","stars":2},
-  {"id":"wps-lingxi","name":"WPS 灵犀","repo":"KevinFX-code/magpie-wps-lingxi","desc":"WPS 灵犀账号接入","authMode":"account","stars":11},
-  {"id":"codar","name":"Codar 科搭","repo":"MisonL/magpie-plugin-codar","desc":"Codar 科搭 provider","authMode":"account","stars":3},
-  {"id":"msmoli","name":"ModelScope 魔搭","repo":"MisonL/magpie-plugin-msmoli","desc":"魔搭每日魔粒额度","authMode":"account","stars":7},
-  {"id":"gemini-web","name":"Gemini Web / AI Studio","repo":"BUKOWSKIREAL/magpie-gemini-web","desc":"Gemini 网页版与 AI Studio 免费额度","authMode":"account","stars":210},
-  {"id":"chatgpt-desktop","name":"ChatGPT Desktop","repo":"GGGODLIN/magpie-chatgpt-desktop","desc":"通过 CDP 复用 ChatGPT 桌面端登录态","authMode":"account","stars":6},
-  {"id":"gptpool","name":"ChatGPT 号池","repo":"puaicg/magpie-gptpool","desc":"多 ChatGPT 账号轮询","authMode":"account","stars":9},
-  {"id":"providers-hub","name":"聚合 Providers Hub","repo":"Gyl1219/magpie-providers-hub","desc":"聚合 OfficeAce / AStudio / MiniMax / Accio","authMode":"account","stars":6},
-  {"id":"xiaoyiwork","name":"华为小艺 Work","repo":"NekoYume517/opencode-xiaoyiwork-auth","desc":"小艺 Work 账号授权","authMode":"oauth","stars":2},
-  {"id":"perch","name":"Perch Terminal","repo":"Thebanditsare/opencode-perch-auth","desc":"Perch 终端账号登录","authMode":"account","stars":1},
-  {"id":"antigravity","name":"Antigravity Bridge","repo":"DylanLIiii/opencode-antigravity-bridge","desc":"Google Antigravity 免费额度桥接","authMode":"oauth","stars":57},
-  {"id":"teleagent","name":"天翼 AI 星辰","repo":"goodtome/magpie-teleagent-login","desc":"天翼 AI 星辰账号登录","authMode":"account","stars":2},
-  {"id":"deepaicode","name":"DeepAI Code","repo":"aqiu817/magpie-deepaicode","desc":"DeepAI Code provider","authMode":"account","stars":4},
-  {"id":"agy-acp","name":"Antigravity CLI 多账号","repo":"sidkang/agy-acp","desc":"Antigravity CLI 多账号切换","authMode":"oauth","stars":5},
-  {"id":"workbuddy-tasks","name":"WorkBuddy 任务","repo":"jichie/magpie-workbuddy-tasks","desc":"WorkBuddy 任务自动化","authMode":"key","stars":21},
-  {"id":"workbuddy-plus","name":"WorkBuddy 连登成长","repo":"sabercomo/magpie-workbuddy-plus","desc":"WorkBuddy 连续登录与成长值","authMode":"account","stars":13},
-  {"id":"newapi-bridge","name":"new-api 桥接","repo":"zhx47/magpie_newapi_plugin","desc":"把 magpie 的模型桥接进 new-api","authMode":"key","stars":5}
+  {
+    "id": "marvis",
+    "name": "腾讯 Marvis",
+    "repo": "MYCF711/magpie-marvis",
+    "desc": "腾讯 Marvis（DeepSeek V4.1 Flash），QQ 扫码登录后作为 provider 接入",
+    "authMode": "account",
+    "stars": 20
+  },
+  {
+    "id": "atomcode",
+    "name": "AtomCode / AtomGit",
+    "repo": "aqiu817/magpie-atomcode",
+    "desc": "AtomGit CodingPlan，浏览器 OAuth 授权",
+    "authMode": "oauth",
+    "stars": 3
+  },
+  {
+    "id": "officeace",
+    "name": "华为云 OfficeAce",
+    "repo": "MYCF711/magpie-officeace",
+    "desc": "华为云 AgentArts / MaaS，26 个模型，账号授权",
+    "authMode": "account",
+    "stars": 3
+  },
+  {
+    "id": "loomy",
+    "name": "讯飞 Loomy",
+    "repo": "MYCF711/magpie-loomy-auth",
+    "desc": "讯飞 Loomy 账号登录",
+    "authMode": "account",
+    "stars": 4
+  },
+  {
+    "id": "comate",
+    "name": "百度 Comate",
+    "repo": "qaz139688/magpie-comate-auth",
+    "desc": "百度 Comate 账号授权",
+    "authMode": "account",
+    "stars": 1
+  },
+  {
+    "id": "dumate",
+    "name": "百度搭子 DuMate",
+    "repo": "s-silt/magpie-dumate-local",
+    "desc": "百度搭子 DuMate 本地登录",
+    "authMode": "account",
+    "stars": 2
+  },
+  {
+    "id": "wps-lingxi",
+    "name": "WPS 灵犀",
+    "repo": "KevinFX-code/magpie-wps-lingxi",
+    "desc": "WPS 灵犀账号接入",
+    "authMode": "account",
+    "stars": 11
+  },
+  {
+    "id": "codar",
+    "name": "Codar 科搭",
+    "repo": "MisonL/magpie-plugin-codar",
+    "desc": "Codar 科搭 provider",
+    "authMode": "account",
+    "stars": 3
+  },
+  {
+    "id": "msmoli",
+    "name": "ModelScope 魔搭",
+    "repo": "MisonL/magpie-plugin-msmoli",
+    "desc": "魔搭每日魔粒额度",
+    "authMode": "account",
+    "stars": 7
+  },
+  {
+    "id": "gemini-web",
+    "name": "Gemini Web / AI Studio",
+    "repo": "BUKOWSKIREAL/magpie-gemini-web",
+    "desc": "Gemini 网页版与 AI Studio 免费额度",
+    "authMode": "account",
+    "stars": 210
+  },
+  {
+    "id": "chatgpt-desktop",
+    "name": "ChatGPT Desktop",
+    "repo": "GGGODLIN/magpie-chatgpt-desktop",
+    "desc": "通过 CDP 复用 ChatGPT 桌面端登录态",
+    "authMode": "account",
+    "stars": 6
+  },
+  {
+    "id": "gptpool",
+    "name": "ChatGPT 号池",
+    "repo": "puaicg/magpie-gptpool",
+    "desc": "多 ChatGPT 账号轮询",
+    "authMode": "account",
+    "stars": 9
+  },
+  {
+    "id": "providers-hub",
+    "name": "聚合 Providers Hub",
+    "repo": "Gyl1219/magpie-providers-hub",
+    "desc": "聚合 OfficeAce / AStudio / MiniMax / Accio",
+    "authMode": "account",
+    "stars": 6
+  },
+  {
+    "id": "xiaoyiwork",
+    "name": "华为小艺 Work",
+    "repo": "NekoYume517/opencode-xiaoyiwork-auth",
+    "desc": "小艺 Work 账号授权",
+    "authMode": "oauth",
+    "stars": 2
+  },
+  {
+    "id": "perch",
+    "name": "Perch Terminal",
+    "repo": "Thebanditsare/opencode-perch-auth",
+    "desc": "Perch 终端账号登录",
+    "authMode": "account",
+    "stars": 1
+  },
+  {
+    "id": "antigravity",
+    "name": "Antigravity Bridge",
+    "repo": "DylanLIiii/opencode-antigravity-bridge",
+    "desc": "Google Antigravity 免费额度桥接",
+    "authMode": "oauth",
+    "stars": 57
+  },
+  {
+    "id": "teleagent",
+    "name": "天翼 AI 星辰",
+    "repo": "goodtome/magpie-teleagent-login",
+    "desc": "天翼 AI 星辰账号登录",
+    "authMode": "account",
+    "stars": 2
+  },
+  {
+    "id": "deepaicode",
+    "name": "DeepAI Code",
+    "repo": "aqiu817/magpie-deepaicode",
+    "desc": "DeepAI Code provider",
+    "authMode": "account",
+    "stars": 4
+  },
+  {
+    "id": "agy-acp",
+    "name": "Antigravity CLI 多账号",
+    "repo": "sidkang/agy-acp",
+    "desc": "Antigravity CLI 多账号切换",
+    "authMode": "oauth",
+    "stars": 5
+  },
+  {
+    "id": "workbuddy-tasks",
+    "name": "WorkBuddy 任务",
+    "repo": "jichie/magpie-workbuddy-tasks",
+    "desc": "WorkBuddy 任务自动化",
+    "authMode": "key",
+    "stars": 21
+  },
+  {
+    "id": "workbuddy-plus",
+    "name": "WorkBuddy 连登成长",
+    "repo": "sabercomo/magpie-workbuddy-plus",
+    "desc": "WorkBuddy 连续登录与成长值",
+    "authMode": "account",
+    "stars": 13
+  },
+  {
+    "id": "newapi-bridge",
+    "name": "new-api 桥接",
+    "repo": "zhx47/magpie_newapi_plugin",
+    "desc": "把 magpie 的模型桥接进 new-api",
+    "authMode": "key",
+    "stars": 5
+  },
+  {
+    "id": "orcaterm",
+    "name": "腾讯 OrcaTerm 遨驰终端",
+    "repo": "@magpie-community/opencode-orcaterm-auth",
+    "desc": "腾讯云 OrcaTerm（遨驰终端）AI 额度接入：扫码/账号登录后作为 OpenAI 兼容 provider，模型形如 TokenHub/deepseek-v4.1-flash、Hunyuan3/hy3",
+    "authMode": "account",
+    "stars": 0
+  },
+  {
+    "id": "raccoon",
+    "name": "商汤小浣熊 Raccoon",
+    "repo": "@magpie-community/opencode-raccoon-auth",
+    "desc": "商汤小浣熊（办公小浣熊）浏览器授权登录，接入 Raccoon-Work / sn-* 系列模型",
+    "authMode": "oauth",
+    "stars": 0
+  },
+  {
+    "id": "intern-inkstone",
+    "name": "书生·端砚 Intern InkStone",
+    "repo": "@magpie-community/opencode-inkstone-auth",
+    "desc": "书生·端砚 TokenPlan：控制台一次登录即可读额度与套餐模型（Intern-S2 等）",
+    "authMode": "oauth",
+    "stars": 0
+  }
 ]
