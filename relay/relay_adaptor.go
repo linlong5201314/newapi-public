@@ -33,6 +33,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/openai"
 	"github.com/QuantumNous/new-api/relay/channel/palm"
 	"github.com/QuantumNous/new-api/relay/channel/perplexity"
+	"github.com/QuantumNous/new-api/relay/channel/raccoon"
 	"github.com/QuantumNous/new-api/relay/channel/replicate"
 	"github.com/QuantumNous/new-api/relay/channel/siliconflow"
 	"github.com/QuantumNous/new-api/relay/channel/sub2api"
@@ -132,6 +133,8 @@ func GetAdaptor(apiType int) channel.Adaptor {
 		return &trae.Adaptor{}
 	case constant.APITypeCline:
 		return &cline.Adaptor{}
+	case constant.APITypeRaccoon:
+		return &raccoon.Adaptor{}
 	}
 	return nil
 }
