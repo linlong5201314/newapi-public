@@ -144,7 +144,7 @@ export function FromTemplateDialog({
   const canSubmit =
     selected !== null &&
     !needsAccountAuth &&
-    (!keyRequired || hasAnyKey) &&
+    (tier === 'free' || !keyRequired || hasAnyKey) &&
     extrasComplete
 
   const handleSubmit = async () => {
@@ -337,6 +337,14 @@ export function FromTemplateDialog({
             )}
             {!needsAccountAuth && (
               <>
+            {tier === 'free' ? (
+              <div className='rounded-md border border-dashed p-3 text-sm'>
+                <div className='font-medium'>免费层（IP 白名单）不需要 API Key</div>
+                <div className='text-muted-foreground mt-1 text-xs'>
+                  填好下面的允许 IP 即可调用；平台按出口 IP 放行，不保存也不展示任何密钥。
+                </div>
+              </div>
+            ) : (
             <div className='flex flex-col gap-2'>
               <Label htmlFor='from-template-key'>
                 {t('API Key')}
@@ -351,6 +359,7 @@ export function FromTemplateDialog({
                 autoComplete='off'
               />
             </div>
+            )}
 
             {/* Extra placeholder fields required by the template
                 (e.g. cloudflare-ai accountId), substituted into baseUrl. */}
@@ -434,6 +443,7 @@ export function FromTemplateDialog({
               )}
             </div>
 
+            {tier === 'api' && (
             <div className='flex flex-col gap-2'>
               <Label htmlFor='from-template-multikey'>
                 {t('Multiple keys (optional, one per line)')}
@@ -458,6 +468,7 @@ export function FromTemplateDialog({
                 </select>
               )}
             </div>
+            )}
 
             <label className='flex items-center gap-2 text-sm'>
               <input
