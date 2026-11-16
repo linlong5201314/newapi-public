@@ -7557,5 +7557,22 @@
     "Own account": "自有帳號",
     "Reverse proxy": "反代",
     "Official API": "官方 API"
-  }
+  },
+  "Proxy": "代理",
+  "Egress proxy (optional)": "出口代理（可選）",
+  "Egress proxy in use": "目前出口代理",
+  "API base (optional)": "接入位址（可選）",
+  "Edit free source": "編輯免費源",
+  "Update quota, models, proxy and description of this entry.": "修改該條目的額度、模型、代理與說明。",
+  "Saved": "已儲存",
+  "{{n}} IPs": "{{n}} 個 IP",
+  "e.g. 1.2M tokens left": "例如：剩餘 120 萬 tokens",
+  "Traffic": "流量",
+  "Expires": "到期",
+  "IPs": "IP 數",
+  "Saving": "儲存中",
+  "Edit entry": "編輯條目",
+  "Node count": "節點數",
+  "Last synced": "最近同步",
+  "Free tier (IP allowlist) needs no API key": "免費層（IP 白名單）不需要 API Key"
 }
