@@ -11,7 +11,7 @@ RUN useradd -r -u 10001 -m app
 WORKDIR /app
 COPY --from=build /out/xhx2api /app/xhx2api
 COPY entrypoint.sh /app/entrypoint.sh
-COPY --from=build /up/config.example.json /app/config.example.json
+COPY config.template.json /app/config.template.json
 RUN chmod +x /app/entrypoint.sh && mkdir -p /app/data && chown -R app:app /app
 ENV TZ=Asia/Shanghai PORT=3066
 EXPOSE 3066
