@@ -55,6 +55,24 @@ func GetEnabledModels() []string {
 	return models
 }
 
+// GetGroupEnabledModelsForOwner 按租户归属返回某分组下当前用户可见的模型。
+// ownerUserId>0 时只返回「自己建的渠道 + 任何 owner 但已公开(visibility=1)的渠道」；
+// ownerUserId<=0 保持旧行为（返回全部），供管理员/系统内部使用。
+//
+// 背景：abilities 表本身没有 owner_id，必须回连 channels 才能判断归属，
+// 否则操练场 / 模型列表会把别人私有渠道与管理员测试渠道的模型一并暴露。
+func GetGroupEnabledModelsForOwner(group string, ownerUserId int) []string {
+	var models []string
+	query := DB.Table("abilities").Where(commonGroupCol+" = ? and enabled = ?", group, true)
+	if ownerUserId > 0 {
+		ownerChannelsSubQuery := DB.Model(&Channel{}).Select("id").
+			Where("(owner_id = ? AND owner_id <> 0) OR visibility = ?", ownerUserId, 1)
+		query = query.Where("channel_id in (?)", ownerChannelsSubQuery)
+	}
+	query.Distinct("model").Pluck("model", &models)
+	return models
+}
+
 func GetAllEnableAbilities() []Ability {
 	var abilities []Ability
 	DB.Find(&abilities, "enabled = ?", true)
