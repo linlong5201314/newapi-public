@@ -32,11 +32,23 @@ func CreateSelfBinding(c *gin.Context) {
 		common.ApiErrorMsg(c, "未知的提供方")
 		return
 	}
-	if tpl.AuthMode != "account" && tpl.AuthMode != "oauth" {
+	if tpl.AuthMode != "account" && tpl.AuthMode != "oauth" && tpl.AuthMode != "gateway" {
 		common.ApiErrorMsg(c, "该来源不是账号授权类型，请直接用模板添加渠道")
 		return
 	}
-	creds, err := model.ParseAccountLines(req.Accounts)
+	kind := "password"
+	var creds []model.SelfAccountCred
+	var err error
+	switch {
+	case tpl.AuthMode == "gateway" || tpl.Id == "magpie":
+		kind = "gateway"
+		creds, err = model.ParseGatewayKeys(req.Accounts)
+	case tpl.AuthMode == "oauth":
+		kind = "oauth"
+		creds, err = model.ParseOAuthToken(req.Accounts)
+	default:
+		creds, err = model.ParseAccountLines(req.Accounts)
+	}
 	if err != nil {
 		common.ApiErrorMsg(c, err.Error())
 		return
@@ -44,6 +56,7 @@ func CreateSelfBinding(c *gin.Context) {
 	binding := &model.SelfAccountBinding{
 		UserId:      uid,
 		Provider:    tpl.Id,
+		Kind:        kind,
 		DisplayName: strings.TrimSpace(req.DisplayName),
 		Status:      "pending",
 	}
