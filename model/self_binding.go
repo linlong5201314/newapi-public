@@ -152,26 +152,46 @@ func ListAllBindings(limit int) ([]SelfAccountBinding, error) {
 	return rows, err
 }
 
-func DeleteSelfBinding(userId, id int) error {
-	res := DB.Where("id = ? AND user_id = ?", id, userId).Delete(&SelfAccountBinding{})
-	if res.Error != nil {
-		return res.Error
+func DeleteSelfBinding(userId, id int) (int, error) {
+	var row SelfAccountBinding
+	if err := DB.Where("id = ? AND user_id = ?", id, userId).First(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, errors.New("binding not found")
+		}
+		return 0, err
 	}
-	if res.RowsAffected == 0 {
-		return errors.New("binding not found")
+	if err := DB.Delete(&SelfAccountBinding{}, row.Id).Error; err != nil {
+		return 0, err
 	}
-	return nil
+	return row.ChannelId, nil
 }
 
-func SetSelfBindingPublic(userId, id, public int) error {
-	res := DB.Model(&SelfAccountBinding{}).Where("id = ? AND user_id = ?", id, userId).Update("public", public)
-	if res.Error != nil {
-		return res.Error
+// DisableSelfChannel 把该用户绑定的渠道下线（status=3=手动禁用），避免删除绑定后渠道继续被路由。
+func DisableSelfChannel(ownerId, channelId int) error {
+	if channelId <= 0 {
+		return nil
 	}
-	if res.RowsAffected == 0 {
-		return errors.New("binding not found")
+	return DB.Model(&Channel{}).Where("id = ? AND owner_id = ?", channelId, ownerId).Update("status", 3).Error
+}
+
+func SetSelfBindingPublic(userId, id, public int) (int, error) {
+	var row SelfAccountBinding
+	if err := DB.Where("id = ? AND user_id = ?", id, userId).First(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, errors.New("binding not found")
+		}
+		return 0, err
 	}
-	return nil
+	if err := DB.Model(&SelfAccountBinding{}).Where("id = ? AND user_id = ?", id, userId).Update("public", public).Error; err != nil {
+		return 0, err
+	}
+	// 绑定公开状态与渠道可见性必须同步，否则“公开”只改了开关、模型仍不可被别人调用。
+	if row.ChannelId > 0 {
+		if err := DB.Model(&Channel{}).Where("id = ? AND owner_id = ?", row.ChannelId, userId).Update("visibility", public).Error; err != nil {
+			return row.ChannelId, err
+		}
+	}
+	return row.ChannelId, nil
 }
 
 func PendingBindings(limit int) ([]SelfAccountBinding, error) {
