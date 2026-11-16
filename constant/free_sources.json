@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "curatedAt": "2026-11-12",
   "source": "assets/free-pools.json + assets/free-model-catalog.json + OmniRoute provider registry",
   "templates": [
@@ -481,120 +481,20 @@
       "hiddenEndpoint": true
     },
     {
-      "id": "qoder-cn",
-      "name": "Qoder 国内版（经 qoder2api 网关）",
-      "channelType": 1,
-      "baseUrl": "{base}",
-      "signupUrl": "https://qoder.com",
-      "keyRequired": true,
-      "models": [
-        "qwen3-coder-plus",
-        "claude-sonnet-4.5",
-        "gpt-5-codex",
-        "deepseek-v3.1"
-      ],
-      "freeNote": "Qoder 需要账号授权（COSY 签名随客户端版本变化），本平台不复刻：请自建 qoder2api 类网关，在网关里登录 Qoder 账号后把地址填到 base。⚠️ 反代账号风险自担。",
-      "monthlyTokens": 0,
-      "freeType": "reverse-proxy",
-      "tos": "own-account",
-      "poolKey": "qoder-cn",
-      "extraFields": [
-        "base"
-      ],
-      "authMode": "account",
-      "hiddenEndpoint": true
-    },
-    {
-      "id": "qoder-intl",
-      "name": "Qoder 国际版（经 qoder2api 网关）",
-      "channelType": 1,
-      "baseUrl": "{base}",
-      "signupUrl": "https://qoder.com",
-      "keyRequired": true,
-      "models": [
-        "qwen3-coder-plus",
-        "claude-sonnet-4.5",
-        "gpt-5-codex",
-        "deepseek-v3.1"
-      ],
-      "freeNote": "同上：Qoder 国际站需在自建网关里用账号登录授权，new-api 只做路由与计费。⚠️ 反代账号风险自担。",
-      "monthlyTokens": 0,
-      "freeType": "reverse-proxy",
-      "tos": "own-account",
-      "poolKey": "qoder-intl",
-      "extraFields": [
-        "base"
-      ],
-      "authMode": "account",
-      "hiddenEndpoint": true
-    },
-    {
-      "id": "minimax-code-intl",
-      "name": "MiniMax Code 国际版（经 minimax2api）",
-      "channelType": 1,
-      "baseUrl": "{base}",
-      "signupUrl": "https://agent.minimax.io",
-      "keyRequired": true,
-      "models": [
-        "MiniMax-M2",
-        "MiniMax-Text-01",
-        "MiniMax-VL-01"
-      ],
-      "freeNote": "同上：MiniMax 国际站需在自建网关里账号登录。⚠️ 反代账号风险自担。",
-      "monthlyTokens": 0,
-      "freeType": "reverse-proxy",
-      "tos": "own-account",
-      "poolKey": "minimax-intl",
-      "extraFields": [
-        "base"
-      ],
-      "authMode": "account",
-      "hiddenEndpoint": true
-    },
-    {
-      "id": "minimax-code-cn",
-      "name": "MiniMax Code 国内版（经 minimax2api）",
-      "channelType": 1,
-      "baseUrl": "{base}",
-      "signupUrl": "https://agent.minimaxi.com",
-      "keyRequired": true,
-      "models": [
-        "MiniMax-M2",
-        "MiniMax-Text-01",
-        "MiniMax-VL-01"
-      ],
-      "freeNote": "MiniMax 需要账号授权（yy 签名随版本漂移），请自建 minimax2api 类网关登录账号后填 base。⚠️ 反代账号风险自担。",
-      "monthlyTokens": 0,
-      "freeType": "reverse-proxy",
-      "tos": "own-account",
-      "poolKey": "minimax-cn",
-      "extraFields": [
-        "base"
-      ],
-      "authMode": "account",
-      "hiddenEndpoint": true
-    },
-    {
       "id": "ds2api",
-      "name": "DS2API（DeepSeek 网页版账号）",
+      "name": "DS2API（DeepSeek 网页账号，平台代建）",
       "channelType": 1,
       "baseUrl": "{base}",
-      "signupUrl": "https://ds2api-production-24fcbc11.up.railway.app/admin",
-      "keyRequired": true,
+      "keyRequired": false,
       "models": [
         "deepseek-v4.1-flash"
       ],
-      "freeNote": "平台已部署：https://ds2api-production-24fcbc11.up.railway.app/v1（后台 /admin，管理员口令在部署变量里）。到后台「账号」里填 DeepSeek 网页端的邮箱+密码（或手机号+密码）授权，不是填 API Key；授权后本渠道即可用 deepseek-v4-flash 等模型。⚠️ 反代账号风险自担，建议用小号。",
+      "freeNote": "只需填 DeepSeek 网页版的「邮箱----密码」（每行一个，可一次填多个账号），需要固定出口时在下方选择代理；平台会把账号写进专属实例并自动接好渠道。不用填 API Key，也不会显示任何部署地址。⚠️ 反代账号有风险，建议用小号。",
       "monthlyTokens": 0,
       "freeType": "reverse-proxy",
       "tos": "own-account",
       "poolKey": "ds2api",
-      "extraFields": [
-        "base"
-      ],
-      "defaultExtra": {
-        "base": "https://ds2api-production-24fcbc11.up.railway.app/v1"
-      },
+      "extraFields": [],
       "authMode": "account",
       "hiddenEndpoint": true
     },
@@ -664,28 +564,6 @@
       "hiddenEndpoint": true
     },
     {
-      "id": "gemini-2api",
-      "name": "Gemini 2API（网页版账号）",
-      "channelType": 1,
-      "baseUrl": "{base}",
-      "signupUrl": "https://github.com/",
-      "keyRequired": false,
-      "extraFields": [
-        "base"
-      ],
-      "models": [
-        "gemini-2.5-pro",
-        "gemini-2.5-flash"
-      ],
-      "authMode": "account",
-      "hiddenEndpoint": true,
-      "freeNote": "开源的 Gemini 网页版转 API（gemini-2api 类项目）：在自建服务里填 Google 账号 Cookie/授权，本平台只负责路由与计费。⚠️ 反代账号风险自担，建议用小号。",
-      "monthlyTokens": 0,
-      "freeType": "reverse-proxy",
-      "tos": "caution",
-      "poolKey": "gemini-2api"
-    },
-    {
       "id": "magpie",
       "name": "Magpie 聚合网关（插件生态）",
       "channelType": 1,
@@ -693,7 +571,7 @@
       "signupUrl": "https://github.com/yetone/magpie",
       "keyRequired": false,
       "models": [],
-      "freeNote": "magpie 是「一个网关接所有账号」的本地网关（36.9k★）。平台已为你部署了一台：https://magpie-production-557f97bd.up.railway.app 。用法：先在 magpie 里装插件（magpie plugin add <仓库>，插件目录见「Magpie 插件」卡片）再 magpie provider add 加你自己的账号；然后用你的 gateway key 连本渠道，点「获取模型」把 magpie 的模型同步进来。⚠️ 账号风险自担，建议小号。",
+      "freeNote": "magpie 是「一个网关接所有账号」的本地网关。平台为你单独部署一台，地址只对管理员可见。用法：先在 magpie 里装插件（插件目录见「Magpie 插件」卡片），再 magpie provider add 加你自己的账号，然后用你自己的 gateway key 连本渠道，点「获取模型」同步模型。⚠️ 账号风险自担，建议小号。",
       "monthlyTokens": 0,
       "freeType": "reverse-proxy",
       "tos": "own-account",
@@ -736,7 +614,7 @@
         "base"
       ],
       "signupUrl": "https://xiaohuanxiong.com/",
-      "freeNote": "小浣熊没有公开 API（官方客户端免费账号，无第三方订阅额度），只能用登录态反代：配套网关 xhx2api（haoxinyu1/xiaohuanxiong2api）、Buddy2api（wicm84266964/Buddy2api）、Coding2API（RobbsLuo/Coding2API）。按「access_token----refresh_token」粘贴即可，模型目录由网关自动发现。"
+      "freeNote": "小浣熊没有公开 API（官方客户端免费账号，无第三方订阅额度），只能用登录态反代。按「access_token----refresh_token」粘贴（每行一个账号），平台会为你代建配套网关并自动接好；模型目录由网关自动发现。⚠️ 登录态等同账号，建议用小号。"
     }
   ]
 }
