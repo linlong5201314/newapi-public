@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -21,9 +23,15 @@ func CreateSelfBinding(c *gin.Context) {
 		Accounts    string `json:"accounts"`
 		DisplayName string `json:"displayName"`
 		Public      bool   `json:"public"`
+		Proxy       string `json:"proxy"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ApiError(c, err)
+		return
+	}
+	proxy, err := normalizeBindingProxy(req.Proxy)
+	if err != nil {
+		common.ApiErrorMsg(c, err.Error())
 		return
 	}
 	provider := strings.TrimSpace(req.Provider)
@@ -38,7 +46,6 @@ func CreateSelfBinding(c *gin.Context) {
 	}
 	kind := "password"
 	var creds []model.SelfAccountCred
-	var err error
 	switch {
 	case tpl.AuthMode == "gateway" || tpl.Id == "magpie":
 		kind = "gateway"
@@ -61,6 +68,7 @@ func CreateSelfBinding(c *gin.Context) {
 		UserId:      uid,
 		Provider:    tpl.Id,
 		Kind:        kind,
+		Proxy:       proxy,
 		DisplayName: strings.TrimSpace(req.DisplayName),
 		Status:      "pending",
 	}
@@ -149,4 +157,27 @@ func AdminListBindings(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, gin.H{"items": rows, "total": len(rows)})
+}
+
+// normalizeBindingProxy 规范化用户提交的出口代理：
+//
+//	空字符串   跟随平台默认（用户出口池；池为空则直连）
+//	direct     强制直连，忽略出口池
+//	其它       http:// / https:// / socks5:// 开头的固定代理
+func normalizeBindingProxy(raw string) (string, error) {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return "", nil
+	}
+	if strings.EqualFold(v, "direct") || v == "直连" {
+		return "direct", nil
+	}
+	l := strings.ToLower(v)
+	if !strings.HasPrefix(l, "http://") && !strings.HasPrefix(l, "https://") && !strings.HasPrefix(l, "socks5://") {
+		return "", fmt.Errorf("代理格式不对：需 http:// / https:// / socks5:// 开头，或填 direct 表示直连")
+	}
+	if _, err := url.Parse(v); err != nil {
+		return "", fmt.Errorf("代理地址解析失败: %v", err)
+	}
+	return v, nil
 }
