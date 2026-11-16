@@ -96,9 +96,17 @@ func DeleteSelfBinding(c *gin.Context) {
 		common.ApiErrorMsg(c, "无效的绑定 ID")
 		return
 	}
-	if err := model.DeleteSelfBinding(uid, id); err != nil {
+	channelId, err := model.DeleteSelfBinding(uid, id)
+	if err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	if channelId > 0 {
+		if err := model.DisableSelfChannel(uid, channelId); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		model.InitChannelCache()
 	}
 	common.ApiSuccess(c, nil)
 }
@@ -118,9 +126,13 @@ func SetSelfBindingPublic(c *gin.Context) {
 	if req.Public {
 		public = 1
 	}
-	if err := model.SetSelfBindingPublic(uid, id, public); err != nil {
+	channelId, err := model.SetSelfBindingPublic(uid, id, public)
+	if err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	if channelId > 0 {
+		model.InitChannelCache()
 	}
 	common.ApiSuccess(c, gin.H{"public": public})
 }
