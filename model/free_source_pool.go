@@ -18,6 +18,9 @@ type FreeSourcePool struct {
 	Models        []string  `json:"models" gorm:"serializer:json;type:text"`   // 可用模型列表（JSON 序列化，三库通用）
 	Description   string    `json:"description" gorm:"type:text"`              // 描述
 	Tags          []string  `json:"tags" gorm:"serializer:json;type:text"`     // 标签：完全免费/额度限制/签到/推荐/不推荐
+	Quota         string    `json:"quota" gorm:"type:varchar(200)"`            // 剩余额度描述（如 "剩余 120 万 tokens"）
+	Proxy         string    `json:"proxy" gorm:"type:varchar(300)"`            // 使用中的出口代理（如 "HK 1.2.3.4:7897"）
+	ApiBase       string    `json:"api_base" gorm:"type:varchar(300)"`         // 实际接入地址（可选，OpenAI 兼容 base）
 	Rating        float64   `json:"rating" gorm:"type:decimal(3,2);default:0"` // 平均评分（0-5）
 	RatingCount   int       `json:"rating_count" gorm:"default:0"`             // 评分人数
 	Recommended   bool      `json:"recommended" gorm:"default:false"`          // 是否推荐（高评分/人工置顶）
@@ -69,6 +72,13 @@ func UpdateFreeSourcePoolRating(id int, newRating float64, newCount int) error {
 // DeleteFreeSourcePool 删除（仅管理员）。
 func DeleteFreeSourcePool(id int) error {
 	return DB.Delete(&FreeSourcePool{}, id).Error
+}
+
+// UpdateFreeSourcePool 编辑条目（仅提交者或管理员，权限由 controller 判定）。
+// 只更新传入的字段（nil 表示不改），额度/代理/接入地址等运维字段同样可改。
+func UpdateFreeSourcePool(id int, updates map[string]interface{}) error {
+	updates["updated_at"] = time.Now()
+	return DB.Model(&FreeSourcePool{}).Where("id = ?", id).Updates(updates).Error
 }
 
 // FreeSourcePoolRating 评分记录（一个用户只能对同一条目评分一次）。
