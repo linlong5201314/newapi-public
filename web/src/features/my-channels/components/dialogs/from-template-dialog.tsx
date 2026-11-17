@@ -95,6 +95,7 @@ export function FromTemplateDialog({
   const [multiKeys, setMultiKeys] = useState('')
   const [multiKeyMode, setMultiKeyMode] = useState<'random' | 'polling'>('random')
   const [allowIps, setAllowIps] = useState('')
+  const [subscriptionUrl, setSubscriptionUrl] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const { data: templates, isLoading } = useQuery({
@@ -118,6 +119,7 @@ export function FromTemplateDialog({
     setMultiKeys('')
     setMultiKeyMode('random')
     setAllowIps('')
+    setSubscriptionUrl('')
     setIsSubmitting(false)
   }, [open])
 
@@ -127,7 +129,16 @@ export function FromTemplateDialog({
     selected !== null &&
     selected.authMode !== 'key' &&
     selected.authMode !== 'ip'
-  const keyRequired = selected?.keyRequired !== false && !needsAccountAuth
+  // 接入形态三态：none=无需密钥（IP 白名单/账号授权/配套网关）、
+  // key=填上游 API Key、subscription=填机场订阅链接（节点与额度由平台解析）。
+  const authType = selected?.authType ?? 'key'
+  const isSubscription = !needsAccountAuth && authType === 'subscription'
+  const isNoKey = !needsAccountAuth && authType === 'none'
+  const keyRequired =
+    selected?.keyRequired !== false &&
+    !needsAccountAuth &&
+    !isSubscription &&
+    !isNoKey
   const extraFields = needsAccountAuth ? [] : (selected?.extraFields ?? [])
   // 用户没填时回落到模板默认值（如 ds2api 平台已部署的网关地址）
   const extraValue = (field: string) =>
@@ -141,11 +152,15 @@ export function FromTemplateDialog({
     .map((item) => item.trim())
     .filter(Boolean)
   const hasAnyKey = apiKey.trim() !== '' || parsedKeys.length > 0
+  const subscriptionOk =
+    !isSubscription ||
+    /^https?:\/\/\S+$/i.test(subscriptionUrl.trim())
   const canSubmit =
     selected !== null &&
     !needsAccountAuth &&
-    (tier === 'free' || !keyRequired || hasAnyKey) &&
-    extrasComplete
+    (tier === 'free' || isSubscription || isNoKey || !keyRequired || hasAnyKey) &&
+    extrasComplete &&
+    subscriptionOk
 
   const handleSubmit = async () => {
     if (!selected || !canSubmit) return
@@ -173,6 +188,9 @@ export function FromTemplateDialog({
           : {}),
         ...(tier === 'free' && allowIps.trim()
           ? { allow_ips: allowIps.trim() }
+          : {}),
+        ...(isSubscription
+          ? { subscription_url: subscriptionUrl.trim() }
           : {}),
       })
       if (result.success) {
@@ -337,7 +355,35 @@ export function FromTemplateDialog({
             )}
             {!needsAccountAuth && (
               <>
-            {tier === 'free' ? (
+            {isSubscription ? (
+              <div className='flex flex-col gap-2'>
+                <Label htmlFor='from-template-subscription'>
+                  {t('Airport subscription link')}
+                  <span className='text-destructive'> *</span>
+                </Label>
+                <Input
+                  id='from-template-subscription'
+                  value={subscriptionUrl}
+                  onChange={(e) => setSubscriptionUrl(e.target.value)}
+                  placeholder={t('Paste the subscription URL (http/https)')}
+                  autoComplete='off'
+                />
+                <p className='text-muted-foreground text-xs'>
+                  {t(
+                    'The platform parses node count and remaining traffic, adds those nodes to your egress pool, then routes this source through them. No API key needed.'
+                  )}
+                </p>
+              </div>
+            ) : isNoKey ? (
+              <div className='rounded-md border border-dashed p-3 text-sm'>
+                <div className='font-medium'>{t('No key needed for this source')}</div>
+                <div className='text-muted-foreground mt-1 text-xs'>
+                  {t(
+                    'This source is authorized by IP or an account login; nothing secret is stored here.'
+                  )}
+                </div>
+              </div>
+            ) : tier === 'free' ? (
               <div className='rounded-md border border-dashed p-3 text-sm'>
                 <div className='font-medium'>免费层（IP 白名单）不需要 API Key</div>
                 <div className='text-muted-foreground mt-1 text-xs'>
@@ -443,7 +489,7 @@ export function FromTemplateDialog({
               )}
             </div>
 
-            {tier === 'api' && (
+            {tier === 'api' && !isSubscription && !isNoKey && (
             <div className='flex flex-col gap-2'>
               <Label htmlFor='from-template-multikey'>
                 {t('Multiple keys (optional, one per line)')}
