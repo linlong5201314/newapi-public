@@ -55,6 +55,11 @@ export type FreeSourceTemplate = {
   keyRequired?: boolean
   /** 授权方式：account=账号密码 / oauth=跳转授权 / ip=IP 直连（无需密钥） / key=API Key */
   authMode?: string
+  /**
+   * 接入形态（后端 EffectiveAuthType 推导，前端据此决定显示哪个输入框）：
+   * none=无需密钥 / key=填 API Key / subscription=填机场订阅链接
+   */
+  authType?: string
   /** 是否隐藏部署地址（普通用户不可见，仅管理员） */
   hiddenEndpoint?: boolean
 }
@@ -85,6 +90,8 @@ export type CreateFromTemplateRequest = {
   multi_key_mode?: string
   /** 免费层的订阅 IP 白名单（逗号/换行分隔，支持 CIDR） */
   allow_ips?: string
+  /** 订阅型来源（authType=subscription）的机场订阅链接 */
+  subscription_url?: string
 }
 
 export type CreateFromTemplateResponse = {
@@ -162,6 +169,7 @@ export function normalizeFreeTemplates(data: unknown): FreeSourceTemplate[] {
         id,
         name,
         authMode: asString(record.authMode ?? record.auth_mode),
+        authType: asString(record.authType ?? record.auth_type),
         hiddenEndpoint: Boolean(record.hiddenEndpoint ?? record.hidden_endpoint),
         channelType: asNumber(record.channelType ?? record.channel_type),
         baseUrl: asString(record.baseUrl ?? record.base_url),
