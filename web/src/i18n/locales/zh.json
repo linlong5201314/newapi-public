@@ -7943,6 +7943,7 @@
     "Paste the subscription URL (http/https)": "粘贴订阅链接（http/https）",
     "The platform parses node count and remaining traffic, adds those nodes to your egress pool, then routes this source through them. No API key needed.": "平台会解析节点数与剩余流量，把这些节点加进你的出口池，再用它们转发这个来源的请求；不需要填 API Key。",
     "No key needed for this source": "这个来源不需要密钥",
-    "This source is authorized by IP or an account login; nothing secret is stored here.": "该来源按出口 IP 或账号登录授权，平台不保存任何密钥。"
+    "This source is authorized by IP or an account login; nothing secret is stored here.": "该来源按出口 IP 或账号登录授权，平台不保存任何密钥。",
+    "Subscription saved to your egress pool": "订阅已保存，节点已加入你的出口池"
   }
 }
