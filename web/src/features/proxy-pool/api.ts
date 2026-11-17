@@ -24,6 +24,7 @@ import type {
   CreateSubscriptionPayload,
   ProxyEndpoint,
   ProxyPoolSummary,
+  ProxyRuntimeStatus,
   ProxySubscription,
 } from './types'
 
@@ -59,7 +60,7 @@ export async function createEndpoint(
 
 export async function updateEndpoint(
   id: number,
-  data: Partial<Pick<ProxyEndpoint, 'name' | 'enabled' | 'weight' | 'region'>>
+  data: Partial<Pick<ProxyEndpoint, 'name' | 'enabled' | 'weight' | 'region' | 'public'>>
 ): Promise<ApiEnvelope<unknown>> {
   const res = await api.patch(
     `${BASE}/endpoints/${id}`,
@@ -74,16 +75,48 @@ export async function deleteEndpoint(id: number): Promise<ApiEnvelope<unknown>> 
   return res.data as ApiEnvelope<unknown>
 }
 
-/** 连通性探测：后端会真的经该出口打一次 1.1.1.1/cdn-cgi/trace 取回 IP。 */
+/** 连通性探测：后端会真的经该出口（或内置 mihomo）测速并返回延迟 ms。 */
 export async function testEndpoint(
   id: number
-): Promise<ApiEnvelope<{ ok: boolean; ip?: string; error?: string }>> {
+): Promise<ApiEnvelope<{ ok: boolean; ip?: string; latency_ms?: number; error?: string }>> {
   const res = await api.post(
     `${BASE}/endpoints/${id}/test`,
     {},
     poolActionConfig()
   )
-  return res.data as ApiEnvelope<{ ok: boolean; ip?: string; error?: string }>
+  return res.data as ApiEnvelope<{ ok: boolean; ip?: string; latency_ms?: number; error?: string }>
+}
+
+/** 一键导入本机 HaizhuClash 0.14.3 节点到公共池（mode: full=7114 / top=791）。 */
+export async function importHaizhuNodes(
+  mode: 'full' | 'top' = 'full'
+): Promise<ApiEnvelope<{ imported: number; mode: string; public: boolean }>> {
+  const res = await api.post(
+    `${BASE}/import-haizhu`,
+    { mode },
+    poolActionConfig()
+  )
+  return res.data as ApiEnvelope<{ imported: number; mode: string; public: boolean }>
+}
+
+/** 获取共享 mihomo 内核状态与当前用户可见节点。 */
+export async function getRuntimeStatus(): Promise<ProxyRuntimeStatus | null> {
+  try {
+    const res = await api.get(`${BASE}/runtime`, poolActionConfig())
+    return (res.data as ApiEnvelope<ProxyRuntimeStatus>).data ?? null
+  } catch {
+    return null
+  }
+}
+
+export async function reloadRuntime(): Promise<ApiEnvelope<unknown>> {
+  const res = await api.post(`${BASE}/runtime/reload`, {}, poolActionConfig())
+  return res.data as ApiEnvelope<unknown>
+}
+
+export async function selectRuntimeNode(name: string): Promise<ApiEnvelope<{ selected: string }>> {
+  const res = await api.post(`${BASE}/runtime/select`, { name }, poolActionConfig())
+  return res.data as ApiEnvelope<{ selected: string }>
 }
 
 // ── 订阅 ──────────────────────────────────────────────────────────────────

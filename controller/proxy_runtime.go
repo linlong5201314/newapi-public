@@ -22,18 +22,25 @@ func GetProxyRuntimeStatus(c *gin.Context) {
 	uid := c.GetInt("id")
 	manager := proxy_pool.ManagerInstance()
 	status := manager.Status()
+	nodes := manager.NodeNames(uid)
 	port, hasPort := status.Ports[uid]
+	if !hasPort && len(nodes) > 0 && status.SharedPort > 0 {
+		port = status.SharedPort
+		hasPort = true
+	}
 	common.ApiSuccess(c, gin.H{
-		"available":    status.Available,
-		"running":      status.Running,
-		"binary":       status.Binary,
-		"proxies":      status.Proxies,
-		"last_error":   status.LastError,
-		"started_at":   status.StartedAt,
-		"port":         port,
-		"has_listener": hasPort,
-		"proxy_url":    runtimeProxyURL(port, hasPort),
-		"nodes":        manager.NodeNames(uid),
+		"available":     status.Available,
+		"running":       status.Running,
+		"binary":        status.Binary,
+		"proxies":       status.Proxies,
+		"public_count":  status.PublicCount,
+		"selected_node": status.SelectedNode,
+		"last_error":    status.LastError,
+		"started_at":    status.StartedAt,
+		"port":          port,
+		"has_listener":  hasPort,
+		"proxy_url":     runtimeProxyURL(port, hasPort),
+		"nodes":         nodes,
 	})
 }
 

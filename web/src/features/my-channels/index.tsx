@@ -21,14 +21,13 @@ import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { MagpiePluginsCard } from '@/features/account-bindings/magpie-plugins'
 
 import { ChannelsDialogs } from './components/channels-dialogs'
 import { ChannelsPrimaryButtons } from './components/channels-primary-buttons'
 import { ChannelsProvider } from './components/channels-provider'
 import { ChannelsTable } from './components/channels-table'
 import { FreeUsageCards } from './components/free-usage-cards'
-import { AccountBindingsCard } from '@/features/account-bindings'
-import { MagpiePluginsCard } from '@/features/account-bindings/magpie-plugins'
 
 export function MyChannels() {
   const { t } = useTranslation()
@@ -49,12 +48,15 @@ export function MyChannels() {
               {t(
                 'Channels here are private to you. API requests are only routed to your own channels.'
               )}
+              {' · '}
+              <span>
+                点击渠道名称可打开详情抽屉（查看实时额度、选择代理 IP / 订阅节点、编辑名称、管理模型与公开设置）；Token / OAuth 账号授权（Trae / WorkBuddy / 小浣熊 / Cline / Qoder CN / 书生·端砚 / DS2API）已全部整合至右上角「从免费源添加」。
+              </span>
             </AlertDescription>
           </Alert>
-          {/* [M2-FE] Free quota pool cards (fail-soft, hidden guidance when empty) */}
+          {/* [M2-FE] Free quota pool cards */}
           <FreeUsageCards />
-          <AccountBindingsCard />
-        <MagpiePluginsCard />
+          <MagpiePluginsCard />
           <ChannelsTable />
         </SectionPageLayout.Content>
       </SectionPageLayout>

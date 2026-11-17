@@ -19,16 +19,19 @@ For commercial licensing, please contact support@quantumnous.com
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Copy,
+  Cpu,
   Download,
   Globe,
   KeyRound,
+  Lock,
   Plus,
   RefreshCw,
   Rss,
+  Sparkles,
   Trash2,
   Zap,
 } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -72,9 +75,13 @@ import {
   deleteEndpoint,
   deleteSubscription,
   exportConfig,
+  getRuntimeStatus,
   getSummary,
+  importHaizhuNodes,
   listEndpoints,
   listSubscriptions,
+  reloadRuntime,
+  selectRuntimeNode,
   syncSubscription,
   testEndpoint,
   updateEndpoint,
@@ -89,6 +96,9 @@ export function ProxyPoolPage() {
   const [endpointOpen, setEndpointOpen] = useState(false)
   const [subscriptionOpen, setSubscriptionOpen] = useState(false)
   const [busyId, setBusyId] = useState<string>('')
+  const [scopeFilter, setScopeFilter] = useState<'all' | 'mine' | 'public' | 'haizhu'>('all')
+  const [searchKeyword, setSearchKeyword] = useState('')
+  const [pageSize, setPageSize] = useState(120)
 
   const endpointsQuery = useQuery({
     queryKey: [...QUERY_KEY, 'endpoints'],
@@ -101,6 +111,10 @@ export function ProxyPoolPage() {
   const summaryQuery = useQuery({
     queryKey: [...QUERY_KEY, 'summary'],
     queryFn: getSummary,
+  })
+  const runtimeQuery = useQuery({
+    queryKey: [...QUERY_KEY, 'runtime'],
+    queryFn: getRuntimeStatus,
   })
 
   const refreshAll = () => {
@@ -140,6 +154,45 @@ export function ProxyPoolPage() {
       handleServerError(error, t('Failed to import subscription')),
   })
 
+  const importHaizhuMutation = useMutation({
+    mutationFn: (mode: 'full' | 'top') => importHaizhuNodes(mode),
+    onSuccess: (res) => {
+      if (res.success === false) {
+        toast.error(res.message || '导入 Haizhu 节点失败')
+        return
+      }
+      toast.success(`已导入 ${res.data?.imported ?? 0} 个 Haizhu 节点到公共池`)
+      refreshAll()
+    },
+    onError: (error) => handleServerError(error, '导入 Haizhu 节点失败'),
+  })
+
+  const reloadRuntimeMutation = useMutation({
+    mutationFn: reloadRuntime,
+    onSuccess: (res) => {
+      if (res.success === false) {
+        toast.error(res.message || '重载 mihomo 内核失败')
+        return
+      }
+      toast.success('共享 mihomo 内核已重载')
+      refreshAll()
+    },
+    onError: (error) => handleServerError(error, '重载 mihomo 内核失败'),
+  })
+
+  const selectNodeMutation = useMutation({
+    mutationFn: selectRuntimeNode,
+    onSuccess: (res) => {
+      if (res.success === false) {
+        toast.error(res.message || '切换节点失败')
+        return
+      }
+      toast.success(`已切换出口节点：${res.data?.selected ?? ''}`)
+      refreshAll()
+    },
+    onError: (error) => handleServerError(error, '切换节点失败'),
+  })
+
   const syncMutation = useMutation({
     mutationFn: syncSubscription,
     onMutate: (id) => setBusyId(`sub-${id}`),
@@ -171,8 +224,11 @@ export function ProxyPoolPage() {
   })
 
   const toggleMutation = useMutation({
-    mutationFn: (payload: { id: number; enabled: boolean }) =>
-      updateEndpoint(payload.id, { enabled: payload.enabled }),
+    mutationFn: (payload: { id: number; enabled?: boolean; public?: boolean }) =>
+      updateEndpoint(payload.id, {
+        ...(payload.enabled !== undefined ? { enabled: payload.enabled } : {}),
+        ...(payload.public !== undefined ? { public: payload.public } : {}),
+      }),
     onSuccess: () => refreshAll(),
     onError: (error) => handleServerError(error, t('Failed to update')),
   })
@@ -197,7 +253,8 @@ export function ProxyPoolPage() {
         toast.error(res.data?.error || res.message || t('Unreachable'))
         return
       }
-      toast.success(t('Reachable, exit IP: {{ip}}', { ip: res.data?.ip || '—' }))
+      const lat = res.data?.latency_ms ? ` (${res.data.latency_ms} ms)` : ''
+      toast.success(`节点可用，出口: ${res.data?.ip || '—'}${lat}`)
       refreshAll()
     },
     onError: (error) => handleServerError(error, t('Test failed')),
@@ -221,6 +278,27 @@ export function ProxyPoolPage() {
   const endpoints = endpointsQuery.data ?? []
   const subscriptions = subscriptionsQuery.data ?? []
   const summary = summaryQuery.data
+  const runtime = runtimeQuery.data
+
+  const filteredEndpoints = useMemo(() => {
+    const kw = searchKeyword.trim().toLowerCase()
+    return endpoints.filter((ep) => {
+      if (scopeFilter === 'mine' && (!ep.is_owner || ep.source === 'haizhu')) return false
+      if (scopeFilter === 'public' && !ep.public) return false
+      if (scopeFilter === 'haizhu' && ep.source !== 'haizhu') return false
+      if (!kw) return true
+      return (
+        ep.name.toLowerCase().includes(kw) ||
+        ep.region.toLowerCase().includes(kw) ||
+        ep.kind.toLowerCase().includes(kw)
+      )
+    })
+  }, [endpoints, scopeFilter, searchKeyword])
+
+  const visibleEndpoints = useMemo(
+    () => filteredEndpoints.slice(0, pageSize),
+    [filteredEndpoints, pageSize]
+  )
 
   let endpointsContent: ReactNode
   if (endpointsQuery.isLoading) {
@@ -229,45 +307,63 @@ export function ProxyPoolPage() {
     endpointsContent = (
       <ErrorState onRetry={() => void endpointsQuery.refetch()} />
     )
-  } else if (endpoints.length === 0) {
+  } else if (filteredEndpoints.length === 0) {
     endpointsContent = (
       <EmptyState
         title={t('No egress nodes yet')}
-        description={t(
-          'Import an airport subscription or paste a residential proxy; every extra exit multiplies your free quota.'
-        )}
+        description='点击右上角「导入 Haizhu 7114 公共节点」或「导入订阅」即可立即填充代理池。'
       />
     )
   } else {
     endpointsContent = (
-      <div className='overflow-x-auto rounded-lg border'>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t('Name')}</TableHead>
-              <TableHead>{t('Protocol')}</TableHead>
-              <TableHead>{t('Region')}</TableHead>
-              <TableHead>{t('Address')}</TableHead>
-              <TableHead>{t('Status')}</TableHead>
-              <TableHead className='text-end'>{t('Actions')}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {endpoints.map((endpoint) => (
-              <EndpointRow
-                key={endpoint.id}
-                endpoint={endpoint}
-                busy={busyId === `ep-${endpoint.id}` || busyId === `test-${endpoint.id}`}
-                testing={busyId === `test-${endpoint.id}`}
-                onToggle={(enabled) =>
-                  toggleMutation.mutate({ id: endpoint.id, enabled })
-                }
-                onTest={() => testMutation.mutate(endpoint.id)}
-                onDelete={() => deleteEndpointMutation.mutate(endpoint.id)}
-              />
-            ))}
-          </TableBody>
-        </Table>
+      <div className='space-y-2'>
+        <div className='overflow-x-auto rounded-lg border'>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('Name')}</TableHead>
+                <TableHead>{t('Protocol')}</TableHead>
+                <TableHead>{t('Region')}</TableHead>
+                <TableHead>延迟</TableHead>
+                <TableHead>可见性 / 共享</TableHead>
+                <TableHead>{t('Status')}</TableHead>
+                <TableHead className='text-end'>{t('Actions')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {visibleEndpoints.map((endpoint) => (
+                <EndpointRow
+                  key={endpoint.id}
+                  endpoint={endpoint}
+                  busy={busyId === `ep-${endpoint.id}` || busyId === `test-${endpoint.id}`}
+                  testing={busyId === `test-${endpoint.id}`}
+                  onToggle={(enabled) =>
+                    toggleMutation.mutate({ id: endpoint.id, enabled })
+                  }
+                  onTogglePublic={(pub) =>
+                    toggleMutation.mutate({ id: endpoint.id, public: pub })
+                  }
+                  onTest={() => testMutation.mutate(endpoint.id)}
+                  onDelete={() => deleteEndpointMutation.mutate(endpoint.id)}
+                />
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+        {filteredEndpoints.length > pageSize && (
+          <div className='flex items-center justify-between px-1 text-xs text-muted-foreground'>
+            <span>
+              当前显示前 {visibleEndpoints.length} / 共 {filteredEndpoints.length} 个节点（已按低延迟优先排序）
+            </span>
+            <Button
+              size='sm'
+              variant='outline'
+              onClick={() => setPageSize((p) => p + 300)}
+            >
+              加载更多 (+300)
+            </Button>
+          </div>
+        )}
       </div>
     )
   }
@@ -277,6 +373,15 @@ export function ProxyPoolPage() {
       <SectionPageLayout.Title>{t('Egress IP Pool')}</SectionPageLayout.Title>
       <SectionPageLayout.Actions>
         <div className='flex flex-wrap items-center gap-2'>
+          <Button
+            size='sm'
+            variant='default'
+            disabled={importHaizhuMutation.isPending}
+            onClick={() => importHaizhuMutation.mutate('full')}
+          >
+            <Sparkles className='me-1 h-4 w-4' />
+            {importHaizhuMutation.isPending ? '正在导入…' : '导入 Haizhu 7114 公共节点'}
+          </Button>
           <Button size='sm' variant='outline' onClick={() => setSubscriptionOpen(true)}>
             <Rss className='me-1 h-4 w-4' />
             {t('Import subscription')}
@@ -300,35 +405,83 @@ export function ProxyPoolPage() {
         <div className='grid gap-4 sm:grid-cols-2 xl:grid-cols-4'>
           <StatCard
             icon={<Zap className='h-4 w-4' />}
-            label={t('Usable exits')}
-            value={String(summary?.usable_url_count ?? endpoints.filter((e) => e.dialable).length)}
-            hint={t('Quota multiplier: {{n}}x', {
-              n: summary?.usable_url_count ?? endpoints.filter((e) => e.dialable).length,
-            })}
+            label='可见可用节点总数'
+            value={String(summary?.endpoint_total ?? endpoints.length)}
+            hint={`公共池公开: ${summary?.public_node_count ?? endpoints.filter((e) => e.public).length} · Haizhu内置: ${summary?.haizhu_node_count ?? 0}`}
           />
           <StatCard
             icon={<Globe className='h-4 w-4' />}
-            label={t('Nodes')}
-            value={String(summary?.endpoint_total ?? endpoints.length)}
-            hint={t('{{n}} enabled', {
-              n: summary?.endpoint_enabled ?? endpoints.filter((e) => e.enabled).length,
-            })}
+            label='共享 mihomo 内核'
+            value={runtime?.running ? `运行中 (:${runtime.port || 23456})` : '待启动'}
+            hint={`已装载 ${runtime?.proxies ?? 0} 个代理节点，自动优选最快节点`}
           />
           <StatCard
             icon={<Rss className='h-4 w-4' />}
             label={t('Subscriptions')}
             value={String(summary?.subscription_total ?? subscriptions.length)}
-            hint={t('Client-only nodes: {{n}}', {
-              n: summary?.client_node_count ?? 0,
-            })}
+            hint='未公开订阅仅自己可见可调，公开订阅进公共池'
           />
           <StatCard
             icon={<Copy className='h-4 w-4' />}
-            label={t('Rotation')}
-            value={t('Per request')}
-            hint={t('Failing exits are skipped automatically')}
+            label='故障熔断与调度'
+            value='低延迟优先 + 自动熔断'
+            hint='遇 429/403/5xx 或超时无感切换下一个节点'
           />
         </div>
+
+        {/* 共享 mihomo 内核控制卡 */}
+        <Card>
+          <CardHeader className='pb-3'>
+            <div className='flex flex-wrap items-center justify-between gap-2'>
+              <div>
+                <CardTitle className='flex items-center gap-2 text-base'>
+                  <Cpu className='h-4 w-4' />
+                  单实例共享 mihomo 边车内核（端口 127.0.0.1:23456）
+                </CardTitle>
+                <CardDescription>
+                  全站共用一套 mihomo 内核。公开节点（含 Haizhu 7114 节点与管理员公开节点）全员可用；你未勾选公开的私有节点/订阅只对你本人可见和可调用，别人既看不见也无法调用。
+                </CardDescription>
+              </div>
+              <Button
+                size='sm'
+                variant='outline'
+                disabled={reloadRuntimeMutation.isPending}
+                onClick={() => reloadRuntimeMutation.mutate()}
+              >
+                <RefreshCw className='me-1 h-3.5 w-3.5' />
+                重载内核配置
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className='flex flex-wrap items-center gap-3 pt-0 text-xs'>
+            <Badge variant={runtime?.running ? 'default' : 'secondary'}>
+              {runtime?.running ? '内核在线' : '内核未运行'}
+            </Badge>
+            <span className='text-muted-foreground'>
+              当前出站策略：
+              <strong className='ms-1 font-mono text-foreground'>
+                {runtime?.selected_node || 'PUBLIC_FAST (自动测速最快)'}
+              </strong>
+            </span>
+            {runtime?.nodes && runtime.nodes.length > 0 && (
+              <div className='ms-auto flex items-center gap-2'>
+                <span className='text-muted-foreground'>手动指定出站节点：</span>
+                <select
+                  className='border-input bg-background h-8 max-w-[280px] rounded-md border px-2 text-xs'
+                  value={runtime.selected_node || 'PUBLIC_FAST'}
+                  onChange={(e) => selectNodeMutation.mutate(e.target.value)}
+                >
+                  <option value='PUBLIC_FAST'>⚡ PUBLIC_FAST（自动测速优选最快节点）</option>
+                  {runtime.nodes.slice(0, 200).map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         {subscriptions.length > 0 && (
           <Card>
@@ -356,12 +509,45 @@ export function ProxyPoolPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className='text-base'>{t('Nodes')}</CardTitle>
-            <CardDescription>
-              {t(
-                'Upstream calls rotate through these exits in round-robin, so a 30 RPM/IP free tier becomes 30 RPM × N.'
-              )}
-            </CardDescription>
+            <div className='flex flex-wrap items-center justify-between gap-2'>
+              <div>
+                <CardTitle className='text-base'>{t('Nodes')}</CardTitle>
+                <CardDescription>
+                  按延迟从快到慢排序；调用出错自动熔断切换到下一个健康节点。
+                </CardDescription>
+              </div>
+              <div className='flex flex-wrap items-center gap-2'>
+                <div className='flex rounded-md border p-0.5 text-xs'>
+                  {(
+                    [
+                      ['all', `全部可见 (${endpoints.length})`],
+                      ['mine', `我的私有/自建 (${endpoints.filter((e) => e.is_owner && e.source !== 'haizhu').length})`],
+                      ['public', `公共池公开 (${endpoints.filter((e) => e.public).length})`],
+                      ['haizhu', `Haizhu内置 (${endpoints.filter((e) => e.source === 'haizhu').length})`],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <button
+                      key={key}
+                      type='button'
+                      onClick={() => setScopeFilter(key)}
+                      className={`rounded px-2.5 py-1 transition-colors ${
+                        scopeFilter === key
+                          ? 'bg-primary text-primary-foreground font-medium'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <Input
+                  value={searchKeyword}
+                  onChange={(e) => setSearchKeyword(e.target.value)}
+                  placeholder='搜节点名 / 地区 (如 HK, US, SG)…'
+                  className='h-8 w-52 text-xs'
+                />
+              </div>
+            </div>
           </CardHeader>
           <CardContent>{endpointsContent}</CardContent>
         </Card>
@@ -412,6 +598,7 @@ interface EndpointRowProps {
   busy: boolean
   testing: boolean
   onToggle: (enabled: boolean) => void
+  onTogglePublic: (pub: boolean) => void
   onTest: () => void
   onDelete: () => void
 }
@@ -420,16 +607,21 @@ function EndpointRow(props: EndpointRowProps) {
   const { t } = useTranslation()
   const endpoint = props.endpoint
   const failures = endpoint.fail_count ?? 0
+  const isOwner = endpoint.is_owner !== false
 
   return (
     <TableRow>
-      <TableCell className='max-w-[220px] truncate font-medium'>
+      <TableCell className='max-w-[240px] truncate font-medium'>
         {endpoint.name}
-        {endpoint.subscription_id > 0 && (
+        {endpoint.source === 'haizhu' ? (
+          <Badge variant='secondary' className='ms-2 text-[10px]'>
+            Haizhu公共池
+          </Badge>
+        ) : endpoint.subscription_id > 0 ? (
           <Badge variant='outline' className='ms-2'>
             {t('From subscription')}
           </Badge>
-        )}
+        ) : null}
       </TableCell>
       <TableCell>
         <Badge variant='secondary'>{kindLabel(endpoint.kind)}</Badge>
@@ -437,16 +629,46 @@ function EndpointRow(props: EndpointRowProps) {
       <TableCell className='text-muted-foreground text-sm'>
         {endpoint.region || '—'}
       </TableCell>
-      <TableCell className='text-muted-foreground max-w-[240px] truncate font-mono text-xs'>
-        {endpoint.url || endpoint.raw_uri_prefix || '—'}
+      <TableCell className='font-mono text-xs'>
+        {endpoint.latency_ms && endpoint.latency_ms > 0 ? (
+          <span className='text-emerald-600 font-medium'>{endpoint.latency_ms} ms</span>
+        ) : (
+          <span className='text-muted-foreground'>未测速</span>
+        )}
+      </TableCell>
+      <TableCell>
+        {isOwner && endpoint.source !== 'haizhu' ? (
+          <label className='inline-flex cursor-pointer items-center gap-1.5 text-xs'>
+            <Switch
+              checked={Boolean(endpoint.public)}
+              onCheckedChange={props.onTogglePublic}
+            />
+            {endpoint.public ? (
+              <Badge variant='default' className='text-[10px]'>
+                公开(公共池)
+              </Badge>
+            ) : (
+              <Badge variant='outline' className='gap-1 text-[10px]'>
+                <Lock className='h-2.5 w-2.5' />
+                仅自己可用
+              </Badge>
+            )}
+          </label>
+        ) : (
+          <Badge variant='secondary' className='text-[10px]'>
+            公共池共享
+          </Badge>
+        )}
       </TableCell>
       <TableCell>
         <div className='flex items-center gap-2'>
-          <Switch
-            checked={endpoint.enabled}
-            onCheckedChange={props.onToggle}
-            aria-label={t('Enabled')}
-          />
+          {isOwner && (
+            <Switch
+              checked={endpoint.enabled}
+              onCheckedChange={props.onToggle}
+              aria-label={t('Enabled')}
+            />
+          )}
           {failures > 0 && (
             <Badge variant='warning'>{t('{{n}} failures', { n: failures })}</Badge>
           )}
@@ -463,23 +685,21 @@ function EndpointRow(props: EndpointRowProps) {
             size='sm'
             variant='ghost'
             disabled={props.busy || !endpoint.dialable}
-            title={
-              endpoint.dialable
-                ? t('Test this exit')
-                : t('Client-only node: run mihomo and use the exported port')
-            }
+            title='测速并验证该节点可用性'
             onClick={props.onTest}
           >
             <KeyRound className='h-4 w-4' />
           </Button>
-          <Button
-            size='sm'
-            variant='ghost'
-            disabled={props.busy}
-            onClick={props.onDelete}
-          >
-            <Trash2 className='h-4 w-4' />
-          </Button>
+          {isOwner && endpoint.source !== 'haizhu' && (
+            <Button
+              size='sm'
+              variant='ghost'
+              disabled={props.busy}
+              onClick={props.onDelete}
+            >
+              <Trash2 className='h-4 w-4' />
+            </Button>
+          )}
         </div>
       </TableCell>
     </TableRow>
@@ -509,7 +729,6 @@ function SubscriptionRow(props: SubscriptionRowProps) {
   const { t } = useTranslation()
   const subscription = props.subscription
 
-  // 机场额度展示：优先用订阅头里的 total/used，没有 total 时只显示已用。
   const total = subscription.traffic_total ?? 0
   const used = subscription.traffic_used ?? 0
   const trafficText = total > 0 ? `${formatBytes(used)} / ${formatBytes(total)}` : used > 0 ? `${formatBytes(used)}` : ''
@@ -525,6 +744,9 @@ function SubscriptionRow(props: SubscriptionRowProps) {
           <Badge variant='outline'>{subscription.format || 'auto'}</Badge>
           <Badge variant='secondary'>
             {t('{{n}} IPs', { n: subscription.node_count })}
+          </Badge>
+          <Badge variant={subscription.public ? 'default' : 'outline'} className='text-xs'>
+            {subscription.public ? '已公开到公共池' : '私有（仅自己可用）'}
           </Badge>
           {trafficText ? (
             <Badge variant='outline' className='font-mono text-xs'>
@@ -572,20 +794,21 @@ interface AddEndpointDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   submitting: boolean
-  onSubmit: (payload: { name: string; url: string }) => void
+  onSubmit: (payload: { name: string; url: string; public: boolean }) => void
 }
 
 function AddEndpointDialog(props: AddEndpointDialogProps) {
   const { t } = useTranslation()
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
+  const [isPublic, setIsPublic] = useState(false)
 
   const submit = () => {
     if (!url.trim()) {
       toast.error(t('Proxy URL is required'))
       return
     }
-    props.onSubmit({ name: name.trim(), url: url.trim() })
+    props.onSubmit({ name: name.trim(), url: url.trim(), public: isPublic })
   }
 
   return (
@@ -594,9 +817,7 @@ function AddEndpointDialog(props: AddEndpointDialogProps) {
         <DialogHeader>
           <DialogTitle>{t('Add egress node')}</DialogTitle>
           <DialogDescription>
-            {t(
-              'HTTP / HTTPS / SOCKS5 proxies work directly. vless, vmess, trojan and ss nodes must be imported as a subscription.'
-            )}
+            添加代理 IP 节点。若不勾选公开，则只有你自己的账户看得见、调得动，别人看不见也用不了。
           </DialogDescription>
         </DialogHeader>
         <div className='space-y-3'>
@@ -614,10 +835,19 @@ function AddEndpointDialog(props: AddEndpointDialogProps) {
             <Input
               id='proxy-url'
               value={url}
-              placeholder='http://user:pass@host:port'
+              placeholder='http://user:pass@host:port 或 socks5://host:port'
               onChange={(event) => setUrl(event.target.value)}
             />
           </div>
+          <label className='flex cursor-pointer items-center gap-2 pt-1 text-xs'>
+            <input
+              type='checkbox'
+              checked={isPublic}
+              onChange={(e) => setIsPublic(e.target.checked)}
+              className='size-4'
+            />
+            <span>公开到公共池 IP（勾选后所有人可见可调用；不勾选则仅自己账户可见可用）</span>
+          </label>
         </div>
         <DialogFooter>
           <Button variant='outline' onClick={() => props.onOpenChange(false)}>
@@ -640,6 +870,7 @@ interface AddSubscriptionDialogProps {
     name: string
     url: string
     format: 'auto' | 'clash' | 'base64' | 'uri-list'
+    public: boolean
   }) => void
 }
 
@@ -650,13 +881,14 @@ function AddSubscriptionDialog(props: AddSubscriptionDialogProps) {
   const [format, setFormat] = useState<
     'auto' | 'clash' | 'base64' | 'uri-list'
   >('auto')
+  const [isPublic, setIsPublic] = useState(false)
 
   const submit = () => {
     if (!url.trim()) {
       toast.error(t('Subscription URL is required'))
       return
     }
-    props.onSubmit({ name: name.trim(), url: url.trim(), format })
+    props.onSubmit({ name: name.trim(), url: url.trim(), format, public: isPublic })
   }
 
   return (
@@ -665,9 +897,7 @@ function AddSubscriptionDialog(props: AddSubscriptionDialogProps) {
         <DialogHeader>
           <DialogTitle>{t('Import subscription')}</DialogTitle>
           <DialogDescription>
-            {t(
-              'Paste an airport subscription link. Clash YAML, base64 and uri-list are all recognised; every node becomes one exit.'
-            )}
+            粘贴机场订阅链接，自动过滤流量提示假节点并注入共享 mihomo 内核。不勾选公开时仅你本人可见可调用。
           </DialogDescription>
         </DialogHeader>
         <div className='space-y-3'>
@@ -711,6 +941,15 @@ function AddSubscriptionDialog(props: AddSubscriptionDialogProps) {
               <option value='uri-list'>URI list</option>
             </select>
           </div>
+          <label className='flex cursor-pointer items-center gap-2 pt-1 text-xs'>
+            <input
+              type='checkbox'
+              checked={isPublic}
+              onChange={(e) => setIsPublic(e.target.checked)}
+              className='size-4'
+            />
+            <span>公开到公共池 IP（勾选后显示在公共池供大家调用；不勾选仅自己账户可见可用）</span>
+          </label>
         </div>
         <DialogFooter>
           <Button variant='outline' onClick={() => props.onOpenChange(false)}>

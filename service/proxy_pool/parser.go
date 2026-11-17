@@ -19,12 +19,12 @@ import (
 )
 
 const (
-	// maxParsedNodes 单次订阅解析的节点上限，防止超大订阅打爆内存与数据库。
-	maxParsedNodes = 500
+	// maxParsedNodes 单次订阅解析的节点上限（支持 Haizhu 7114 全量节点导入）。
+	maxParsedNodes = 10000
 	// clashJSONPrefix 标记 RawUri 里存放的是 base64(JSON) 形式的 clash 节点定义。
 	clashJSONPrefix = "clash-json:"
 	// defaultMixedPort 导出配置未指定端口时使用的 mihomo mixed-port。
-	defaultMixedPort = 7890
+	defaultMixedPort = 23456
 	// mihomoProxyGroupName 导出配置里唯一的 select 策略组名称。
 	mihomoProxyGroupName = "PROXY"
 )
@@ -372,15 +372,26 @@ type regionRule struct {
 var regionRules = []regionRule{
 	{code: "HK", keywords: []string{"香港", "hk", "hong"}},
 	{code: "SG", keywords: []string{"新加坡", "sg", "singapore", "狮城"}},
-	{code: "UK", keywords: []string{"英国", "uk", "united kingdom"}},
+	{code: "UK", keywords: []string{"英国", "uk", "gb", "united kingdom"}},
 	{code: "US", keywords: []string{"美国", "us", "united"}},
 	{code: "JP", keywords: []string{"日本", "jp", "japan"}},
 	{code: "TW", keywords: []string{"台湾", "tw"}},
 	{code: "KR", keywords: []string{"韩国", "kr"}},
+	{code: "DE", keywords: []string{"德国", "de", "germany", "frankfurt"}},
+	{code: "FR", keywords: []string{"法国", "fr", "france"}},
+	{code: "NL", keywords: []string{"荷兰", "nl", "netherlands"}},
 }
+
+var isoRegionPrefixRe = regexp.MustCompile(`(?:^|_)([A-Z]{2})-[A-Za-z]`)
 
 // guessRegion 从节点名字里猜地区码，猜不到返回空串。
 func guessRegion(name string) string {
+	if m := isoRegionPrefixRe.FindStringSubmatch(name); len(m) == 2 {
+		if m[1] == "GB" {
+			return "UK"
+		}
+		return m[1]
+	}
 	lower := strings.ToLower(name)
 	for _, rule := range regionRules {
 		for _, keyword := range rule.keywords {

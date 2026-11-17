@@ -43,17 +43,22 @@ export const CLIENT_KINDS = [
 
 export interface ProxyEndpoint {
   id: number
+  user_id?: number
+  is_owner?: boolean
   name: string
   kind: string
   /** 脱敏地址：`scheme://***@host:port`，账号密码不回传。 */
   url?: string
   region: string
   subscription_id: number
+  source?: string
   enabled: boolean
+  public?: boolean
   weight: number
+  latency_ms?: number
   fail_count: number
   last_error: string
-  /** 有 url 才为 true（vless 等客户端节点没有可直接 dial 的地址）。 */
+  /** 有 url 或内置 mihomo 支持的客户端节点为 true。 */
   dialable: boolean
   /** 客户端节点的 uri 前缀（`vless://`、`ss://` 等），用于展示。 */
   raw_uri_prefix?: string
@@ -77,6 +82,7 @@ export interface ProxySubscription {
   expire_at?: string
   last_error: string
   enabled: boolean
+  public?: boolean
   last_sync_at?: string
   created_at: string
   updated_at: string
@@ -90,6 +96,23 @@ export interface ProxyPoolSummary {
   subscription_total: number
   /** 客户端型节点数（vless/vmess/trojan/ss…）。 */
   client_node_count: number
+  public_node_count?: number
+  haizhu_node_count?: number
+}
+
+export interface ProxyRuntimeStatus {
+  available: boolean
+  running: boolean
+  binary: string
+  proxies: number
+  public_count?: number
+  selected_node?: string
+  last_error: string
+  started_at: number
+  port: number
+  has_listener: boolean
+  proxy_url: string
+  nodes: string[]
 }
 
 export interface ApiEnvelope<T> {
@@ -101,11 +124,13 @@ export interface ApiEnvelope<T> {
 export interface CreateEndpointPayload {
   name?: string
   url: string
+  public?: boolean
 }
 
 export interface TestEndpointResult {
   ok: boolean
   ip?: string
+  latency_ms?: number
   error?: string
 }
 
@@ -118,6 +143,7 @@ export interface CreateSubscriptionPayload {
   name?: string
   url: string
   format?: 'auto' | 'clash' | 'base64' | 'uri-list'
+  public?: boolean
 }
 
 /** 协议 → 中文标签 / 徽章配色。 */

@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { FlaskConical, SquarePen } from 'lucide-react'
+import { Boxes, FlaskConical, Smartphone, SquarePen } from 'lucide-react'
 import { nanoid } from 'nanoid'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -96,6 +96,16 @@ export function DeepSeekDemo() {
   }, [group, groups])
 
   useEffect(() => {
+    try {
+      const fromMyModels = window.localStorage.getItem('ds-demo:preferred-model')
+      if (fromMyModels) {
+        window.localStorage.removeItem('ds-demo:preferred-model')
+        setModel(fromMyModels)
+        return
+      }
+    } catch {
+      // ignore
+    }
     if (!models?.length) return
     if (model && models.some((item) => item.value === model)) return
     const preferred =
@@ -359,6 +369,22 @@ export function DeepSeekDemo() {
             )}
           </div>
           <div className='flex items-center gap-1'>
+            <a
+              href='/deepseek-newapi.apk'
+              download='DeepSeek-NewAPI-Client.apk'
+              className='flex h-8 items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-2.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20'
+              title='下载 DeepSeek 官方风格 Android 客户端 APK（支持注册登录本站账号密码，或自定义 URL 与 API Key）'
+            >
+              <Smartphone className='size-3.5' />
+              下载 Android APK
+            </a>
+            <Link
+              to='/my-models'
+              className='flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
+            >
+              <Boxes className='size-3.5' />
+              我的模型
+            </Link>
             <Link
               to='/playground'
               className='flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'

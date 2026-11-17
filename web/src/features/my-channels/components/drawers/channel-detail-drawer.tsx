@@ -22,6 +22,7 @@ import {
   Activity,
   BadgeCheck,
   Gauge,
+  Globe,
   Globe2,
   Loader2,
   Network,
@@ -44,6 +45,8 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import { selectRuntimeNode } from '@/features/proxy-pool/api'
+import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 import { getChannelDetail, setChannelAllowIps, updateChannel } from '../../api'
@@ -57,10 +60,8 @@ interface ChannelDetailDrawerProps {
 }
 
 /**
- * 「我的渠道」详情抽屉：点开一个渠道就能看清它的健康度、额度、出口代理与模型。
- *
- * 数据来自 `/api/channel/self/:id/detail`（一次取齐），改名字 / 白名单直接落库，
- * 改完刷新列表缓存，不整页重载。
+ * 「我的渠道」详情抽屉：点开一个渠道就能看清它的健康度、实时额度、代理与代理 IP 选择、
+ * 订阅 IP 数量、大概能用多少 token、名称编辑与渠道/公共池模型选择。
  */
 export function ChannelDetailDrawer({
   channel,
@@ -80,6 +81,7 @@ export function ChannelDetailDrawer({
 
   const [name, setName] = useState('')
   const [allowIps, setAllowIps] = useState('')
+  const [selectedKernelNode, setSelectedKernelNode] = useState('PUBLIC_FAST')
 
   useEffect(() => {
     if (!detail) return
@@ -109,6 +111,19 @@ export function ChannelDetailDrawer({
     onError: () => toast.error('保存白名单失败'),
   })
 
+  const switchNodeMutation = useMutation({
+    mutationFn: (nodeName: string) => selectRuntimeNode(nodeName),
+    onSuccess: (res) => {
+      if (res.success === false) {
+        toast.error(res.message || '切换代理节点失败')
+        return
+      }
+      toast.success(`已切换出口代理节点：${res.data?.selected ?? selectedKernelNode}`)
+      void refetch()
+    },
+    onError: () => toast.error('切换代理节点失败'),
+  })
+
   const health = detail?.health
   const healthTone = useMemo(() => {
     switch (health?.state) {
@@ -129,21 +144,35 @@ export function ChannelDetailDrawer({
 
   const models = detail?.models ?? []
   const [selectedModels, setSelectedModels] = useState<string[]>([])
+  const [publicModels, setPublicModels] = useState<string[]>([])
+
   useEffect(() => {
     if (!detail) return
     setSelectedModels(detail.models)
+    setPublicModels(detail.public_models ?? [])
   }, [detail])
 
   const modelsMutation = useMutation({
-    mutationFn: (next: string[]) =>
-      updateChannel(channelId, { models: next.join(',') }),
+    mutationFn: async (payload: { myModels: string[]; pubModels: string[] }) => {
+      await updateChannel(channelId, { models: payload.myModels.join(',') })
+      await api.post('/api/channel/self/visibility', {
+        channelId,
+        visibility: payload.pubModels.length > 0 ? 1 : detail?.channel.visibility ?? 0,
+        tier: isIpFree ? 'free' : 'api',
+        publicModels: payload.pubModels,
+      })
+    },
     onSuccess: () => {
-      toast.success('渠道模型已更新')
+      toast.success('渠道模型与公共池公开配置已更新')
       void invalidate()
       void refetch()
     },
     onError: () => toast.error('更新模型失败'),
   })
+
+  const ownCount = detail?.proxy_pool.own_endpoint_count ?? 0
+  const ownTokensTotal = detail?.proxy_pool.own_ip_tokens_total ?? 0
+  const selectableNodes = detail?.proxy_pool.selectable_nodes ?? []
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -167,7 +196,7 @@ export function ChannelDetailDrawer({
             )}
           </SheetTitle>
           <SheetDescription>
-            渠道 #{channelId} 的实时状态、额度、出口与模型
+            渠道 #{channelId} 的实时状态、额度、出口代理 IP 选择、订阅 IP 数量与模型管理
           </SheetDescription>
         </SheetHeader>
 
@@ -188,7 +217,7 @@ export function ChannelDetailDrawer({
             <div className='space-y-4 px-4 pt-2'>
               {/* 名称编辑 */}
               <section className='rounded-xl border border-border/70 p-3'>
-                <SectionTitle icon={<Pencil className='size-3.5' />} title='名称' />
+                <SectionTitle icon={<Pencil className='size-3.5' />} title='名称编辑' />
                 <div className='mt-2 flex gap-2'>
                   <input
                     value={name}
@@ -216,7 +245,7 @@ export function ChannelDetailDrawer({
 
               {/* 健康度 */}
               <section className='rounded-xl border border-border/70 p-3'>
-                <SectionTitle icon={<Activity className='size-3.5' />} title='健康度' />
+                <SectionTitle icon={<Activity className='size-3.5' />} title='实时健康度 & 熔断状态' />
                 <div className='mt-2 flex flex-wrap items-center gap-2'>
                   <span
                     className={cn(
@@ -251,24 +280,34 @@ export function ChannelDetailDrawer({
                   />
                 </div>
                 <p className='mt-2 text-[11px] text-muted-foreground'>
-                  最近 5 次调用样本，跨节点共享；权重系数 {health?.factor ?? 1}
+                  最近 5 次调用样本，跨节点共享；权重系数 {health?.factor ?? 1}（遇错自动熔断切换下一个出口 IP）
                 </p>
               </section>
 
-              {/* 额度 */}
+              {/* 额度 / 大概能用的 token */}
               <section className='rounded-xl border border-border/70 p-3'>
                 <SectionTitle
                   icon={<BadgeCheck className='size-3.5' />}
-                  title='额度 / 大概能用的 token'
+                  title='实时额度 / 大概能使用的 Token'
                 />
                 {estimate?.hidden ? (
-                  <p className='mt-2 rounded-lg bg-muted/60 px-3 py-2 text-xs text-muted-foreground'>
-                    {estimate.reason}
-                  </p>
+                  <div className='mt-2 space-y-1.5 rounded-lg bg-muted/60 px-3 py-2 text-xs text-muted-foreground'>
+                    <p>{estimate.reason}</p>
+                    {ownCount > 0 && ownTokensTotal > 0 ? (
+                      <p className='font-medium text-emerald-600'>
+                        你已绑定 {ownCount} 个自有订阅/代理 IP，按每 IP 额度粗估共可使用约{' '}
+                        <span className='font-mono'>{formatTokens(ownTokensTotal)}</span> tokens（免费公共池 IP 不显示剩余额度）。
+                      </p>
+                    ) : (
+                      <p className='text-[11px]'>
+                        当前使用免费公共 IP 池（不显示剩余 token 数量）；如添加自有机场订阅或私有 IP，将在此显示每个 IP 的预估可用额度总和。
+                      </p>
+                    )}
+                  </div>
                 ) : (
                   <div className='mt-2 space-y-1.5'>
                     <div className='flex items-center justify-between text-xs'>
-                      <span className='text-muted-foreground'>本月已用</span>
+                      <span className='text-muted-foreground'>本月已用 Token</span>
                       <span className='font-mono'>
                         {formatTokens(estimate?.used ?? 0)}
                         {estimate?.monthly
@@ -290,13 +329,18 @@ export function ChannelDetailDrawer({
                         ? `预计还能用 ${formatTokens(estimate.remaining)} token`
                         : estimate?.reason}
                     </p>
+                    {ownCount > 0 && ownTokensTotal > 0 && (
+                      <p className='text-xs font-medium text-emerald-600'>
+                        自有订阅/IP ({ownCount} 个) 叠加可用总额度 ≈ {formatTokens(ownTokensTotal)} tokens
+                      </p>
+                    )}
                   </div>
                 )}
               </section>
 
-              {/* 出口代理 */}
+              {/* 出口代理 & 代理 IP 选择 */}
               <section className='rounded-xl border border-border/70 p-3'>
-                <SectionTitle icon={<Network className='size-3.5' />} title='出口代理' />
+                <SectionTitle icon={<Network className='size-3.5' />} title='代理与代理 IP 选择 / 订阅 IP 统计' />
                 <div className='mt-2 flex items-center justify-between gap-2 rounded-lg bg-muted/50 px-3 py-2'>
                   <div className='min-w-0'>
                     <p className='truncate text-sm'>{detail.proxy.label}</p>
@@ -310,16 +354,51 @@ export function ChannelDetailDrawer({
                     to='/proxy-pool'
                     className='shrink-0 text-xs text-[#4d6bfe] hover:underline'
                   >
-                    管理出口池
+                    管理出口池 / 订阅
                   </Link>
                 </div>
 
                 <div className='mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4'>
-                  <Stat label='出口节点' value={detail.proxy_pool.endpoint_total} />
-                  <Stat label='可用节点' value={detail.proxy_pool.usable_url_count} />
-                  <Stat label='订阅' value={detail.proxy_pool.subscription_total} />
-                  <Stat label='订阅节点' value={detail.proxy_pool.subscription_nodes} />
+                  <Stat label='可见总节点' value={detail.proxy_pool.endpoint_total} />
+                  <Stat label='自有订阅节点' value={detail.proxy_pool.subscription_nodes} />
+                  <Stat label='订阅数' value={detail.proxy_pool.subscription_total} />
+                  <Stat label='公共池共享IP' value={detail.proxy_pool.public_pool_count ?? detail.proxy_pool.endpoint_enabled} />
                 </div>
+
+                {/* 代理 IP / 订阅节点下拉选择 */}
+                {selectableNodes.length > 0 && (
+                  <div className='mt-3 space-y-1.5'>
+                    <p className='text-[11px] font-medium text-muted-foreground'>
+                      切换当前出口代理 IP / 机场订阅节点（优先展示低延迟节点）：
+                    </p>
+                    <div className='flex gap-2'>
+                      <select
+                        value={selectedKernelNode}
+                        onChange={(e) => setSelectedKernelNode(e.target.value)}
+                        className='h-8 flex-1 rounded-lg border border-border/70 bg-background px-2 font-mono text-xs'
+                      >
+                        <option value='PUBLIC_FAST'>⚡ PUBLIC_FAST（自动优选最快节点 + 故障熔断）</option>
+                        {selectableNodes.map((n) => (
+                          <option key={n.id} value={`u1·${n.name}`}>
+                            {n.is_owner ? '[我的订阅] ' : '[公共池] '}
+                            {n.name} ({n.region || n.kind}
+                            {n.latency_ms > 0 ? ` · ${n.latency_ms}ms` : ''})
+                          </option>
+                        ))}
+                      </select>
+                      <Button
+                        size='sm'
+                        variant='outline'
+                        className='h-8 text-xs'
+                        disabled={switchNodeMutation.isPending}
+                        onClick={() => switchNodeMutation.mutate(selectedKernelNode)}
+                      >
+                        切换节点
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
                 {Object.keys(detail.proxy_pool.regions ?? {}).length > 0 && (
                   <div className='mt-2 flex flex-wrap gap-1'>
                     {Object.entries(detail.proxy_pool.regions)
@@ -349,7 +428,7 @@ export function ChannelDetailDrawer({
                 <textarea
                   value={allowIps}
                   onChange={(event) => setAllowIps(event.target.value)}
-                  rows={3}
+                  rows={2}
                   placeholder='1.2.3.4, 10.0.0.0/8'
                   className='mt-2 w-full resize-y rounded-lg border border-border/70 bg-background px-3 py-2 font-mono text-xs outline-none focus:border-[#4d6bfe]/60'
                 />
@@ -373,60 +452,95 @@ export function ChannelDetailDrawer({
                 </div>
               </section>
 
-              {/* 模型 */}
+              {/* 渠道模型 & 公共池模型选择 */}
               <section className='rounded-xl border border-border/70 p-3'>
-                <SectionTitle icon={<Globe2 className='size-3.5' />} title='渠道模型' />
+                <SectionTitle
+                  icon={<Globe2 className='size-3.5' />}
+                  title='渠道模型选择（可分别勾选加入我的渠道 / 加入公共池）'
+                />
                 <p className='mt-1 text-[11px] text-muted-foreground'>
-                  勾选要挂在这个渠道上的模型；取消勾选会立即从路由候选里移除。
+                  左列勾选保留在「我的渠道」，右列勾选将该模型公开到「公共池」供其他用户调用。
                 </p>
                 <div className='mt-2 max-h-56 space-y-1 overflow-y-auto rounded-lg border border-border/60 p-2'>
                   {models.length === 0 && (
                     <p className='px-1 py-2 text-xs text-muted-foreground'>
-                      这个渠道还没有模型，去编辑抽屉里拉一次模型列表。
+                      这个渠道还没有模型，去编辑抽屉或「我的模型」页同步一次模型列表。
                     </p>
                   )}
                   {models.map((model) => {
                     const checked = selectedModels.includes(model)
+                    const pubChecked = publicModels.includes(model)
                     return (
-                      <label
+                      <div
                         key={model}
-                        className='flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 hover:bg-muted'
+                        className='flex items-center justify-between gap-2 rounded-md px-1.5 py-1 hover:bg-muted text-xs'
                       >
-                        <input
-                          type='checkbox'
-                          checked={checked}
-                          onChange={() =>
-                            setSelectedModels((prev) =>
-                              checked
-                                ? prev.filter((item) => item !== model)
-                                : [...prev, model]
-                            )
-                          }
-                          className='size-3.5 accent-[#4d6bfe]'
-                        />
-                        <span className='truncate font-mono text-xs'>{model}</span>
-                      </label>
+                        <span className='truncate font-mono'>{model}</span>
+                        <div className='flex shrink-0 items-center gap-3'>
+                          <label className='inline-flex cursor-pointer items-center gap-1'>
+                            <input
+                              type='checkbox'
+                              checked={checked}
+                              onChange={() => {
+                                setSelectedModels((prev) =>
+                                  checked
+                                    ? prev.filter((item) => item !== model)
+                                    : [...prev, model]
+                                )
+                                if (checked) {
+                                  setPublicModels((prev) =>
+                                    prev.filter((item) => item !== model)
+                                  )
+                                }
+                              }}
+                              className='size-3.5 accent-[#4d6bfe]'
+                            />
+                            <span>我的渠道</span>
+                          </label>
+                          <label className='inline-flex cursor-pointer items-center gap-1 text-emerald-600'>
+                            <input
+                              type='checkbox'
+                              checked={pubChecked}
+                              onChange={() => {
+                                if (!pubChecked && !checked) {
+                                  setSelectedModels((prev) => [...prev, model])
+                                }
+                                setPublicModels((prev) =>
+                                  pubChecked
+                                    ? prev.filter((item) => item !== model)
+                                    : [...prev, model]
+                                )
+                              }}
+                              className='size-3.5 accent-emerald-600'
+                            />
+                            <Globe className='size-3' />
+                            <span>公共池</span>
+                          </label>
+                        </div>
+                      </div>
                     )
                   })}
                 </div>
                 <div className='mt-2 flex items-center justify-between'>
                   <span className='text-[11px] text-muted-foreground'>
-                    已选 {selectedModels.length} / {models.length}
+                    我的渠道: {selectedModels.length} 个 · 公开到公共池: {publicModels.length} 个
                   </span>
                   <Button
                     size='sm'
-                    disabled={
-                      modelsMutation.isPending ||
-                      !hasModelChanges(selectedModels, models)
+                    disabled={modelsMutation.isPending}
+                    onClick={() =>
+                      modelsMutation.mutate({
+                        myModels: selectedModels,
+                        pubModels: publicModels,
+                      })
                     }
-                    onClick={() => modelsMutation.mutate(selectedModels)}
                   >
                     {modelsMutation.isPending ? (
                       <Loader2 className='size-3.5 animate-spin' />
                     ) : (
                       <Save className='size-3.5' />
                     )}
-                    保存模型
+                    保存模型配置
                   </Button>
                 </div>
               </section>
@@ -486,11 +600,4 @@ function formatTokens(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`
   return String(value)
-}
-
-/** 选中的模型集合和渠道现有集合是否真的不同（顺序无关）。 */
-function hasModelChanges(selected: string[], current: string[]): boolean {
-  if (selected.length !== current.length) return true
-  const currentSet = new Set(current)
-  return selected.some((item) => !currentSet.has(item))
 }

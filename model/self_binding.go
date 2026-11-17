@@ -1,8 +1,11 @@
 package model
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -34,10 +37,78 @@ type SelfAccountBinding struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
-// SelfAccountCred 单条账号凭据。
+// DeepSeekDeviceProfile 每个账号专属的虚拟设备指纹与全套客户端请求头。
+type DeepSeekDeviceProfile struct {
+	DeviceId       string            `json:"device_id"`
+	DsSessionId    string            `json:"ds_session_id"`
+	HwWafSesId     string            `json:"hwwafsesid"`
+	HwWafSesTime   string            `json:"hwwafsestime"`
+	ClientPlatform string            `json:"x_client_platform"`
+	ClientVersion  string            `json:"x_client_version"`
+	AppVersion     string            `json:"x_app_version"`
+	ClientLocale   string            `json:"x_client_locale"`
+	UserAgent      string            `json:"user_agent"`
+	Cookie         string            `json:"cookie"`
+	Headers        map[string]string `json:"headers"`
+}
+
+// BuildDeepSeekDeviceProfile 根据账号或 Token 确定性派生一套唯一的虚拟设备指纹（同号固定、异号隔离）。
+func BuildDeepSeekDeviceProfile(seed string) *DeepSeekDeviceProfile {
+	trimmed := strings.TrimSpace(seed)
+	if trimmed == "" {
+		trimmed = "default-ds-seed"
+	}
+	h1 := sha256.Sum256([]byte("ds-dev-v1:" + trimmed))
+	h2 := sha256.Sum256([]byte("ds-ses-v1:" + trimmed))
+	hex1 := hex.EncodeToString(h1[:])
+	hex2 := hex.EncodeToString(h2[:])
+
+	// UUIDv4 形态的独立 device_id
+	deviceId := fmt.Sprintf("%s-%s-4%s-a%s-%s",
+		hex1[0:8], hex1[8:12], hex1[13:16], hex1[17:20], hex1[20:32])
+	dsSessionId := hex2[0:32]
+	hwWafId := hex1[32:50]
+	// 固定在 2026 年内的合理时间戳但每号微调
+	baseTs := int64(1762000000) + int64(h1[0])*86400 + int64(h1[1])*300
+	hwWafTime := fmt.Sprintf("%d", baseTs)
+	chromeBuild := 100 + int(h1[2])%90
+	ua := fmt.Sprintf("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.6998.%d Safari/537.36", chromeBuild)
+	cookie := fmt.Sprintf("HWWAFSESID=%s; HWWAFSESTIME=%s; ds_session_id=%s", hwWafId, hwWafTime, dsSessionId)
+
+	headers := map[string]string{
+		"User-Agent":        ua,
+		"Accept":            "*/*",
+		"Accept-Language":   "zh-CN,zh;q=0.9,en;q=0.8",
+		"Origin":            "https://chat.deepseek.com",
+		"Referer":           "https://chat.deepseek.com/",
+		"x-client-platform": "web",
+		"x-client-version":  "1.7.0",
+		"x-app-version":     "20241129.1",
+		"x-client-locale":   "zh_CN",
+		"x-device-id":       deviceId,
+		"Cookie":            cookie,
+	}
+
+	return &DeepSeekDeviceProfile{
+		DeviceId:       deviceId,
+		DsSessionId:    dsSessionId,
+		HwWafSesId:     hwWafId,
+		HwWafSesTime:   hwWafTime,
+		ClientPlatform: "web",
+		ClientVersion:  "1.7.0",
+		AppVersion:     "20241129.1",
+		ClientLocale:   "zh_CN",
+		UserAgent:      ua,
+		Cookie:         cookie,
+		Headers:        headers,
+	}
+}
+
+// SelfAccountCred 单条账号凭据（自带该号专属的虚拟设备指纹）。
 type SelfAccountCred struct {
-	Account  string `json:"account"`
-	Password string `json:"password"`
+	Account  string                 `json:"account"`
+	Password string                 `json:"password"`
+	Device   *DeepSeekDeviceProfile `json:"device,omitempty"`
 }
 
 // ParseAccountLines 解析「账号----密码」多行文本，兼容 ---- / , / | / Tab 分隔，忽略空行与 # 注释。
@@ -96,6 +167,12 @@ func maskAccount(acc string) string {
 }
 
 func (b *SelfAccountBinding) EncodeAccounts(creds []SelfAccountCred) error {
+	for i := range creds {
+		if creds[i].Device == nil {
+			seed := creds[i].Account + "|" + creds[i].Password
+			creds[i].Device = BuildDeepSeekDeviceProfile(seed)
+		}
+	}
 	raw, err := common.Marshal(creds)
 	if err != nil {
 		return err
@@ -108,7 +185,15 @@ func (b *SelfAccountBinding) EncodeAccounts(creds []SelfAccountCred) error {
 	b.AccountCount = len(creds)
 	masks := make([]string, 0, len(creds))
 	for _, c := range creds {
-		masks = append(masks, maskAccount(c.Account))
+		label := c.Account
+		if strings.TrimSpace(label) == "" {
+			label = c.Password
+		}
+		devSuffix := ""
+		if c.Device != nil && len(c.Device.DeviceId) >= 8 {
+			devSuffix = "[dev:" + c.Device.DeviceId[:8] + "]"
+		}
+		masks = append(masks, maskAccount(label)+devSuffix)
 	}
 	b.AccountMask = strings.Join(masks, ", ")
 	return nil
@@ -228,34 +313,68 @@ func GetBindingById(id int) (*SelfAccountBinding, error) {
 
 // IsLikelySessionToken 判断第二段是「会话 token」而不是「密码」。
 // 用途：ds2api 这类网页反代，上游对数据中心 IP 的账号密码登录会返回
-// RISK_DEVICE_DETECTED，只能改用浏览器登录后拿到的会话 token（寿命数月）。
-// 判据：够长、无空白、且不像普通密码（普通密码很少超过 60 字符）。
+// RISK_DEVICE_DETECTED，只能改用浏览器登录后拿到的会话 token（寿命数月，如 64 位 Base64 串）。
 func IsLikelySessionToken(s string) bool {
 	s = strings.TrimSpace(s)
-	if len(s) < 60 {
+	if len(s) < 40 {
 		return false
 	}
 	if strings.ContainsAny(s, " \t\r\n") {
 		return false
 	}
-	// JWT 三段式，或 DeepSeek 的裸 token（base64url 长串）
-	if strings.HasPrefix(s, "eyJ") {
+	// JWT 三段式，或 DeepSeek 的裸 token（如 SlCmRF5j+IX2LBorDe4nBY5OHI1F8bmSp2HEkCsAX1pPWJ38B7GOPyYhcqGzoCMD）
+	if strings.HasPrefix(s, "eyJ") || strings.HasPrefix(s, "jt-") || strings.HasPrefix(s, "sk-") || strings.HasPrefix(s, "ink-") {
 		return true
 	}
-	return strings.Count(s, ".") >= 2 || len(s) >= 80
+	return strings.Count(s, ".") >= 2 || len(s) >= 48
 }
 
-// ParseAccountOrTokenLines 解析账号型反代的凭据，一行一个，支持三种写法：
+var bearerExtractRe = regexp.MustCompile(`(?i)(?:authorization\s*[:=]\s*Bearer\s+|^Bearer\s+)([A-Za-z0-9+/=._-]{32,})`)
+var jsonValueTokenRe = regexp.MustCompile(`"value"\s*:\s*"([A-Za-z0-9+/=._-]{32,})"`)
+
+// ExtractBearerTokensFromRaw 从整段抓包请求头或 JSON 文本中自动提取 Bearer Token。
+func ExtractBearerTokensFromRaw(raw string) []string {
+	var tokens []string
+	seen := map[string]bool{}
+	for _, m := range bearerExtractRe.FindAllStringSubmatch(raw, -1) {
+		if len(m) >= 2 && !seen[m[1]] {
+			seen[m[1]] = true
+			tokens = append(tokens, m[1])
+		}
+	}
+	for _, m := range jsonValueTokenRe.FindAllStringSubmatch(raw, -1) {
+		if len(m) >= 2 && !seen[m[1]] {
+			seen[m[1]] = true
+			tokens = append(tokens, m[1])
+		}
+	}
+	return tokens
+}
+
+// ParseAccountOrTokenLines 解析账号型反代的凭据，一行一个，支持四种写法：
 //
 //	账号----密码      （走账号密码登录）
 //	账号----会话Token （第二段够长且像 token 时自动识别，走 token 注入）
 //	裸 Token          （整行就是一个 token，账号留空，由上游自行识别）
+//	抓包请求头整段粘贴 （自动提取 authorization: Bearer <token>）
 //
-// 识别出来的 token 存在 Password 字段，由开通器按 IsLikelySessionToken 判断后
-// 写成 ds2api 的 accounts[].token 而不是 accounts[].password。
+// 识别出来的 token 存在 Password 字段，并自动生成该号独立的虚拟设备指纹 Device。
 func ParseAccountOrTokenLines(raw string) ([]SelfAccountCred, error) {
 	var out []SelfAccountCred
 	seen := map[string]bool{}
+
+	// 如果用户直接粘贴了包含 authorization: Bearer xxx 的抓包文本，优先自动提取其中的 Token
+	if extracted := ExtractBearerTokensFromRaw(raw); len(extracted) > 0 {
+		for _, tok := range extracted {
+			out = append(out, SelfAccountCred{
+				Account:  "",
+				Password: tok,
+				Device:   BuildDeepSeekDeviceProfile(tok),
+			})
+		}
+		return out, nil
+	}
+
 	for _, line := range strings.Split(raw, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -277,7 +396,7 @@ func ParseAccountOrTokenLines(raw string) ([]SelfAccountCred, error) {
 				p := strings.SplitN(line, "|", 2)
 				acc, secret = strings.TrimSpace(p[0]), strings.TrimSpace(p[1])
 			default:
-				return nil, fmt.Errorf("格式不对：%s（应为 账号----密码，或 账号----会话Token，或直接粘贴 Token）", line)
+				return nil, fmt.Errorf("格式不对：%s（应为 账号----密码，或 账号----会话Token，或直接粘贴 Token / 抓包头）", line)
 			}
 		}
 		if secret == "" {
@@ -288,10 +407,14 @@ func ParseAccountOrTokenLines(raw string) ([]SelfAccountCred, error) {
 			continue
 		}
 		seen[key] = true
-		out = append(out, SelfAccountCred{Account: acc, Password: secret})
+		out = append(out, SelfAccountCred{
+			Account:  acc,
+			Password: secret,
+			Device:   BuildDeepSeekDeviceProfile(acc + "|" + secret),
+		})
 	}
 	if len(out) == 0 {
-		return nil, errors.New("没有解析到任何凭据，请按 账号----密码 或 账号----会话Token 每行一个填写")
+		return nil, errors.New("没有解析到任何凭据，请按 账号----密码 或 账号----会话Token 或直接粘贴 Token 填写")
 	}
 	if len(out) > 50 {
 		return nil, errors.New("单个绑定最多 50 条凭据")

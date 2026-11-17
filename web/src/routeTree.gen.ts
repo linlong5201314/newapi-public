@@ -47,6 +47,7 @@ import { Route as AuthenticatedKeysIndexRouteImport } from './routes/_authentica
 import { Route as AuthenticatedModelsIndexRouteImport } from './routes/_authenticated/models/index'
 import { Route as AuthenticatedModelsSectionRouteImport } from './routes/_authenticated/models/$section'
 import { Route as AuthenticatedMyChannelsIndexRouteImport } from './routes/_authenticated/my-channels/index'
+import { Route as AuthenticatedMyModelsIndexRouteImport } from './routes/_authenticated/my-models/index'
 import { Route as AuthenticatedNodesIndexRouteImport } from './routes/_authenticated/nodes/index'
 import { Route as AuthenticatedPlaygroundIndexRouteImport } from './routes/_authenticated/playground/index'
 import { Route as AuthenticatedProfileIndexRouteImport } from './routes/_authenticated/profile/index'
@@ -278,6 +279,12 @@ const AuthenticatedMyChannelsIndexRoute =
   AuthenticatedMyChannelsIndexRouteImport.update({
     id: '/my-channels/',
     path: '/my-channels/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedMyModelsIndexRoute =
+  AuthenticatedMyModelsIndexRouteImport.update({
+    id: '/my-models/',
+    path: '/my-models/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedNodesIndexRoute = AuthenticatedNodesIndexRouteImport.update({
@@ -521,6 +528,7 @@ export interface FileRoutesByFullPath {
   '/keys/': typeof AuthenticatedKeysIndexRoute
   '/models/': typeof AuthenticatedModelsIndexRoute
   '/my-channels/': typeof AuthenticatedMyChannelsIndexRoute
+  '/my-models/': typeof AuthenticatedMyModelsIndexRoute
   '/nodes/': typeof AuthenticatedNodesIndexRoute
   '/playground/': typeof AuthenticatedPlaygroundIndexRoute
   '/profile/': typeof AuthenticatedProfileIndexRoute
@@ -592,6 +600,7 @@ export interface FileRoutesByTo {
   '/keys': typeof AuthenticatedKeysIndexRoute
   '/models': typeof AuthenticatedModelsIndexRoute
   '/my-channels': typeof AuthenticatedMyChannelsIndexRoute
+  '/my-models': typeof AuthenticatedMyModelsIndexRoute
   '/nodes': typeof AuthenticatedNodesIndexRoute
   '/playground': typeof AuthenticatedPlaygroundIndexRoute
   '/profile': typeof AuthenticatedProfileIndexRoute
@@ -667,6 +676,7 @@ export interface FileRoutesById {
   '/_authenticated/keys/': typeof AuthenticatedKeysIndexRoute
   '/_authenticated/models/': typeof AuthenticatedModelsIndexRoute
   '/_authenticated/my-channels/': typeof AuthenticatedMyChannelsIndexRoute
+  '/_authenticated/my-models/': typeof AuthenticatedMyModelsIndexRoute
   '/_authenticated/nodes/': typeof AuthenticatedNodesIndexRoute
   '/_authenticated/playground/': typeof AuthenticatedPlaygroundIndexRoute
   '/_authenticated/profile/': typeof AuthenticatedProfileIndexRoute
@@ -741,6 +751,7 @@ export interface FileRouteTypes {
     | '/keys/'
     | '/models/'
     | '/my-channels/'
+    | '/my-models/'
     | '/nodes/'
     | '/playground/'
     | '/profile/'
@@ -812,6 +823,7 @@ export interface FileRouteTypes {
     | '/keys'
     | '/models'
     | '/my-channels'
+    | '/my-models'
     | '/nodes'
     | '/playground'
     | '/profile'
@@ -886,6 +898,7 @@ export interface FileRouteTypes {
     | '/_authenticated/keys/'
     | '/_authenticated/models/'
     | '/_authenticated/my-channels/'
+    | '/_authenticated/my-models/'
     | '/_authenticated/nodes/'
     | '/_authenticated/playground/'
     | '/_authenticated/profile/'
@@ -1205,6 +1218,13 @@ declare module '@tanstack/react-router' {
       path: '/my-channels'
       fullPath: '/my-channels/'
       preLoaderRoute: typeof AuthenticatedMyChannelsIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/my-models/': {
+      id: '/_authenticated/my-models/'
+      path: '/my-models'
+      fullPath: '/my-models/'
+      preLoaderRoute: typeof AuthenticatedMyModelsIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/nodes/': {
@@ -1555,6 +1575,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedKeysIndexRoute: typeof AuthenticatedKeysIndexRoute
   AuthenticatedModelsIndexRoute: typeof AuthenticatedModelsIndexRoute
   AuthenticatedMyChannelsIndexRoute: typeof AuthenticatedMyChannelsIndexRoute
+  AuthenticatedMyModelsIndexRoute: typeof AuthenticatedMyModelsIndexRoute
   AuthenticatedNodesIndexRoute: typeof AuthenticatedNodesIndexRoute
   AuthenticatedPlaygroundIndexRoute: typeof AuthenticatedPlaygroundIndexRoute
   AuthenticatedProfileIndexRoute: typeof AuthenticatedProfileIndexRoute
@@ -1590,6 +1611,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedKeysIndexRoute: AuthenticatedKeysIndexRoute,
   AuthenticatedModelsIndexRoute: AuthenticatedModelsIndexRoute,
   AuthenticatedMyChannelsIndexRoute: AuthenticatedMyChannelsIndexRoute,
+  AuthenticatedMyModelsIndexRoute: AuthenticatedMyModelsIndexRoute,
   AuthenticatedNodesIndexRoute: AuthenticatedNodesIndexRoute,
   AuthenticatedPlaygroundIndexRoute: AuthenticatedPlaygroundIndexRoute,
   AuthenticatedProfileIndexRoute: AuthenticatedProfileIndexRoute,

@@ -88,11 +88,18 @@ func PickUserProxyUrl(userId int) string {
 	return urls[int(next%uint64(len(urls)))]
 }
 
-// RecordProxyOutcome 记录一次真实上游调用的结果，用于失败降级。
-// proxyUrl 是本次实际使用的出口；不在池里的 URL 直接忽略。
+// RecordProxyOutcome 记录一次真实上游调用的结果，用于失败降级与熔断切换。
+// proxyUrl 是本次实际使用的出口；不在池里的 URL 若是本地 mihomo 端口则触发内核切节点。
 func RecordProxyOutcome(userId int, proxyUrl string, ok bool) {
 	if userId <= 0 || proxyUrl == "" {
 		return
+	}
+	if !ok {
+		// 如果走的是内置 mihomo 本地出口，立即触发内核切到下一个可用节点（无感熔断）。
+		if kernelFailoverProvider(userId, proxyUrl) {
+			InvalidateProxyPoolCache(userId)
+			return
+		}
 	}
 	endpoint, err := GetUsableProxyEndpointByUrl(userId, proxyUrl)
 	if err != nil || endpoint == nil {
@@ -100,16 +107,16 @@ func RecordProxyOutcome(userId int, proxyUrl string, ok bool) {
 	}
 	_ = MarkProxyEndpointResult(endpoint.Id, ok, "upstream request failed through this exit")
 	// 失败计数变化会影响可用集合，立刻让缓存失效；成功清零同理。
-	InvalidateProxyPoolCache(userId)
+	InvalidateAllProxyPoolCache()
 }
 
-// GetUsableProxyEndpointByUrl 按 URL 找到该用户某个仍可用的节点。
+// GetUsableProxyEndpointByUrl 按 URL 找到该用户可见的某个仍可用的节点（自己的或公开的）。
 func GetUsableProxyEndpointByUrl(userId int, proxyUrl string) (*ProxyEndpoint, error) {
 	if userId <= 0 || proxyUrl == "" {
 		return nil, nil
 	}
 	var endpoint ProxyEndpoint
-	err := DB.Where("user_id = ? AND url = ? AND enabled = ?", userId, proxyUrl, true).
+	err := DB.Where("(user_id = ? OR public = ?) AND url = ? AND enabled = ?", userId, true, proxyUrl, true).
 		First(&endpoint).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

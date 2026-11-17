@@ -26,12 +26,14 @@ type ProxyEndpoint struct {
 	RawUri         string     `json:"raw_uri" gorm:"type:text"`              // 客户端型节点的原始 URI（vless://... 等）
 	Region         string     `json:"region" gorm:"type:varchar(60)"`
 	SubscriptionId int        `json:"subscription_id" gorm:"index;default:0"` // 0=手动添加
+	Source         string     `json:"source" gorm:"type:varchar(40);index;default:'manual'"`
 	Enabled        bool       `json:"enabled" gorm:"default:true"`
 	// Public=true 时该节点进入公共池：所有用户可见可选；false 时仅归属用户可见可用。
-	Public    bool `json:"public" gorm:"index;default:false"`
-	Weight    int  `json:"weight" gorm:"default:1"`
-	FailCount int  `json:"fail_count" gorm:"default:0"`
-	LastOkAt       *time.Time `json:"last_ok_at"`
+	Public    bool       `json:"public" gorm:"index;default:false"`
+	Weight    int        `json:"weight" gorm:"default:1"`
+	LatencyMs int        `json:"latency_ms" gorm:"default:0"`
+	FailCount int        `json:"fail_count" gorm:"default:0"`
+	LastOkAt  *time.Time `json:"last_ok_at"`
 	LastError      string     `json:"last_error" gorm:"type:varchar(500)"`
 	CreatedAt      time.Time  `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt      time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
@@ -53,17 +55,30 @@ type ProxySubscription struct {
 	LastSyncAt   *time.Time `json:"last_sync_at"`
 	LastError    string     `json:"last_error" gorm:"type:varchar(500)"`
 	Enabled      bool       `json:"enabled" gorm:"default:true"`
+	Public       bool       `json:"public" gorm:"index;default:false"`
 	CreatedAt    time.Time  `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt    time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
 func (ProxySubscription) TableName() string { return "proxy_subscriptions" }
 
-// ListProxyEndpoints 列出某用户可见的出口节点：自己的 + 已公开进池的。
+// ListProxyEndpoints 列出某用户可见的出口节点：自己的 + 已公开进池的（优先未失败、低延迟节点）。
 func ListProxyEndpoints(userId int) ([]ProxyEndpoint, error) {
 	var list []ProxyEndpoint
-	err := DB.Where("user_id = ? OR public = ?", userId, true).Order("id").Find(&list).Error
+	err := DB.Where("user_id = ? OR public = ?", userId, true).
+		Order("fail_count ASC, CASE WHEN latency_ms > 0 THEN latency_ms ELSE 99999 END ASC, weight DESC, id ASC").
+		Find(&list).Error
 	return list, err
+}
+
+// GetProxyEndpointVisible 读取当前用户可见的单个出口节点（自己的或公开的）。
+func GetProxyEndpointVisible(userId, id int) (*ProxyEndpoint, error) {
+	var endpoint ProxyEndpoint
+	err := DB.Where("id = ? AND (user_id = ? OR public = ?)", id, userId, true).First(&endpoint).Error
+	if err != nil {
+		return nil, err
+	}
+	return &endpoint, nil
 }
 
 // GetProxyEndpoint 按用户隔离读取单个出口节点。
@@ -188,13 +203,22 @@ func DeleteProxySubscription(userId, id int) error {
 // MarkProxyEndpointResult 记录一次节点可用性探测结果。
 // 成功清零失败计数并刷新 last_ok_at；失败累加 fail_count 并记录截断后的错误。
 func MarkProxyEndpointResult(id int, ok bool, errMsg string) error {
+	return MarkProxyEndpointLatency(id, ok, 0, errMsg)
+}
+
+// MarkProxyEndpointLatency 记录一次节点探测结果并回写实测延迟（ms）。
+func MarkProxyEndpointLatency(id int, ok bool, latencyMs int, errMsg string) error {
 	now := time.Now()
 	if ok {
-		return DB.Model(&ProxyEndpoint{}).Where("id = ?", id).Updates(map[string]any{
+		updates := map[string]any{
 			"fail_count": 0,
 			"last_ok_at": now,
 			"last_error": "",
-		}).Error
+		}
+		if latencyMs > 0 {
+			updates["latency_ms"] = latencyMs
+		}
+		return DB.Model(&ProxyEndpoint{}).Where("id = ?", id).Updates(updates).Error
 	}
 	if len([]rune(errMsg)) > proxyLastErrorMaxLen {
 		errMsg = string([]rune(errMsg)[:proxyLastErrorMaxLen])
@@ -205,13 +229,31 @@ func MarkProxyEndpointResult(id int, ok bool, errMsg string) error {
 	}).Error
 }
 
-// CountProxyEndpoints 统计某用户的出口节点总数（用于配额校验）。
+// CountProxyEndpoints 统计某用户的手动/订阅出口节点总数（不含内置 haizhu 池，用于配额校验）。
 func CountProxyEndpoints(userId int) (int, error) {
 	var total int64
-	if err := DB.Model(&ProxyEndpoint{}).Where("user_id = ?", userId).Count(&total).Error; err != nil {
+	if err := DB.Model(&ProxyEndpoint{}).Where("user_id = ? AND source <> 'haizhu'", userId).Count(&total).Error; err != nil {
 		return 0, err
 	}
 	return int(total), nil
+}
+
+// CountHaizhuEndpoints 统计已入库的 Haizhu 内置公共节点数。
+func CountHaizhuEndpoints() (int, error) {
+	var total int64
+	if err := DB.Model(&ProxyEndpoint{}).Where("source = ?", "haizhu").Count(&total).Error; err != nil {
+		return 0, err
+	}
+	return int(total), nil
+}
+
+// DeleteHaizhuEndpoints 清理旧的 Haizhu 内置节点（重新全量导入前调用）。
+func DeleteHaizhuEndpoints() error {
+	if err := DB.Where("source = ?", "haizhu").Delete(&ProxyEndpoint{}).Error; err != nil {
+		return err
+	}
+	InvalidateAllProxyPoolCache()
+	return nil
 }
 
 // CountProxySubscriptions 统计某用户的订阅总数（用于配额校验）。
@@ -223,14 +265,14 @@ func CountProxySubscriptions(userId int) (int, error) {
 	return int(total), nil
 }
 
-// ListUsableProxyUrls 返回某用户当前可用于上游轮换的代理 URL。
-// 条件：enabled、url 非空、连续失败次数未达上限；末尾追加内核（mihomo）的本地出口，
-// 让只有客户端协议（vless/ss/anytls…）的机场节点也能真正发请求。
+// ListUsableProxyUrls 返回某用户当前可用于上游轮换的代理 URL（自己的 + 公共池公开的）。
+// 条件：enabled、url 非空、连续失败次数未达上限；优先使用未失败且延迟最低的节点；
+// 末尾追加内核（mihomo）的本地出口，让只有客户端协议（vless/ss/anytls…）的节点也能真正发请求。
 func ListUsableProxyUrls(userId int) ([]string, error) {
 	var urls []string
 	err := DB.Model(&ProxyEndpoint{}).
 		Where("(user_id = ? OR public = ?) AND enabled = ? AND url <> '' AND fail_count < ?", userId, true, true, ProxyEndpointMaxFailCount).
-		Order("id").
+		Order("fail_count ASC, CASE WHEN latency_ms > 0 THEN latency_ms ELSE 99999 END ASC, weight DESC, id ASC").
 		Pluck("url", &urls).Error
 	if err != nil {
 		return nil, err
@@ -241,6 +283,9 @@ func ListUsableProxyUrls(userId int) ([]string, error) {
 // extraProxyURLProvider 由内核管理器注册（避免 model → service 的循环依赖）。
 var extraProxyURLProvider = func(int) []string { return nil }
 
+// kernelFailoverProvider 当走本地 mihomo 端口失败时触发内核切到下一个可用节点。
+var kernelFailoverProvider = func(userId int, proxyURL string) bool { return false }
+
 // SetExtraProxyURLProvider 注册内核出口提供者。
 func SetExtraProxyURLProvider(fn func(userId int) []string) {
 	if fn == nil {
@@ -250,9 +295,20 @@ func SetExtraProxyURLProvider(fn func(userId int) []string) {
 	extraProxyURLProvider = fn
 }
 
-// ListAllEnabledProxyEndpoints 列出全部用户的启用节点（内核配置编译用）。
+// SetKernelFailoverProvider 注册内核故障切换回调。
+func SetKernelFailoverProvider(fn func(userId int, proxyURL string) bool) {
+	if fn == nil {
+		kernelFailoverProvider = func(int, string) bool { return false }
+		return
+	}
+	kernelFailoverProvider = fn
+}
+
+// ListAllEnabledProxyEndpoints 列出全部用户的启用节点（内核配置编译用，按延迟升序）。
 func ListAllEnabledProxyEndpoints() ([]ProxyEndpoint, error) {
 	var list []ProxyEndpoint
-	err := DB.Where("enabled = ?", true).Order("user_id, id").Find(&list).Error
+	err := DB.Where("enabled = ? AND fail_count < ?", true, ProxyEndpointMaxFailCount).
+		Order("fail_count ASC, CASE WHEN latency_ms > 0 THEN latency_ms ELSE 99999 END ASC, weight DESC, id ASC").
+		Find(&list).Error
 	return list, err
 }

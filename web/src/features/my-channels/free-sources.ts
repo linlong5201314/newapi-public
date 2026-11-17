@@ -90,8 +90,23 @@ export type CreateFromTemplateRequest = {
   multi_key_mode?: string
   /** 免费层的订阅 IP 白名单（逗号/换行分隔，支持 CIDR） */
   allow_ips?: string
-  /** 订阅型来源（authType=subscription）的机场订阅链接 */
+  /** 订阅型来源（或创建渠道时顺带添加）的机场订阅链接 */
   subscription_url?: string
+  /** 用户勾选加入「我的渠道」的模型列表 */
+  models?: string[]
+  /** 用户勾选公开到「公共池」的模型子集 */
+  public_models?: string[]
+}
+
+export type ProbeTemplateModelsResponse = {
+  success: boolean
+  message?: string
+  data?: {
+    models: string[]
+    probed_live: boolean
+    latency_ms: number
+    proxy_used: string
+  }
 }
 
 export type CreateFromTemplateResponse = {
@@ -262,6 +277,21 @@ export async function createChannelFromTemplate(
 ): Promise<CreateFromTemplateResponse> {
   const res = await api.post(
     '/api/channel/self/from_template',
+    data,
+    actionConfig()
+  )
+  return res.data
+}
+
+/** POST /api/channel/self/probe_template_models — fetch models before creating channel. */
+export async function probeTemplateModels(data: {
+  templateId: string
+  key?: string
+  proxy?: string
+  extra?: Record<string, string>
+}): Promise<ProbeTemplateModelsResponse> {
+  const res = await api.post(
+    '/api/channel/self/probe_template_models',
     data,
     actionConfig()
   )

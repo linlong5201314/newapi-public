@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -9,6 +10,8 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -80,9 +83,13 @@ func AddSelfChannelFromTemplate(c *gin.Context) {
 		MultiKeyMode string `json:"multi_key_mode"`
 		// AllowIps 免费层渠道的订阅 IP 白名单（逗号/换行分隔，支持 CIDR）；为空表示不限来源
 		AllowIps string `json:"allow_ips"`
-		// SubscriptionUrl 订阅型来源（authType=subscription）的机场订阅链接：
+		// SubscriptionUrl 订阅型来源（或创建渠道时顺带添加的机场订阅链接）：
 		// 平台会解析出节点数/剩余流量，并把节点加进该用户的出口池。
 		SubscriptionUrl string `json:"subscription_url"`
+		// Models 用户勾选要加入「我的渠道」的模型列表（空则用模板默认全部模型）
+		Models []string `json:"models"`
+		// PublicModels 用户勾选要公开到「公共池」的模型子集（支持部分公开）
+		PublicModels []string `json:"public_models"`
 	}{}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ApiErrorT(c, "Invalid parameters")
@@ -113,6 +120,7 @@ func AddSelfChannelFromTemplate(c *gin.Context) {
 			Name:    tpl.Name,
 			Url:     subUrl,
 			Enabled: true,
+			Public:  req.Visibility == 1,
 		}
 		if err := model.CreateProxySubscription(sub); err != nil {
 			c.JSON(http.StatusOK, gin.H{"success": false, "message": "保存订阅失败：" + err.Error()})
@@ -120,6 +128,7 @@ func AddSelfChannelFromTemplate(c *gin.Context) {
 		}
 		// 同步失败不算失败：节点数与错误信息在订阅列表里可见，用户可手动重试。
 		nodeCount, format, syncErr := syncProxySubscription(sub)
+		triggerKernelReload()
 		resp := gin.H{
 			"subscription_id": sub.Id,
 			"node_count":      nodeCount,
@@ -132,15 +141,34 @@ func AddSelfChannelFromTemplate(c *gin.Context) {
 		common.ApiSuccess(c, resp)
 		return
 	}
-	// 免费层（tier=free）按出口 IP 白名单放行，不需要也不保存上游密钥；
-	// authMode=ip 的来源同样只按订阅来源放行。其余情况才强制要 key。
-	freeTier := normalizeChannelTier(req.Tier) == "free"
-	if !freeTier && tpl.KeyRequired && tpl.AuthMode != "ip" && req.Key == "" && len(req.Keys) == 0 {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "API key is required for this template"})
+
+	// 如果用户在创建普通渠道时也顺带填了一条机场订阅链接（Item 2.5），先把订阅同步进该用户的出口池
+	if subUrl := strings.TrimSpace(req.SubscriptionUrl); strings.HasPrefix(subUrl, "http://") || strings.HasPrefix(subUrl, "https://") {
+		sub := &model.ProxySubscription{
+			UserId:  uid,
+			Name:    tpl.Name + " 订阅",
+			Url:     subUrl,
+			Enabled: true,
+			Public:  req.Visibility == 1,
+		}
+		if err := model.CreateProxySubscription(sub); err == nil {
+			_, _, _ = syncProxySubscription(sub)
+			triggerKernelReload()
+		}
+	}
+
+	// 严格区分 API 密钥免费层 vs IP 免费层（Item 2.3）：
+	// 凡是需要 API Key 的免费源（KeyRequired=true 且 AuthMode=key），必须填 API Key，绝不允许通过 tier=free 空手绕过！
+	isIpFreeSource := tpl.AuthMode == "ip" || !tpl.KeyRequired || tpl.EffectiveAuthType() == "none"
+	if !isIpFreeSource && req.Key == "" && len(req.Keys) == 0 {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "该来源属于 API 密钥免费层，必须填写有效的 API Key 才能创建渠道（仅免密钥/IP 免费层支持直接绑定 IP 使用）"})
 		return
 	}
-	// 免 key 源（kilo-code / ovhcloud / pollinations 等匿名层）：渠道表 key 不能为空，
-	// 灌一个可识别的占位 key，上游忽略 Authorization 即可（实测 pollinations/kilo/ovh 均接受任意非空 key）
+	if isIpFreeSource && req.Key == "" && len(req.Keys) == 0 {
+		req.Tier = "free"
+	}
+	// 免 key 源（kilo-code / ovhcloud / pollinations / opencode-free 等匿名层）：渠道表 key 不能为空，
+	// 灌一个可识别的占位 key，上游忽略 Authorization 即可
 	if req.Key == "" {
 		req.Key = "sk-free-" + tpl.Id
 	}
@@ -172,22 +200,48 @@ func AddSelfChannelFromTemplate(c *gin.Context) {
 	if name == "" {
 		name = tpl.Name
 	}
+
+	chosenModels := make([]string, 0, len(req.Models))
+	for _, m := range req.Models {
+		if v := strings.TrimSpace(m); v != "" {
+			chosenModels = append(chosenModels, v)
+		}
+	}
+	if len(chosenModels) == 0 {
+		chosenModels = tpl.Models
+	}
+
+	publicModels := make([]string, 0, len(req.PublicModels))
+	for _, m := range req.PublicModels {
+		if v := strings.TrimSpace(m); v != "" {
+			publicModels = append(publicModels, v)
+		}
+	}
+	visibility := normalizeChannelVisibility(req.Visibility)
+	if len(publicModels) > 0 {
+		visibility = 1
+	}
+
 	channel := &model.Channel{
 		Type:       tpl.ChannelType,
 		Name:       name,
 		Key:        req.Key,
 		BaseURL:    &baseURL,
-		Models:     strings.Join(tpl.Models, ","),
+		Models:     strings.Join(chosenModels, ","),
 		Group:      "default",
 		OwnerId:    uid,
-		Visibility: normalizeChannelVisibility(req.Visibility),
+		Visibility: visibility,
 		Tier:       normalizeChannelTier(req.Tier),
 		AllowIps:   strings.TrimSpace(req.AllowIps),
 	}
-	channel.SetOtherInfo(map[string]any{
+	otherInfo := map[string]any{
 		"templateId": tpl.Id,
 		"poolKey":    tpl.PoolKey,
-	})
+	}
+	if len(publicModels) > 0 {
+		otherInfo["publicModels"] = publicModels
+	}
+	channel.SetOtherInfo(otherInfo)
 	// 出口代理策略：空=跟随用户出口池；direct=强制直连；其余=固定代理（创建时校验格式）
 	proxy := strings.TrimSpace(req.Proxy)
 	if proxy != "" {
@@ -400,15 +454,16 @@ func normalizeMultiKeyMode(m string) constant.MultiKeyMode {
 }
 
 // SetSelfChannelVisibility POST /api/channel/self/visibility
-// body: {"channelId":12,"visibility":1,"tier":"free"}
+// body: {"channelId":12,"visibility":1,"tier":"free","publicModels":["m1","m2"]}
 // 只能改自己的渠道：owner_id 必须等于当前登录用户，平台渠道（owner_id=0）不可动。
 func SetSelfChannelVisibility(c *gin.Context) {
 	uid := c.GetInt("id")
 	req := struct {
-		ChannelId  int    `json:"channelId"`
-		Visibility int    `json:"visibility"`
-		Tier       string `json:"tier"`
-		AllowIps   string `json:"allowIps"`
+		ChannelId    int      `json:"channelId"`
+		Visibility   int      `json:"visibility"`
+		Tier         string   `json:"tier"`
+		AllowIps     string   `json:"allowIps"`
+		PublicModels []string `json:"publicModels"`
 	}{}
 	if err := c.ShouldBindJSON(&req); err != nil || req.ChannelId <= 0 {
 		common.ApiErrorMsg(c, "Invalid parameters")
@@ -418,9 +473,23 @@ func SetSelfChannelVisibility(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	// 可见性影响路由候选集（channel_cache 的 owner 桶合并），必须立刻重建缓存，
-	// 否则要等下一个同步周期才生效。
-	// 白名单只有前端显式传了才更新，避免旧客户端把已有白名单清空。
+	if req.PublicModels != nil {
+		if ch, ok := loadSelfOwnedChannel(c, req.ChannelId, false); ok && ch != nil {
+			info := ch.GetOtherInfo()
+			if info == nil {
+				info = map[string]any{}
+			}
+			cleaned := make([]string, 0, len(req.PublicModels))
+			for _, m := range req.PublicModels {
+				if v := strings.TrimSpace(m); v != "" {
+					cleaned = append(cleaned, v)
+				}
+			}
+			info["publicModels"] = cleaned
+			ch.SetOtherInfo(info)
+			_ = model.DB.Model(&model.Channel{}).Where("id = ? AND owner_id = ?", req.ChannelId, uid).Update("other_info", ch.OtherInfo).Error
+		}
+	}
 	if strings.TrimSpace(req.AllowIps) != "" {
 		if err := model.SetSelfChannelAllowIps(uid, req.ChannelId, strings.TrimSpace(req.AllowIps)); err != nil {
 			common.ApiError(c, err)
@@ -429,4 +498,102 @@ func SetSelfChannelVisibility(c *gin.Context) {
 	}
 	model.InitChannelCache()
 	common.ApiSuccess(c, gin.H{"channelId": req.ChannelId, "visibility": normalizeChannelVisibility(req.Visibility), "tier": normalizeChannelTier(req.Tier)})
+}
+
+// ProbeTemplateModels POST /api/channel/self/probe_template_models
+// 创建渠道前点击「获取模型」：优先使用延迟最低的可用出口节点探测上游 /v1/models，合并模板内置模型返回。
+func ProbeTemplateModels(c *gin.Context) {
+	uid := c.GetInt("id")
+	var req struct {
+		TemplateId string            `json:"templateId"`
+		Key        string            `json:"key"`
+		Proxy      string            `json:"proxy"`
+		Extra      map[string]string `json:"extra"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiErrorMsg(c, "invalid request body")
+		return
+	}
+	tpl := constant.GetFreeSourceTemplate(req.TemplateId)
+	if tpl == nil {
+		common.ApiErrorMsg(c, "unknown templateId")
+		return
+	}
+
+	// 挑选最佳出口代理：若用户未指定固定代理，自动从该用户可见的出口池挑最优（已按延迟升序排列）
+	proxyURL := strings.TrimSpace(req.Proxy)
+	if proxyURL == "" {
+		proxyURL = model.PickUserProxyUrl(uid)
+	} else if proxyURL == "direct" {
+		proxyURL = ""
+	}
+
+	modelSet := map[string]bool{}
+	models := make([]string, 0, len(tpl.Models)+8)
+	addModel := func(m string) {
+		v := strings.TrimSpace(m)
+		if v != "" && !modelSet[v] {
+			modelSet[v] = true
+			models = append(models, v)
+		}
+	}
+
+	baseURL := strings.TrimRight(strings.TrimSpace(tpl.BaseUrl), "/")
+	for _, field := range tpl.ExtraFields {
+		val := strings.TrimSpace(req.Extra[field])
+		if val == "" {
+			val = strings.TrimSpace(tpl.DefaultExtra[field])
+		}
+		if val != "" {
+			baseURL = strings.ReplaceAll(baseURL, "{"+field+"}", val)
+		}
+	}
+
+	var latencyMs int64
+	probedLive := false
+	if baseURL != "" && !strings.Contains(baseURL, "{") {
+		modelsEndpoint := baseURL + "/v1/models"
+		if strings.HasSuffix(baseURL, "/v1") || strings.HasSuffix(baseURL, "/openai") {
+			modelsEndpoint = baseURL + "/models"
+		}
+		if client, err := service.GetHttpClientWithProxySettings(proxyURL, dto.ChannelSettings{}); err == nil {
+			probeClient := *client
+			probeClient.Timeout = 6 * time.Second
+			httpReq, rerr := http.NewRequest(http.MethodGet, modelsEndpoint, nil)
+			if rerr == nil {
+				key := strings.TrimSpace(req.Key)
+				if key != "" {
+					httpReq.Header.Set("Authorization", "Bearer "+key)
+				}
+				start := time.Now()
+				if resp, derr := probeClient.Do(httpReq); derr == nil && resp != nil {
+					latencyMs = time.Since(start).Milliseconds()
+					body, _ := io.ReadAll(io.LimitReader(resp.Body, 512<<10))
+					_ = resp.Body.Close()
+					var payload struct {
+						Data []struct {
+							Id string `json:"id"`
+						} `json:"data"`
+					}
+					if common.Unmarshal(body, &payload) == nil && len(payload.Data) > 0 {
+						probedLive = true
+						for _, item := range payload.Data {
+							addModel(item.Id)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	for _, m := range tpl.Models {
+		addModel(m)
+	}
+
+	common.ApiSuccess(c, gin.H{
+		"models":      models,
+		"probed_live": probedLive,
+		"latency_ms":  latencyMs,
+		"proxy_used":  maskProxyUrl(proxyURL),
+	})
 }

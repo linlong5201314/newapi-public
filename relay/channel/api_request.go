@@ -458,27 +458,84 @@ func keepUpstreamRedirectResponse(_ *http.Request, _ []*http.Request) error {
 }
 
 func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
-	proxyURL := resolveEgressProxyURL(info)
-	client, err := service.GetHttpClientWithProxySettings(proxyURL, info.ChannelSetting)
-	if err != nil {
-		return nil, fmt.Errorf("new proxy http client failed: %w", err)
-	}
-	// Clients are cached and shared across channels, so override redirect
-	// behavior on a shallow copy instead of mutating the cached client. This
-	// still reuses its transport and connection pools, including HTTP/2's
-	// transparent stream retries.
-	relayClient := *client
-	relayClient.CheckRedirect = keepUpstreamRedirectResponse
-	if common2.DebugEnabled && req != nil && req.URL != nil {
-		policy := service.NormalizeHTTPTransportPolicy(info.ChannelSetting)
-		logger.LogDebug(c, "http transport select: host=%s protocol=%s shards=%d policy=%s",
-			req.URL.Host,
-			policy.Protocol,
-			policy.Shards,
-			policy.String())
+	if req != nil && req.URL != nil {
+		common2.SetContextKey(c, appconstant.ContextKeyUpstreamRequestOrigin, req.URL.Scheme+"://"+req.URL.Host)
 	}
 
-	if info.IsStream {
+	// 代理池无感熔断重试：当渠道跟随出口 IP 池且请求报错或遭遇 429/403/502/503/504 时，
+	// 自动标记当前出口失败（或触发 mihomo 切下一个节点）并换下一个出口重试，用户全程无感。
+	canReplay := req == nil || req.Body == nil || req.GetBody != nil
+	usingPool := info != nil && strings.TrimSpace(info.ChannelSetting.Proxy) == ""
+	maxAttempts := 1
+	if usingPool && canReplay {
+		maxAttempts = 3
+	}
+
+	var (
+		resp     *http.Response
+		err      error
+		proxyURL string
+	)
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if attempt > 0 && req != nil && req.GetBody != nil {
+			if freshBody, berr := req.GetBody(); berr == nil {
+				req.Body = freshBody
+			} else {
+				break
+			}
+		}
+		proxyURL = resolveEgressProxyURL(info)
+		if attempt > 0 && proxyURL == "" {
+			break
+		}
+		client, cerr := service.GetHttpClientWithProxySettings(proxyURL, info.ChannelSetting)
+		if cerr != nil {
+			return nil, fmt.Errorf("new proxy http client failed: %w", cerr)
+		}
+		relayClient := *client
+		relayClient.CheckRedirect = keepUpstreamRedirectResponse
+
+		if common2.DebugEnabled && req != nil && req.URL != nil {
+			policy := service.NormalizeHTTPTransportPolicy(info.ChannelSetting)
+			logger.LogDebug(c, "http transport select (attempt=%d): host=%s protocol=%s shards=%d policy=%s",
+				attempt+1,
+				req.URL.Host,
+				policy.Protocol,
+				policy.Shards,
+				policy.String())
+		}
+
+		resp, err = relayClient.Do(req)
+		if err != nil {
+			model.RecordProxyOutcome(info.UserId, proxyURL, false)
+			if attempt+1 < maxAttempts && proxyURL != "" {
+				logger.LogWarn(c, fmt.Sprintf("proxy pool circuit-breaker: attempt %d via %s failed (%s), switching exit IP", attempt+1, proxyURL, err.Error()))
+				continue
+			}
+			logger.LogError(c, common2.LogText("do request failed: %s", err.Error()))
+			return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))
+		}
+
+		// 上游返回 IP 级限流或网关错误时，同样触发代理池熔断换 IP 重试
+		if resp != nil && shouldFailoverProxyStatus(resp.StatusCode) && attempt+1 < maxAttempts && proxyURL != "" {
+			model.RecordProxyOutcome(info.UserId, proxyURL, false)
+			if resp.Body != nil {
+				_ = resp.Body.Close()
+			}
+			logger.LogWarn(c, fmt.Sprintf("proxy pool circuit-breaker: attempt %d via %s got HTTP %d, switching exit IP", attempt+1, proxyURL, resp.StatusCode))
+			continue
+		}
+
+		model.RecordProxyOutcome(info.UserId, proxyURL, true)
+		break
+	}
+
+	if resp == nil {
+		return nil, errors.New("resp is nil")
+	}
+
+	if info != nil && info.IsStream {
 		helper.SetEventStreamHeaders(c)
 		// 处理流式请求的 ping 保活
 		generalSettings := operation_setting.GetGeneralSetting()
@@ -489,17 +546,6 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		}
 	}
 
-	common2.SetContextKey(c, appconstant.ContextKeyUpstreamRequestOrigin, req.URL.Scheme+"://"+req.URL.Host)
-	resp, err := relayClient.Do(req)
-	if err != nil {
-		model.RecordProxyOutcome(info.UserId, proxyURL, false)
-		logger.LogError(c, common2.LogText("do request failed: %s", err.Error()))
-		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))
-	}
-	model.RecordProxyOutcome(info.UserId, proxyURL, true)
-	if resp == nil {
-		return nil, errors.New("resp is nil")
-	}
 	if common2.DebugEnabled {
 		policy := service.NormalizeHTTPTransportPolicy(info.ChannelSetting)
 		logger.LogDebug(c, "http transport negotiated: host=%s protocol=%s shards=%d policy=%s negotiated=%s",
@@ -514,9 +560,23 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		c.Set(common2.UpstreamRequestIdKey, upID)
 	}
 
-	_ = req.Body.Close()
-	_ = c.Request.Body.Close()
+	if req.Body != nil {
+		_ = req.Body.Close()
+	}
+	if c != nil && c.Request != nil && c.Request.Body != nil {
+		_ = c.Request.Body.Close()
+	}
 	return resp, nil
+}
+
+func shouldFailoverProxyStatus(code int) bool {
+	switch code {
+	case http.StatusTooManyRequests, http.StatusForbidden,
+		http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
+	}
 }
 
 func DoTaskApiRequest(a TaskAdaptor, c *gin.Context, info *common.RelayInfo, requestBody io.Reader) (*http.Response, error) {

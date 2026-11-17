@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"errors"
 	"net"
 	"strings"
@@ -40,7 +41,7 @@ type PublicChannelBrief struct {
 	Comments     int     `json:"comments"`
 }
 
-// ListPublicChannels 列出所有公开到公共池的自建渠道，并按渠道的 models 字段展开。
+// ListPublicChannels 列出所有公开到公共池的自建渠道，并按渠道的 models（或 other_info.publicModels 子集）展开。
 func ListPublicChannels() ([]PublicChannelBrief, error) {
 	type row struct {
 		ChannelId    int
@@ -49,6 +50,7 @@ func ListPublicChannels() ([]PublicChannelBrief, error) {
 		Tier         string
 		ResponseTime int
 		Models       string
+		OtherInfo    string
 		Username     string
 		DisplayName  string
 		Avatar       string
@@ -56,7 +58,7 @@ func ListPublicChannels() ([]PublicChannelBrief, error) {
 	var rows []row
 	err := DB.Raw(`
 		select c.id as channel_id, c.name as channel_name, c.owner_id, c.tier,
-		       c.response_time, c.models,
+		       c.response_time, c.models, coalesce(c.other_info, '') as other_info,
 		       coalesce(u.username, '') as username,
 		       coalesce(u.display_name, '') as display_name,
 		       coalesce(u.avatar, '') as avatar
@@ -74,9 +76,13 @@ func ListPublicChannels() ([]PublicChannelBrief, error) {
 		if ownerName == "" {
 			ownerName = r.Username
 		}
+		publicSubset := parsePublicModelsSubset(r.OtherInfo)
 		for _, m := range strings.Split(r.Models, ",") {
 			m = strings.TrimSpace(m)
 			if m == "" {
+				continue
+			}
+			if len(publicSubset) > 0 && !publicSubset[m] {
 				continue
 			}
 			brief := PublicChannelBrief{
@@ -97,6 +103,26 @@ func ListPublicChannels() ([]PublicChannelBrief, error) {
 		}
 	}
 	return out, nil
+}
+
+func parsePublicModelsSubset(otherInfoRaw string) map[string]bool {
+	trimmed := strings.TrimSpace(otherInfoRaw)
+	if trimmed == "" || !strings.Contains(trimmed, "publicModels") {
+		return nil
+	}
+	var info struct {
+		PublicModels []string `json:"publicModels"`
+	}
+	if err := json.Unmarshal([]byte(trimmed), &info); err != nil || len(info.PublicModels) == 0 {
+		return nil
+	}
+	set := make(map[string]bool, len(info.PublicModels))
+	for _, item := range info.PublicModels {
+		if v := strings.TrimSpace(item); v != "" {
+			set[v] = true
+		}
+	}
+	return set
 }
 
 // publicCommentStats 按模型统计平均评分与评论数（一次查询，避免 N+1）。

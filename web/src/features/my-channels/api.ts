@@ -90,6 +90,7 @@ export async function getChannel(id: number): Promise<GetChannelResponse> {
 export type SelfChannelDetail = {
   channel: Channel
   models: string[]
+  public_models?: string[]
   health: {
     channel_id: number
     samples: number
@@ -122,10 +123,23 @@ export type SelfChannelDetail = {
   proxy_pool: {
     endpoint_total: number
     endpoint_enabled: number
+    own_endpoint_count?: number
+    public_pool_count?: number
+    own_ip_tokens_total?: number
     usable_url_count: number
     subscription_total: number
     subscription_nodes: number
     regions: Record<string, number>
+    selectable_nodes?: Array<{
+      id: number
+      name: string
+      kind: string
+      region: string
+      latency_ms: number
+      public: boolean
+      is_owner: boolean
+      source: string
+    }>
   }
   has_key: boolean
   is_owned: boolean

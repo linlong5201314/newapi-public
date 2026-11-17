@@ -25,6 +25,7 @@ func registerSelfChannelRoutes(apiRouter *gin.RouterGroup) {
 		// M2 免费源模板 + 免费额度（gin 静态段优先于 /:id 参数段）
 		selfChannelRoute.GET("/free_templates", controller.GetFreeSourceTemplates)
 		selfChannelRoute.POST("/from_template", controller.AddSelfChannelFromTemplate)
+		selfChannelRoute.POST("/probe_template_models", controller.ProbeTemplateModels)
 		selfChannelRoute.GET("/free_usage", controller.GetSelfFreeUsage)
 		selfChannelRoute.POST("/visibility", controller.SetSelfChannelVisibility)
 		// 账号授权型反代：用户提交「账号----密码」，平台后台开通独立实例

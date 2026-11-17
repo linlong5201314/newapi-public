@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>DeepSeek · NewAPI 移动客户端</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --panel: #171b26;
+    --border: #262c3d;
+    --primary: #4d6bfe;
+    --primary-hover: #3b58eb;
+    --text: #f3f5f9;
+    --muted: #8b93a7;
+    --user-msg: #2a3352;
+    --bot-msg: #181d29;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  header {
+    height: 54px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 12px;
+    flex-shrink: 0;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    font-size: 15px;
+  }
+  .brand-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--primary);
+    box-shadow: 0 0 8px var(--primary);
+  }
+  .model-select {
+    background: #10131c;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 12px;
+    max-width: 185px;
+    outline: none;
+  }
+  .btn {
+    background: var(--primary);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 7px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .btn-outline {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+  #chat-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .empty-hero {
+    margin: auto;
+    text-align: center;
+    max-width: 320px;
+    padding: 20px;
+  }
+  .empty-hero h2 { font-size: 20px; margin-bottom: 8px; color: #fff; }
+  .empty-hero p { font-size: 13px; color: var(--muted); line-height: 1.5; }
+  .msg {
+    max-width: 88%;
+    padding: 10px 13px;
+    border-radius: 14px;
+    font-size: 14px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .msg.user {
+    align-self: flex-end;
+    background: var(--user-msg);
+    border-bottom-right-radius: 4px;
+  }
+  .msg.assistant {
+    align-self: flex-start;
+    background: var(--bot-msg);
+    border: 1px solid var(--border);
+    border-bottom-left-radius: 4px;
+  }
+  .reasoning {
+    font-size: 12px;
+    color: var(--muted);
+    border-left: 2px solid var(--primary);
+    padding-left: 8px;
+    margin-bottom: 8px;
+  }
+  .composer {
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    padding: 10px 12px;
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+  }
+  #prompt-input {
+    flex: 1;
+    background: #10131c;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 10px 12px;
+    font-size: 14px;
+    max-height: 110px;
+    resize: none;
+    outline: none;
+  }
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.68);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    z-index: 50;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    width: 100%;
+    max-width: 420px;
+    max-height: 88vh;
+    overflow-y: auto;
+    padding: 16px;
+  }
+  .tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  .tab {
+    flex: 1;
+    text-align: center;
+    padding: 8px;
+    border-radius: 8px;
+    font-size: 12px;
+    background: #10131c;
+    color: var(--muted);
+    border: 1px solid var(--border);
+  }
+  .tab.active {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+  }
+  .field { margin-bottom: 10px; }
+  .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .field input {
+    width: 100%;
+    background: #10131c;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 9px 10px;
+    font-size: 13px;
+    outline: none;
+  }
+  .status-line {
+    font-size: 12px;
+    color: #38bdf8;
+    margin: 6px 0;
+  }
+</style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <span>DeepSeek AI</span>
+    </div>
+    <select id="model-picker" class="model-select"></select>
+    <div style="display:flex;gap:6px;">
+      <button class="btn btn-outline" onclick="clearChat()">新对话</button>
+      <button class="btn" onclick="openSettings()">账号/密钥</button>
+    </div>
+  </header>
+
+  <div id="chat-list">
+    <div class="empty-hero" id="empty-hero">
+      <h2>今天想探索什么？</h2>
+      <p>支持绑定本站账号密码直接登录对话，也支持自定义任意 URL 与 API 密钥，自由切换站内与公共池 AI 模型。</p>
+    </div>
+  </div>
+
+  <div class="composer">
+    <textarea id="prompt-input" rows="1" placeholder="给 DeepSeek 发送消息…"></textarea>
+    <button class="btn" id="send-btn" onclick="sendMessage()">发送</button>
+  </div>
+
+  <div class="modal-backdrop" id="settings-modal">
+    <div class="modal">
+      <h3 style="font-size:16px;margin-bottom:10px;">连接与账号配置</h3>
+      <div class="tabs">
+        <div class="tab active" id="tab-account" onclick="switchMode('account')">本站账号密码登录</div>
+        <div class="tab" id="tab-apikey" onclick="switchMode('apikey')">自定义 URL + API Key</div>
+      </div>
+
+      <div class="field">
+        <label>站点 / API 地址 (URL)</label>
+        <input id="cfg-url" placeholder="https://gw.ailong.love" />
+      </div>
+
+      <div id="pane-account">
+        <div class="field">
+          <label>本站用户名 / 邮箱</label>
+          <input id="cfg-username" placeholder="输入用户名" />
+        </div>
+        <div class="field">
+          <label>密码</label>
+          <input id="cfg-password" type="password" placeholder="输入密码" />
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button class="btn" style="flex:1;" onclick="loginSite()">登录并同步模型</button>
+          <button class="btn btn-outline" onclick="openRegister()">去注册</button>
+        </div>
+      </div>
+
+      <div id="pane-apikey" style="display:none;">
+        <div class="field">
+          <label>API 密钥 (sk-...)</label>
+          <input id="cfg-key" type="password" placeholder="sk-..." />
+        </div>
+        <div class="field">
+          <label>自定义添加模型名（可选，逗号分隔）</label>
+          <input id="cfg-custom-models" placeholder="deepseek-v3, deepseek-r1, gpt-4o" />
+        </div>
+        <button class="btn" style="width:100%;margin-top:6px;" onclick="saveApiKeyConfig()">保存并拉取模型列表</button>
+      </div>
+
+      <div class="status-line" id="cfg-status"></div>
+      <div style="display:flex;justify-content:flex-end;margin-top:12px;">
+        <button class="btn btn-outline" onclick="closeSettings()">关闭</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+const DEFAULT_MODELS = [
+  'deepseek-v4.1-flash',
+  'deepseek-v3',
+  'deepseek-r1',
+  'qoder-rome-30ba3b',
+  'glm-5.3-flash-free',
+  'Qwen/Qwen3-32B',
+  'claude-sonnet-4.5',
+  'gpt-5',
+  'gemini-2.5-flash'
+];
+
+let state = {
+  mode: localStorage.getItem('ds_apk_mode') || 'account',
+  baseUrl: localStorage.getItem('ds_apk_url') || 'https://gw.ailong.love',
+  apiKey: localStorage.getItem('ds_apk_key') || '',
+  username: localStorage.getItem('ds_apk_user') || '',
+  models: JSON.parse(localStorage.getItem('ds_apk_models') || 'null') || DEFAULT_MODELS,
+  selectedModel: localStorage.getItem('ds_apk_model') || DEFAULT_MODELS[0],
+  messages: []
+};
+
+function renderModels() {
+  const sel = document.getElementById('model-picker');
+  sel.innerHTML = '';
+  state.models.forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m;
+    opt.textContent = m;
+    if (m === state.selectedModel) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  sel.onchange = () => {
+    state.selectedModel = sel.value;
+    localStorage.setItem('ds_apk_model', sel.value);
+  };
+}
+
+function openSettings() {
+  document.getElementById('cfg-url').value = state.baseUrl;
+  document.getElementById('cfg-key').value = state.apiKey;
+  document.getElementById('cfg-username').value = state.username;
+  switchMode(state.mode);
+  document.getElementById('settings-modal').classList.add('open');
+}
+
+function closeSettings() {
+  document.getElementById('settings-modal').classList.remove('open');
+}
+
+function switchMode(mode) {
+  state.mode = mode;
+  localStorage.setItem('ds_apk_mode', mode);
+  document.getElementById('tab-account').className = 'tab' + (mode === 'account' ? ' active' : '');
+  document.getElementById('tab-apikey').className = 'tab' + (mode === 'apikey' ? ' active' : '');
+  document.getElementById('pane-account').style.display = mode === 'account' ? 'block' : 'none';
+  document.getElementById('pane-apikey').style.display = mode === 'apikey' ? 'block' : 'none';
+}
+
+function normalizeBase(u) {
+  return (u || 'https://gw.ailong.love').trim().replace(/\/+$/, '');
+}
+
+function openRegister() {
+  const base = normalizeBase(document.getElementById('cfg-url').value);
+  window.open(base + '/register', '_blank');
+}
+
+async function loginSite() {
+  const base = normalizeBase(document.getElementById('cfg-url').value);
+  const username = document.getElementById('cfg-username').value.trim();
+  const password = document.getElementById('cfg-password').value;
+  const statusEl = document.getElementById('cfg-status');
+  if (!username || !password) {
+    statusEl.textContent = '请输入用户名和密码';
+    return;
+  }
+  statusEl.textContent = '正在登录站点并同步模型…';
+  try {
+    const res = await fetch(base + '/api/user/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ username, password })
+    });
+    const data = await res.json();
+    if (!data.success) {
+      statusEl.textContent = '登录失败：' + (data.message || '账号或密码错误');
+      return;
+    }
+    state.baseUrl = base;
+    state.username = username;
+    localStorage.setItem('ds_apk_url', base);
+    localStorage.setItem('ds_apk_user', username);
+
+    // 拉取该用户可用模型列表
+    const mRes = await fetch(base + '/api/user/models', { credentials: 'include' });
+    const mData = await mRes.json();
+    if (mData.success && Array.isArray(mData.data) && mData.data.length > 0) {
+      state.models = mData.data;
+      state.selectedModel = mData.data[0];
+      localStorage.setItem('ds_apk_models', JSON.stringify(state.models));
+      renderModels();
+    }
+    statusEl.textContent = '登录成功！已同步 ' + state.models.length + ' 个可用模型';
+    setTimeout(closeSettings, 700);
+  } catch (e) {
+    statusEl.textContent = '网络请求异常：' + e.message;
+  }
+}
+
+async function saveApiKeyConfig() {
+  const base = normalizeBase(document.getElementById('cfg-url').value);
+  const key = document.getElementById('cfg-key').value.trim();
+  const custom = document.getElementById('cfg-custom-models').value.trim();
+  const statusEl = document.getElementById('cfg-status');
+  state.baseUrl = base;
+  state.apiKey = key;
+  localStorage.setItem('ds_apk_url', base);
+  localStorage.setItem('ds_apk_key', key);
+
+  if (custom) {
+    const extra = custom.split(',').map(s => s.trim()).filter(Boolean);
+    state.models = Array.from(new Set([...extra, ...state.models]));
+  }
+  statusEl.textContent = '正在从 /v1/models 拉取模型…';
+  try {
+    const endpoint = base.endsWith('/v1') ? base + '/models' : base + '/v1/models';
+    const res = await fetch(endpoint, {
+      headers: key ? { 'Authorization': 'Bearer ' + key } : {}
+    });
+    const data = await res.json();
+    if (Array.isArray(data.data) && data.data.length > 0) {
+      state.models = data.data.map(item => item.id);
+      state.selectedModel = state.models[0];
+    }
+  } catch (_) {}
+  localStorage.setItem('ds_apk_models', JSON.stringify(state.models));
+  renderModels();
+  statusEl.textContent = '配置已保存（共 ' + state.models.length + ' 个可选模型）';
+  setTimeout(closeSettings, 600);
+}
+
+function clearChat() {
+  state.messages = [];
+  const list = document.getElementById('chat-list');
+  list.innerHTML = '<div class="empty-hero" id="empty-hero"><h2>已开启新对话</h2><p>当前模型：' + state.selectedModel + '</p></div>';
+}
+
+function appendMessage(role, text) {
+  const hero = document.getElementById('empty-hero');
+  if (hero) hero.remove();
+  const list = document.getElementById('chat-list');
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  div.textContent = text;
+  list.appendChild(div);
+  list.scrollTop = list.scrollHeight;
+  return div;
+}
+
+async function sendMessage() {
+  const input = document.getElementById('prompt-input');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  state.messages.push({ role: 'user', content: text });
+  appendMessage('user', text);
+  const botEl = appendMessage('assistant', '思考中…');
+
+  const base = normalizeBase(state.baseUrl);
+  const isV1 = base.endsWith('/v1');
+  const url = state.apiKey
+    ? (isV1 ? base + '/chat/completions' : base + '/v1/chat/completions')
+    : (base + '/pg/chat/completions');
+
+  const headers = { 'Content-Type': 'application/json' };
+  if (state.apiKey) headers['Authorization'] = 'Bearer ' + state.apiKey;
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify({
+        model: state.selectedModel,
+        messages: state.messages,
+        stream: false
+      })
+    });
+    const data = await res.json();
+    const reply = data?.choices?.[0]?.message?.content || data?.error?.message || JSON.stringify(data);
+    botEl.textContent = reply;
+    state.messages.push({ role: 'assistant', content: reply });
+  } catch (e) {
+    botEl.textContent = '调用失败：' + e.message + '（请点击右上角「账号/密钥」检查 URL 或密钥配置）';
+  }
+}
+
+renderModels();
+</script>
+</body>
+</html>

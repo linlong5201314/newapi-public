@@ -109,24 +109,58 @@ func GetSelfChannelDetail(c *gin.Context) {
 	subscriptions, _ := model.ListProxySubscriptions(uid)
 	usableUrls, _ := model.ListUsableProxyUrls(uid)
 	enabledEndpoints := 0
+	ownEndpoints := 0
+	publicPoolEndpoints := 0
 	regionCount := map[string]int{}
+	selectableNodes := make([]gin.H, 0, 40)
 	for _, endpoint := range endpoints {
 		if endpoint.Enabled {
 			enabledEndpoints++
 		}
+		if endpoint.UserId == uid && endpoint.Source != "haizhu" {
+			ownEndpoints++
+		} else if endpoint.Public {
+			publicPoolEndpoints++
+		}
 		if region := strings.TrimSpace(endpoint.Region); region != "" {
 			regionCount[region]++
+		}
+		if len(selectableNodes) < 40 && endpoint.Enabled {
+			selectableNodes = append(selectableNodes, gin.H{
+				"id":         endpoint.Id,
+				"name":       endpoint.Name,
+				"kind":       endpoint.Kind,
+				"region":     endpoint.Region,
+				"latency_ms": endpoint.LatencyMs,
+				"public":     endpoint.Public,
+				"is_owner":   endpoint.UserId == uid && endpoint.Source != "haizhu",
+				"source":     endpoint.Source,
+			})
 		}
 	}
 	subNodes := 0
 	for _, sub := range subscriptions {
 		subNodes += sub.NodeCount
 	}
+	// 自有订阅/自有 IP 每个节点粗估可扩充 50 万免费层 token；免费公共池（haizhu 等）不计入且不显示剩余 token
+	perOwnIpTokens := int64(500000)
+	if monthlyTokens > 0 {
+		perOwnIpTokens = monthlyTokens
+	}
+	ownIpTokensTotal := int64(ownEndpoints) * perOwnIpTokens
 
 	models := make([]string, 0)
 	for _, item := range strings.Split(channel.Models, ",") {
 		if v := strings.TrimSpace(item); v != "" {
 			models = append(models, v)
+		}
+	}
+	publicModels := make([]string, 0)
+	if rawPub, ok := otherInfo["publicModels"].([]any); ok {
+		for _, item := range rawPub {
+			if s, sok := item.(string); sok && strings.TrimSpace(s) != "" {
+				publicModels = append(publicModels, strings.TrimSpace(s))
+			}
 		}
 	}
 
@@ -138,11 +172,12 @@ func GetSelfChannelDetail(c *gin.Context) {
 		"success": true,
 		"message": "",
 		"data": gin.H{
-			"channel":   channel,
-			"models":    models,
-			"health":    health,
-			"proxy":     proxyView,
-			"allow_ips": channel.AllowIps,
+			"channel":       channel,
+			"models":        models,
+			"public_models": publicModels,
+			"health":        health,
+			"proxy":         proxyView,
+			"allow_ips":     channel.AllowIps,
 			"template": gin.H{
 				"id":             templateId,
 				"name":           templateName,
@@ -154,12 +189,16 @@ func GetSelfChannelDetail(c *gin.Context) {
 			},
 			"token_estimate": tokenEstimate,
 			"proxy_pool": gin.H{
-				"endpoint_total":     len(endpoints),
-				"endpoint_enabled":   enabledEndpoints,
-				"usable_url_count":   len(usableUrls),
-				"subscription_total": len(subscriptions),
-				"subscription_nodes": subNodes,
-				"regions":            regionCount,
+				"endpoint_total":       len(endpoints),
+				"endpoint_enabled":     enabledEndpoints,
+				"own_endpoint_count":   ownEndpoints,
+				"public_pool_count":    publicPoolEndpoints,
+				"own_ip_tokens_total":  ownIpTokensTotal,
+				"usable_url_count":     len(usableUrls),
+				"subscription_total":   len(subscriptions),
+				"subscription_nodes":   subNodes,
+				"regions":              regionCount,
+				"selectable_nodes":     selectableNodes,
 			},
 			"has_key":  hasKey,
 			"is_owned": true,

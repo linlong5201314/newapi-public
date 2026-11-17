@@ -119,6 +119,13 @@ export function useSidebarData(badges: SidebarBadges = {}): SidebarData {
             requiredRole: ROLE.USER,
           },
           {
+            // [MY-MODELS] 我的模型：按渠道下钻显示并管理自己的模型与公开设置
+            title: '我的模型',
+            url: '/my-models',
+            icon: Box,
+            requiredRole: ROLE.USER,
+          },
+          {
             // [M2-FE] User-level route rules (virtual models over own channels)
             title: t('Route Rules'),
             url: '/route-rules',

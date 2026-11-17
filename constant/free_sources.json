@@ -653,11 +653,132 @@
       "authMode": "oauth",
       "hiddenEndpoint": true,
       "keyRequired": false,
-      "models": [],
-      "modelsList": [],
+      "models": [
+        "Intern-S2",
+        "internlm3-8b-instruct",
+        "internvl2.5-78b"
+      ],
+      "modelsList": [
+        "Intern-S2",
+        "internlm3-8b-instruct",
+        "internvl2.5-78b"
+      ],
       "extraFields": [],
       "homepageUrl": "https://discovery.intern-ai.org.cn/",
-      "freeNote": "不需要 API Key：打开 https://discovery.intern-ai.org.cn/ 登录，\n按 F12 → Application/存储 → Cookies → 复制 uaa-token 的值，粘贴到下面「账号授权」。\n平台会用它在你的账号下创建一把 ink- 前缀的 API Key（明文只返回一次），并接到 OpenAI 兼容端点；单账号最多 10 把，删号时只清理 ink- 前缀。",
+      "freeNote": "不需要 API Key：打开 https://discovery.intern-ai.org.cn/ 登录，\n按 F12 → Application/存储 → Cookies → 复制 uaa-token 的值，或直接粘贴 Token Plan 里的 sk-/ink- Key。",
+      "authType": "none"
+    },
+    {
+      "id": "qoder-cn",
+      "name": "Qoder CN（国内版 · 浏览器/PAT 授权）",
+      "baseUrl": "https://openapi.qoder.com.cn/v1",
+      "signupUrl": "https://qoder.cn/account/integrations",
+      "channelType": 1,
+      "authMode": "oauth",
+      "hiddenEndpoint": true,
+      "keyRequired": false,
+      "models": [
+        "qoder-rome-30ba3b",
+        "deepseek-v3",
+        "deepseek-r1",
+        "qwen-coder-plus",
+        "qwen-max",
+        "claude-sonnet-4.5"
+      ],
+      "freeNote": "参考本机 @magpie-community/opencode-qoder-auth：打开 https://qoder.cn/account/integrations 生成 Personal Access Token (PAT) 或复制桌面端登录态 token 粘贴到下方即可授权登录，支持勾选模型加入我的渠道或公开到公共池，并可在「我的签到」领取每日 100 Credits。",
+      "monthlyTokens": 30000000,
+      "freeType": "recurring-daily",
+      "tos": "own-account",
+      "poolKey": "qoder-cn",
+      "authType": "none"
+    },
+    {
+      "id": "workbuddy",
+      "name": "腾讯 WorkBuddy（设备授权登录）",
+      "baseUrl": "https://copilot.tencent.com/v1",
+      "signupUrl": "https://copilot.tencent.com",
+      "channelType": 65,
+      "authMode": "oauth",
+      "hiddenEndpoint": true,
+      "keyRequired": false,
+      "models": [
+        "deepseek-v3",
+        "deepseek-r1",
+        "hunyuan-turbos-latest",
+        "claude-3-7-sonnet",
+        "gpt-4o"
+      ],
+      "freeNote": "参考本机 @magpie-community/opencode-workbuddy-auth：点击下方「开始设备授权」在新窗口登录即可自动建好渠道（国内版带每日签到，国际版仅用于调用）。",
+      "monthlyTokens": 0,
+      "freeType": "reverse-proxy",
+      "tos": "own-account",
+      "poolKey": "workbuddy",
+      "authType": "none"
+    },
+    {
+      "id": "opencode-free",
+      "name": "OpenCode Free（IP 免费层 · 自动换 IP 扩容）",
+      "baseUrl": "https://opencode.ai/zen/v1",
+      "signupUrl": "https://opencode.ai",
+      "channelType": 1,
+      "authMode": "ip",
+      "hiddenEndpoint": false,
+      "keyRequired": false,
+      "models": [
+        "big-pickle",
+        "deepseek-v4.1-flash-free",
+        "glm-5.3-flash-free",
+        "longcat-2.5-free",
+        "minimax-m3.1-flash-free",
+        "mimo-v2.6-flash-free",
+        "nemotron-3.5-lightning-free"
+      ],
+      "freeNote": "参考 magpie-opencode-2-free-plug-in：无需 API Key，按 IP 免费层绑定出口池（默认联动 Haizhu 7114 公共节点池 + 虚拟设备标识），逐请求自动轮换 IP 刷新免费 Token 额度，遇错自动熔断切下一个 IP。",
+      "monthlyTokens": 0,
+      "freeType": "recurring-uncapped",
+      "tos": "ok",
+      "poolKey": "opencode-free",
+      "authType": "none"
+    },
+    {
+      "id": "kimi-work",
+      "name": "Kimi 办公版（@magpie-community 插件授权）",
+      "baseUrl": "https://kimi.moonshot.cn/api/v1",
+      "signupUrl": "https://kimi.moonshot.cn",
+      "channelType": 1,
+      "authMode": "oauth",
+      "hiddenEndpoint": true,
+      "keyRequired": false,
+      "models": [
+        "kimi-k2.5",
+        "kimi-k2-thinking",
+        "moonshot-v1-128k"
+      ],
+      "freeNote": "参考本机 @magpie-community/opencode-kimi-work-auth：粘贴 Kimi Web / 办公端 Bearer Token 即可授权接入。",
+      "monthlyTokens": 0,
+      "freeType": "reverse-proxy",
+      "tos": "own-account",
+      "poolKey": "kimi-work",
+      "authType": "none"
+    },
+    {
+      "id": "xiaomi-mimo",
+      "name": "小米 MiMo（@magpie-community 插件授权）",
+      "baseUrl": "https://api.xiaomimimo.com/v1",
+      "signupUrl": "https://xiaomimimo.com",
+      "channelType": 1,
+      "authMode": "oauth",
+      "hiddenEndpoint": true,
+      "keyRequired": false,
+      "models": [
+        "mimo-v2.6-flash",
+        "mimo-7b-rl"
+      ],
+      "freeNote": "参考本机 @magpie-community/opencode-mimo-auth：粘贴小米 MiMo 授权 Token 即可调用免费推理模型。",
+      "monthlyTokens": 0,
+      "freeType": "reverse-proxy",
+      "tos": "own-account",
+      "poolKey": "xiaomi-mimo",
       "authType": "none"
     },
     {

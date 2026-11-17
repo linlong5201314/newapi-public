@@ -11,19 +11,28 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// 本文件负责把「用户 + 启用节点」编译成一份可直接交给 mihomo 运行的配置：
-//   - 每个用户一个 select 策略组 u<uid>，组里是该用户的全部节点
-//   - 每个用户一个 mixed 监听口（basePort 起递增），listener 的 proxy 指向自己的组
-//
-// 这样一台 mihomo 就能同时服务多个用户：每个用户拿 http://127.0.0.1:<port> 当出口，
-// 切节点只要改自己那个组，互不影响。
+// 本文件负责把「启用节点（公共池公开节点 + 用户私有节点）」编译成一份单共享 mihomo 配置：
+//   - 全局唯一 mixed-port（默认 23456），external-controller（默认 127.0.0.1:23459）
+//   - 不用多用户多端口 listeners（避免 Windows 非常用端口拦截）
+//   - 公共池节点（Public=true）进入 PUBLIC_FAST (url-test) 与 PROXY 组，所有用户共享可用
+//   - 用户未勾选公开的私有节点（Public=false）仅进入该用户自己的可选列表 NodeNames[uid]，
+//     对其他用户既不可见（数据库与接口层过滤）也不可被其他用户调用或切换。
+
+const (
+	SharedGroupName     = "PROXY"
+	PublicFastGroupName = "PUBLIC_FAST"
+	maxUrlTestNodes     = 120
+	maxKernelProxies    = 1500
+)
 
 // RuntimeNode 一个待注入内核的节点。RawURI（clash-json:）优先，其次 URL（可直连的 http/socks）。
 type RuntimeNode struct {
+	ID     int
 	Name   string
 	Kind   string
 	URL    string
 	RawURI string
+	Public bool
 }
 
 // RuntimeUser 一个用户的内核视图。
@@ -32,27 +41,32 @@ type RuntimeUser struct {
 	Nodes []RuntimeNode
 }
 
-// RuntimePlan 编译结果：YAML 正文、用户端口表、组名表。
+// RuntimePlan 编译结果：YAML 正文、用户端口表、组名表与可见节点名。
 type RuntimePlan struct {
-	YAML   []byte
-	Ports  map[int]int
-	Groups map[int]string
-	// NodeNames 用户可选节点名（已带 uid 前缀，和 YAML 里的名字一致）。
-	NodeNames map[int][]string
-	Proxies   int
+	YAML       []byte
+	SharedPort int
+	Ports      map[int]int
+	Groups     map[int]string
+	// NodeNames 用户可选节点名（自己的私有节点 + 全部公开节点）。
+	NodeNames   map[int][]string
+	PublicNodes []string
+	AllNodes    []string
+	// EndpointNodeName 节点 ID -> 内核里的唯一节点名（供单节点测速使用）。
+	EndpointNodeName map[int]string
+	Proxies          int
 }
 
 // RuntimeOptions 内核配置参数。
 type RuntimeOptions struct {
 	BasePort   int
-	Controller string // 127.0.0.1:19090
+	Controller string // 127.0.0.1:23459
 	Secret     string
-	// LogLevel 默认 warning，避免把节点域名刷进日志。
-	LogLevel string
+	LogLevel   string
 }
 
 type runtimeDoc struct {
 	MixedPort          int              `yaml:"mixed-port"`
+	BindAddress        string           `yaml:"bind-address"`
 	AllowLan           bool             `yaml:"allow-lan"`
 	IPv6               bool             `yaml:"ipv6"`
 	Mode               string           `yaml:"mode"`
@@ -61,14 +75,13 @@ type runtimeDoc struct {
 	Secret             string           `yaml:"secret,omitempty"`
 	Proxies            []map[string]any `yaml:"proxies"`
 	ProxyGroups        []map[string]any `yaml:"proxy-groups"`
-	Listeners          []map[string]any `yaml:"listeners"`
 	Rules              []string         `yaml:"rules"`
 }
 
 // nodeNamePrefix 给节点名加 uid 前缀，保证跨用户重名也不会让 mihomo 启动失败。
 func nodeNamePrefix(uid int) string { return fmt.Sprintf("u%d·", uid) }
 
-// BuildRuntimeConfig 把若干用户编译成 mihomo 配置。没有可用节点的用户不出监听口。
+// BuildRuntimeConfig 编译单实例共享 mihomo 配置（mixed-port 23456 + MATCH,PROXY）。
 func BuildRuntimeConfig(users []RuntimeUser, opts RuntimeOptions) (*RuntimePlan, error) {
 	if opts.BasePort <= 0 {
 		opts.BasePort = 23456
@@ -77,75 +90,119 @@ func BuildRuntimeConfig(users []RuntimeUser, opts RuntimeOptions) (*RuntimePlan,
 		opts.Controller = "127.0.0.1:23459"
 	}
 	if opts.LogLevel == "" {
-		opts.LogLevel = "warning"
+		opts.LogLevel = "info"
 	}
 
 	doc := runtimeDoc{
+		MixedPort:          opts.BasePort,
+		BindAddress:        "127.0.0.1",
 		AllowLan:           false,
 		IPv6:               false,
 		Mode:               "rule",
 		LogLevel:           opts.LogLevel,
 		ExternalController: opts.Controller,
 		Secret:             opts.Secret,
-		Rules:              []string{"MATCH,DIRECT"},
+		Rules:              []string{"MATCH," + SharedGroupName},
 	}
 	plan := &RuntimePlan{
-		Ports:     map[int]int{},
-		Groups:    map[int]string{},
-		NodeNames: map[int][]string{},
+		SharedPort:       opts.BasePort,
+		Ports:            map[int]int{},
+		Groups:           map[int]string{},
+		NodeNames:        map[int][]string{},
+		EndpointNodeName: map[int]string{},
 	}
 
 	sorted := slices.Clone(users)
 	slices.SortFunc(sorted, func(a, b RuntimeUser) int { return a.UID - b.UID })
 
-	port := opts.BasePort
+	seen := map[string]struct{}{}
+	privateByUser := map[int][]string{}
+
 	for _, user := range sorted {
 		if user.UID <= 0 {
 			continue
 		}
 		prefix := nodeNamePrefix(user.UID)
-		names := make([]string, 0, len(user.Nodes))
-		seen := map[string]struct{}{}
 		for _, node := range user.Nodes {
+			if len(doc.Proxies) >= maxKernelProxies {
+				break
+			}
 			proxy, ok := runtimeProxy(node, prefix)
 			if !ok {
 				continue
 			}
-			name, _ := proxy["name"].(string)
-			if _, dup := seen[name]; dup {
-				continue
-			}
-			seen[name] = struct{}{}
+			baseName, _ := proxy["name"].(string)
+			name := uniqueProxyName(baseName, seen)
+			proxy["name"] = name
 			doc.Proxies = append(doc.Proxies, proxy)
-			names = append(names, name)
+			plan.AllNodes = append(plan.AllNodes, name)
+			if node.ID > 0 {
+				plan.EndpointNodeName[node.ID] = name
+			}
+			if node.Public {
+				plan.PublicNodes = append(plan.PublicNodes, name)
+			} else {
+				privateByUser[user.UID] = append(privateByUser[user.UID], name)
+			}
 		}
-		if len(names) == 0 {
+	}
+
+	plan.Proxies = len(doc.Proxies)
+	if len(doc.Proxies) == 0 {
+		doc.ProxyGroups = []map[string]any{}
+		doc.Rules = []string{"MATCH,DIRECT"}
+		encoded, err := yaml.Marshal(doc)
+		if err != nil {
+			return nil, fmt.Errorf("marshal mihomo config: %w", err)
+		}
+		plan.YAML = encoded
+		return plan, nil
+	}
+
+	// 公共池自动测速优选组（取前 maxUrlTestNodes 个公开节点参与周期测速，若无公开节点则用全部节点兜底）
+	fastCandidates := plan.PublicNodes
+	if len(fastCandidates) == 0 {
+		fastCandidates = plan.AllNodes
+	}
+	if len(fastCandidates) > maxUrlTestNodes {
+		fastCandidates = fastCandidates[:maxUrlTestNodes]
+	}
+
+	doc.ProxyGroups = append(doc.ProxyGroups, map[string]any{
+		"name":      PublicFastGroupName,
+		"type":      "url-test",
+		"url":       "http://cp.cloudflare.com/generate_204",
+		"interval":  180,
+		"tolerance": 80,
+		"proxies":   fastCandidates,
+	})
+
+	selectMembers := make([]string, 0, len(plan.AllNodes)+2)
+	selectMembers = append(selectMembers, PublicFastGroupName)
+	selectMembers = append(selectMembers, plan.AllNodes...)
+	doc.ProxyGroups = append(doc.ProxyGroups, map[string]any{
+		"name":    SharedGroupName,
+		"type":    "select",
+		"proxies": selectMembers,
+	})
+
+	// 为每个有节点的用户生成可见节点视图：自己的私有节点 + 公开节点
+	for _, user := range sorted {
+		if user.UID <= 0 {
 			continue
 		}
-		group := fmt.Sprintf("u%d", user.UID)
-		doc.ProxyGroups = append(doc.ProxyGroups, map[string]any{
-			"name":    group,
-			"type":    "select",
-			"proxies": names,
-		})
-		doc.Listeners = append(doc.Listeners, map[string]any{
-			"name":  group,
-			"type":  "mixed",
-			"port":  port,
-			"proxy": group,
-		})
-		plan.Ports[user.UID] = port
-		plan.Groups[user.UID] = group
-		plan.NodeNames[user.UID] = names
-		port++
+		own := privateByUser[user.UID]
+		visible := make([]string, 0, len(own)+len(plan.PublicNodes))
+		visible = append(visible, own...)
+		visible = append(visible, plan.PublicNodes...)
+		if len(visible) == 0 {
+			continue
+		}
+		plan.Ports[user.UID] = opts.BasePort
+		plan.Groups[user.UID] = SharedGroupName
+		plan.NodeNames[user.UID] = visible
 	}
-	plan.Proxies = len(doc.Proxies)
 
-	if len(doc.Proxies) == 0 {
-		// 没有节点时不生成监听口，只保留一个能启动的空配置。
-		doc.ProxyGroups = []map[string]any{}
-		doc.Listeners = []map[string]any{}
-	}
 	encoded, err := yaml.Marshal(doc)
 	if err != nil {
 		return nil, fmt.Errorf("marshal mihomo config: %w", err)
@@ -195,11 +252,15 @@ func runtimeProxy(node RuntimeNode, prefix string) (map[string]any, bool) {
 	if name == "" {
 		name = scheme + "://" + parsed.Host
 	}
+	portNum, err := strconv.Atoi(port)
+	if err != nil {
+		return nil, false
+	}
 	entry := map[string]any{
 		"name":   prefix + name,
 		"type":   proxyType,
 		"server": host,
-		"port":   port,
+		"port":   portNum,
 	}
 	if proxyType == "http" && scheme == "https" {
 		entry["tls"] = true
@@ -209,9 +270,6 @@ func runtimeProxy(node RuntimeNode, prefix string) (map[string]any, bool) {
 		if password, ok := parsed.User.Password(); ok {
 			entry["password"] = password
 		}
-	}
-	if _, err := strconv.Atoi(port); err != nil {
-		return nil, false
 	}
 	return entry, true
 }

@@ -198,5 +198,85 @@
     "desc": "书生·端砚 TokenPlan：控制台一次登录即可读额度与套餐模型（Intern-S2 等）",
     "authMode": "oauth",
     "stars": 0
+  },
+  {
+    "id": "qoder-cn",
+    "name": "Qoder CN 国内版 & 千问办公",
+    "repo": "@magpie-community/opencode-qoder-auth",
+    "desc": "Qoder 国内版 (qoder.cn) 与 QwenWork 授权插件：支持 PAT 换取 jobToken、自动续期、COSY 签名对话与每日 100 Credits 签到",
+    "authMode": "oauth",
+    "stars": 28
+  },
+  {
+    "id": "opencode-2-free",
+    "name": "OpenCode 2 Free（IP 轮换扩容插件）",
+    "repo": "magpie-opencode-2-free-plug-in",
+    "desc": "免 Key 调用 OpenCode Zen 免费模型（deepseek-v4.1-flash-free / glm-5.3-flash-free 等），联动出口 IP 池与虚拟设备指纹轮换解锁无限免费 Token",
+    "authMode": "ip",
+    "stars": 35
+  },
+  {
+    "id": "trae-auth",
+    "name": "Trae 国内/国际版 OAuth",
+    "repo": "@magpie-community/opencode-trae-auth",
+    "desc": "Trae IDE 授权插件：支持国内版 (trae.cn) 与国际版 (trae.ai) Token 轮换与模型调用",
+    "authMode": "oauth",
+    "stars": 24
+  },
+  {
+    "id": "workbuddy-auth",
+    "name": "腾讯 WorkBuddy 设备流授权",
+    "repo": "@magpie-community/opencode-workbuddy-auth",
+    "desc": "腾讯 Copilot / WorkBuddy 设备流 OAuth 登录与模型路由",
+    "authMode": "oauth",
+    "stars": 19
+  },
+  {
+    "id": "cline-auth",
+    "name": "Cline WorkOS 授权",
+    "repo": "@magpie-community/opencode-cline-auth",
+    "desc": "Cline 官方免费/Pass 模型浏览器授权接入（nemotron-3.5 / deepseek-v4-flash / glm-5.3-flash）",
+    "authMode": "oauth",
+    "stars": 17
+  },
+  {
+    "id": "kimi-work-auth",
+    "name": "Kimi 办公版授权",
+    "repo": "@magpie-community/opencode-kimi-work-auth",
+    "desc": "月之暗面 Kimi Work 授权插件，支持 Kimi-K2.5 与 Thinking 模型",
+    "authMode": "oauth",
+    "stars": 15
+  },
+  {
+    "id": "mimo-auth",
+    "name": "小米 MiMo 推理授权",
+    "repo": "@magpie-community/opencode-mimo-auth",
+    "desc": "小米 MiMo 免费推理模型 (mimo-v2.6-flash / mimo-7b-rl) Token 接入",
+    "authMode": "oauth",
+    "stars": 12
+  },
+  {
+    "id": "zcode-auth",
+    "name": "ZCode 授权插件",
+    "repo": "@magpie-community/opencode-zcode-auth",
+    "desc": "ZCode 开发者订阅 OAuth 接入与多模型桥接",
+    "authMode": "oauth",
+    "stars": 14
+  },
+  {
+    "id": "tabbit-auth",
+    "name": "Tabbit 编程助手授权",
+    "repo": "@magpie-community/opencode-tabbit-auth",
+    "desc": "Tabbit 代码补全与对话模型授权接入",
+    "authMode": "oauth",
+    "stars": 9
+  },
+  {
+    "id": "autoclaw-auth",
+    "name": "AutoClaw Agent 授权",
+    "repo": "@magpie-community/opencode-autoclaw-auth",
+    "desc": "AutoClaw 自动化 Agent 账号授权插件",
+    "authMode": "oauth",
+    "stars": 11
   }
 ]

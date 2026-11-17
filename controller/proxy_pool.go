@@ -22,7 +22,7 @@ import (
 
 const (
 	// proxyEndpointLimit 单用户出口节点上限。
-	proxyEndpointLimit = 500
+	proxyEndpointLimit = 10000
 	// proxySubscriptionLimit 单用户订阅上限。
 	proxySubscriptionLimit = 20
 	// proxyProbeTimeout 单节点连通性探测超时。
@@ -32,23 +32,24 @@ const (
 	// proxySubscriptionUserAgent 部分机场按 UA 返回不同格式，固定成 clash 客户端。
 	proxySubscriptionUserAgent = "ClashforWindows/0.20.39"
 	// proxySubscriptionBodyLimit 订阅响应体上限，防止超大订阅打爆内存。
-	proxySubscriptionBodyLimit = 4 << 20
+	proxySubscriptionBodyLimit = 16 << 20
 	// proxyProbeUrl 出口 IP 回显服务。
 	proxyProbeUrl = "https://api.ipify.org?format=json"
 	// proxyMixedPortBase 导出 mihomo 配置时使用的 mixed-port。
-	proxyMixedPortBase = 7890
+	proxyMixedPortBase = 23456
 )
 
-// GetProxyEndpoints GET /api/proxy-pool/endpoints — 当前用户的出口节点列表。
+// GetProxyEndpoints GET /api/proxy-pool/endpoints — 当前用户可见的出口节点列表（自己的 + 公共池公开的）。
 func GetProxyEndpoints(c *gin.Context) {
-	list, err := model.ListProxyEndpoints(c.GetInt("id"))
+	uid := c.GetInt("id")
+	list, err := model.ListProxyEndpoints(uid)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	out := make([]gin.H, 0, len(list))
 	for _, endpoint := range list {
-		out = append(out, proxyEndpointView(endpoint))
+		out = append(out, proxyEndpointViewForUser(endpoint, uid))
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": out})
 }
@@ -56,8 +57,9 @@ func GetProxyEndpoints(c *gin.Context) {
 // CreateProxyEndpoint POST /api/proxy-pool/endpoints — 手动添加一个出口节点。
 func CreateProxyEndpoint(c *gin.Context) {
 	var req struct {
-		Name string `json:"name"`
-		Url  string `json:"url"`
+		Name   string `json:"name"`
+		Url    string `json:"url"`
+		Public bool   `json:"public"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ApiErrorMsg(c, "invalid request body")
@@ -99,17 +101,20 @@ func CreateProxyEndpoint(c *gin.Context) {
 		Name:    name,
 		Kind:    parsedURL.Scheme,
 		Url:     parsedURL.String(),
+		Source:  "manual",
 		Enabled: true,
+		Public:  req.Public,
 		Weight:  1,
 	}
 	if err := model.CreateProxyEndpoint(endpoint); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": proxyEndpointView(*endpoint)})
+	triggerKernelReload()
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": proxyEndpointViewForUser(*endpoint, userId)})
 }
 
-// UpdateProxyEndpoint PATCH /api/proxy-pool/endpoints/:id — 改 name/enabled/weight。
+// UpdateProxyEndpoint PATCH /api/proxy-pool/endpoints/:id — 改 name/enabled/weight/public。
 func UpdateProxyEndpoint(c *gin.Context) {
 	id, ok := proxyPoolId(c)
 	if !ok {
@@ -118,6 +123,7 @@ func UpdateProxyEndpoint(c *gin.Context) {
 	var req struct {
 		Name    *string `json:"name"`
 		Enabled *bool   `json:"enabled"`
+		Public  *bool   `json:"public"`
 		Weight  *int    `json:"weight"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -125,7 +131,7 @@ func UpdateProxyEndpoint(c *gin.Context) {
 		return
 	}
 
-	fields := make(map[string]any, 3)
+	fields := make(map[string]any, 4)
 	if req.Name != nil {
 		name := strings.TrimSpace(*req.Name)
 		if name == "" {
@@ -136,6 +142,9 @@ func UpdateProxyEndpoint(c *gin.Context) {
 	}
 	if req.Enabled != nil {
 		fields["enabled"] = *req.Enabled
+	}
+	if req.Public != nil {
+		fields["public"] = *req.Public
 	}
 	if req.Weight != nil {
 		if *req.Weight < 0 {
@@ -154,12 +163,13 @@ func UpdateProxyEndpoint(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	triggerKernelReload()
 	endpoint, err := model.GetProxyEndpoint(userId, id)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": proxyEndpointView(*endpoint)})
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": proxyEndpointViewForUser(*endpoint, userId)})
 }
 
 // DeleteProxyEndpoint DELETE /api/proxy-pool/endpoints/:id — 删除一个出口节点。
@@ -176,17 +186,18 @@ func DeleteProxyEndpoint(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	triggerKernelReload()
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
-// TestProxyEndpoint POST /api/proxy-pool/endpoints/:id/test — 用该节点回显出口 IP。
+// TestProxyEndpoint POST /api/proxy-pool/endpoints/:id/test — 探测出口节点延迟与可用性（支持直连 URL 与内置 mihomo 客户端节点）。
 func TestProxyEndpoint(c *gin.Context) {
 	id, ok := proxyPoolId(c)
 	if !ok {
 		return
 	}
 	userId := c.GetInt("id")
-	endpoint, err := model.GetProxyEndpoint(userId, id)
+	endpoint, err := model.GetProxyEndpointVisible(userId, id)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			common.ApiErrorMsg(c, "proxy endpoint not found")
@@ -195,18 +206,41 @@ func TestProxyEndpoint(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	// 客户端协议节点（vless/vmess/anytls/ss 等）：直接通过内置 mihomo controller 测速
 	if strings.TrimSpace(endpoint.Url) == "" {
-		common.ApiErrorMsg(c, "this node has no dialable url; client nodes need an external mihomo")
+		if strings.TrimSpace(endpoint.RawUri) == "" {
+			common.ApiErrorMsg(c, "this node has neither dialable url nor raw uri")
+			return
+		}
+		delayMs, kerr := proxy_pool.ManagerInstance().ProbeEndpointDelay(endpoint.Id)
+		if kerr != nil {
+			message := kerr.Error()
+			model.InvalidateProxyPoolCache(userId)
+			_ = model.MarkProxyEndpointLatency(endpoint.Id, false, 0, message)
+			c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{
+				"ok":         false,
+				"error":      message,
+				"latency_ms": 0,
+			}})
+			return
+		}
+		model.InvalidateProxyPoolCache(userId)
+		_ = model.MarkProxyEndpointLatency(endpoint.Id, true, delayMs, "")
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{
+			"ok":         true,
+			"ip":         endpoint.Region + " (" + endpoint.Kind + ")",
+			"latency_ms": delayMs,
+		}})
 		return
 	}
 
 	startedAt := time.Now()
 	ip, err := probeProxyEndpoint(endpoint.Url)
-	latencyMs := time.Since(startedAt).Milliseconds()
+	latencyMs := int(time.Since(startedAt).Milliseconds())
 	if err != nil {
 		message := err.Error()
 		model.InvalidateProxyPoolCache(userId)
-		if markErr := model.MarkProxyEndpointResult(endpoint.Id, false, message); markErr != nil {
+		if markErr := model.MarkProxyEndpointLatency(endpoint.Id, false, 0, message); markErr != nil {
 			common.ApiError(c, markErr)
 			return
 		}
@@ -218,7 +252,7 @@ func TestProxyEndpoint(c *gin.Context) {
 		return
 	}
 	model.InvalidateProxyPoolCache(userId)
-	if err := model.MarkProxyEndpointResult(endpoint.Id, true, ""); err != nil {
+	if err := model.MarkProxyEndpointLatency(endpoint.Id, true, latencyMs, ""); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -283,6 +317,7 @@ func CreateProxySubscription(c *gin.Context) {
 		Name   string `json:"name"`
 		Url    string `json:"url"`
 		Format string `json:"format"`
+		Public bool   `json:"public"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ApiErrorMsg(c, "invalid request body")
@@ -319,6 +354,7 @@ func CreateProxySubscription(c *gin.Context) {
 		Url:     rawUrl,
 		Format:  strings.TrimSpace(req.Format),
 		Enabled: true,
+		Public:  req.Public,
 	}
 	if err := model.CreateProxySubscription(sub); err != nil {
 		common.ApiError(c, err)
@@ -447,7 +483,9 @@ func syncProxySubscription(sub *model.ProxySubscription) (int, string, error) {
 			RawUri:         node.RawUri,
 			Region:         node.Region,
 			SubscriptionId: sub.Id,
+			Source:         "subscription",
 			Enabled:        true,
+			Public:         sub.Public,
 			Weight:         1,
 		})
 	}
@@ -592,12 +630,20 @@ func GetProxyPoolSummary(c *gin.Context) {
 
 	enabledCount := 0
 	clientNodeCount := 0
+	publicCount := 0
+	haizhuCount := 0
 	for _, endpoint := range endpoints {
 		if endpoint.Enabled {
 			enabledCount++
 		}
 		if strings.TrimSpace(endpoint.RawUri) != "" {
 			clientNodeCount++
+		}
+		if endpoint.Public {
+			publicCount++
+		}
+		if endpoint.Source == "haizhu" {
+			haizhuCount++
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{
@@ -606,6 +652,32 @@ func GetProxyPoolSummary(c *gin.Context) {
 		"usable_url_count":   len(usableUrls),
 		"subscription_total": len(subscriptions),
 		"client_node_count":  clientNodeCount,
+		"public_node_count":  publicCount,
+		"haizhu_node_count":  haizhuCount,
+	}})
+}
+
+// ImportHaizhuPoolNodes POST /api/proxy-pool/import-haizhu
+// body: {"mode":"full|top"} — 一键把本机 HaizhuClash 0.14.3 节点导入公共池（public=true）。
+func ImportHaizhuPoolNodes(c *gin.Context) {
+	var req struct {
+		Mode string `json:"mode"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	mode := strings.TrimSpace(req.Mode)
+	if mode == "" {
+		mode = "full"
+	}
+	count, err := proxy_pool.ImportHaizhuNodes(c.GetInt("id"), mode)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	triggerKernelReload()
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{
+		"imported": count,
+		"mode":     mode,
+		"public":   true,
 	}})
 }
 
@@ -624,19 +696,24 @@ func ExportProxyPoolConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"config": config}})
 }
 
-// proxyEndpointView 出口节点的对外视图：代理 URL 脱敏（userinfo → ***）。
-func proxyEndpointView(endpoint model.ProxyEndpoint) gin.H {
+// proxyEndpointViewForUser 出口节点的对外视图：代理 URL 脱敏（userinfo → ***），包含 public 与 is_owner。
+func proxyEndpointViewForUser(endpoint model.ProxyEndpoint, currentUserId int) gin.H {
 	view := gin.H{
 		"id":              endpoint.Id,
+		"user_id":         endpoint.UserId,
+		"is_owner":        endpoint.UserId == currentUserId,
 		"name":            endpoint.Name,
 		"kind":            endpoint.Kind,
 		"region":          endpoint.Region,
 		"subscription_id": endpoint.SubscriptionId,
+		"source":          endpoint.Source,
 		"enabled":         endpoint.Enabled,
+		"public":          endpoint.Public,
 		"weight":          endpoint.Weight,
+		"latency_ms":      endpoint.LatencyMs,
 		"fail_count":      endpoint.FailCount,
 		"last_error":      endpoint.LastError,
-		"dialable":        strings.TrimSpace(endpoint.Url) != "",
+		"dialable":        strings.TrimSpace(endpoint.Url) != "" || strings.TrimSpace(endpoint.RawUri) != "",
 		"created_at":      endpoint.CreatedAt.Format(time.RFC3339),
 		"updated_at":      endpoint.UpdatedAt.Format(time.RFC3339),
 	}
@@ -664,6 +741,7 @@ func proxySubscriptionView(sub model.ProxySubscription) gin.H {
 		"traffic_total": sub.TrafficTotal,
 		"last_error":    sub.LastError,
 		"enabled":       sub.Enabled,
+		"public":        sub.Public,
 		"created_at":    sub.CreatedAt.Format(time.RFC3339),
 		"updated_at":    sub.UpdatedAt.Format(time.RFC3339),
 	}
