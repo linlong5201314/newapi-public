@@ -664,12 +664,9 @@
       "id": "proxy-subscription",
       "name": "机场订阅（自建出口 IP）",
       "channelType": 1,
-      "baseUrl": "{base}",
+      "baseUrl": "",
       "signupUrl": "",
       "keyRequired": false,
-      "extraFields": [
-        "base"
-      ],
       "defaultExtra": {},
       "models": [],
       "freeNote": "把机场订阅链接粘进来，平台会解析节点数量与剩余流量，并把这些节点加进你的出口池；之后用同一订阅来源访问免费源即可。适合需要固定住宅/机房出口 IP 的上游。",
