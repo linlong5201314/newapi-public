@@ -58,7 +58,23 @@ func CreateSelfBinding(c *gin.Context) {
 		kind = "oauth"
 		creds, err = model.ParseOAuthToken(req.Accounts)
 	default:
-		creds, err = model.ParseAccountLines(req.Accounts)
+		// 账号型：支持「账号----密码」「账号----会话Token」「裸 Token」三种写法，
+		// 因为 ds2api 这类网页反代对数据中心 IP 的密码登录会被上游设备风控拦掉，
+		// 用户改用浏览器登录后的会话 token 才能通。
+		creds, err = model.ParseAccountOrTokenLines(req.Accounts)
+		if err == nil && len(creds) > 0 {
+			tokenCount := 0
+			for _, cred := range creds {
+				if model.IsLikelySessionToken(cred.Password) {
+					tokenCount++
+				}
+			}
+			if tokenCount > 0 && tokenCount < len(creds) {
+				kind = "mixed"
+			} else if tokenCount == len(creds) {
+				kind = "token"
+			}
+		}
 	}
 	if err != nil {
 		common.ApiErrorMsg(c, err.Error())
