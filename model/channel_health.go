@@ -108,6 +108,10 @@ func RecordChannelOutcome(channelId int, success bool, latencyMs int64) {
 	if success && latencyMs > 0 {
 		latDelta = latencyMs
 	}
+	// 环形缓冲也要同步出去：多节点部署时，请求落在 A 节点、公共池页面在 B 节点渲染，
+	// 只同步累计 ok/fail 会让 B 节点永远看不到「最近几次」样本，健康度一直是 unknown。
+	ring := entry.ringStringLocked()
+	sampleCount := entry.count
 	entry.redisOK = 0
 	entry.redisFail = 0
 	entry.mu.Unlock()
@@ -115,10 +119,32 @@ func RecordChannelOutcome(channelId int, success bool, latencyMs int64) {
 	if !common.RedisEnabled || common.RDB == nil {
 		return
 	}
-	go flushChannelHealthToRedis(channelId, okDelta, failDelta, latDelta)
+	go flushChannelHealthToRedis(channelId, okDelta, failDelta, latDelta, ring, sampleCount)
 }
 
-func flushChannelHealthToRedis(channelId int, okDelta, failDelta, latDelta int64) {
+// ringStringLocked 把环形缓冲按时间顺序压成 "1011" 形式；调用方必须已持锁。
+func (entry *channelHealthEntry) ringStringLocked() string {
+	if entry.count == 0 {
+		return ""
+	}
+	buf := make([]byte, 0, entry.count)
+	// 缓冲未写满时有效数据在 [0,count)；写满后 next 指向最旧的一条。
+	start := 0
+	if entry.count == ChannelHealthSampleSize {
+		start = entry.next
+	}
+	for i := 0; i < entry.count; i++ {
+		idx := (start + i) % ChannelHealthSampleSize
+		if entry.recent[idx] {
+			buf = append(buf, '1')
+		} else {
+			buf = append(buf, '0')
+		}
+	}
+	return string(buf)
+}
+
+func flushChannelHealthToRedis(channelId int, okDelta, failDelta, latDelta int64, ring string, sampleCount int) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	key := channelHealthRedisKey(channelId)
@@ -132,6 +158,10 @@ func flushChannelHealthToRedis(channelId int, okDelta, failDelta, latDelta int64
 	if latDelta > 0 {
 		pipe.HIncrBy(ctx, key, "lat", latDelta)
 		pipe.HIncrBy(ctx, key, "lat_n", 1)
+	}
+	if ring != "" {
+		pipe.HSet(ctx, key, "ring", ring)
+		pipe.HSet(ctx, key, "samples", strconv.Itoa(sampleCount))
 	}
 	pipe.Expire(ctx, key, channelHealthRedisTTL)
 	_, _ = pipe.Exec(ctx)
@@ -159,15 +189,30 @@ func (entry *channelHealthEntry) hydrateFromRedis(channelId int) {
 	entry.hydrated = true
 	entry.loadedAt = time.Now()
 	if err == nil && len(values) > 0 {
-		ok, _ := strconv.ParseInt(values["ok"], 10, 64)
-		fail, _ := strconv.ParseInt(values["fail"], 10, 64)
 		lat, _ := strconv.ParseInt(values["lat"], 10, 64)
 		latN, _ := strconv.ParseInt(values["lat_n"], 10, 64)
-		entry.redisOK = ok
-		entry.redisFail = fail
+		// redisOK/redisFail 是「待刷入 Redis 的增量」，不能直接装累计值，
+		// 否则下一次 flush 会把整个总量再累加一遍，Redis 里的计数会指数膨胀。
+		entry.redisOK = 0
+		entry.redisFail = 0
 		if lat > 0 && latN > 0 {
 			entry.latSum = lat
 			entry.latCount = int(latN)
+		}
+		// 别的节点写进来的最近结果也补进本地环形缓冲，否则本节点永远凑不满样本。
+		if ring := values["ring"]; ring != "" && entry.count < ChannelHealthSampleSize {
+			entry.recent = [ChannelHealthSampleSize]bool{}
+			entry.count = 0
+			entry.next = 0
+			start := len(ring) - ChannelHealthSampleSize
+			if start < 0 {
+				start = 0
+			}
+			for _, ch := range ring[start:] {
+				entry.recent[entry.count] = ch == '1'
+				entry.count++
+			}
+			entry.next = entry.count % ChannelHealthSampleSize
 		}
 	}
 	entry.mu.Unlock()
