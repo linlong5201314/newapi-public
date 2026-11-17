@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	"math/rand"
 	"sort"
 	"strings"
 	"sync"
@@ -197,20 +198,30 @@ func getChannelByOwners(
 	}
 	channel := Channel{}
 	if len(abilities) > 0 {
-		// Randomly choose one
-		weightSum := uint(0)
-		for _, ability_ := range abilities {
-			weightSum += ability_.Weight + 10
+		// 按「权重 × 健康度」加权随机；健康度把近几次成功率算进去，
+		// 快而稳的渠道多分流量，连续失败的自然降权。
+		weights := make([]float64, len(abilities))
+		var weightSum float64
+		for i, ability := range abilities {
+			weights[i] = float64(ability.Weight+10) * ChannelHealthFactor(ability.ChannelId)
+			weightSum += weights[i]
 		}
-		// Randomly choose one
-		weight := common.GetRandomInt(int(weightSum))
-		for _, ability_ := range abilities {
-			weight -= int(ability_.Weight) + 10
-			//log.Printf("weight: %d, ability weight: %d", weight, *ability_.Weight)
-			if weight <= 0 {
-				channel.Id = ability_.ChannelId
+		if weightSum <= 0 {
+			for i := range weights {
+				weights[i] = 1
+			}
+			weightSum = float64(len(weights))
+		}
+		randomWeight := rand.Float64() * weightSum
+		for i, ability := range abilities {
+			randomWeight -= weights[i]
+			if randomWeight < 0 {
+				channel.Id = ability.ChannelId
 				break
 			}
+		}
+		if channel.Id == 0 {
+			channel.Id = abilities[len(abilities)-1].ChannelId
 		}
 	} else {
 		return nil, nil
