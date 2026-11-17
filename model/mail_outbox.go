@@ -1,10 +1,20 @@
 package model
 
 import (
+	"context"
 	"os"
+	"strconv"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 )
+
+// MailEventChannel 是「有新邮件入队」的 Redis 广播频道。
+//
+// 为什么需要：面板按固定间隔轮询 mail_outbox，间隔越短数据库压力越大，
+// 间隔越长用户等验证码越久。改成「入队即广播」后面板订阅该频道，
+// 收到消息立刻发信，延迟从「一个轮询周期」降到毫秒级。
+const MailEventChannel = "mail_event"
 
 // MailOutbox 是「平台自建邮箱投递队列」。
 //
@@ -47,7 +57,21 @@ func InitMailOutbox() {
 			return err
 		}
 		common.SysLog(common.LogText("mail queued to outbox id=%d receiver=%s", row.Id, receiver))
+		publishMailEvent(row.Id)
 		return nil
 	}
 	common.SysLog(common.LogText("mail outbox mode enabled: emails are queued for the local panel sender"))
+}
+
+// publishMailEvent 在邮件入队后广播一条消息，让面板立刻取件。
+// Redis 不可用时静默跳过：面板的定时轮询仍然能兜住，不会丢邮件。
+func publishMailEvent(id int64) {
+	if !common.RedisEnabled || common.RDB == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := common.RDB.Publish(ctx, MailEventChannel, strconv.FormatInt(id, 10)).Err(); err != nil {
+		common.SysLog(common.LogText("mail event publish failed id=%d err=%v", id, err))
+	}
 }
