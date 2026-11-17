@@ -30,12 +30,22 @@ func GetFreeSourceTemplates(c *gin.Context) {
 		safe := make([]*constant.FreeSourceTemplate, 0, len(items))
 		for _, t := range items {
 			cp := *t
+			// 老模板没写 authType 时按 authMode 推导，保证前端拿到统一口径。
+			cp.AuthType = t.EffectiveAuthType()
 			if cp.HiddenEndpoint || cp.AuthMode == "account" || cp.AuthMode == "oauth" {
 				cp.BaseUrl = ""
 				cp.DefaultExtra = nil
 				cp.SignupUrl = ""
 				cp.ExtraFields = nil
 			}
+			safe = append(safe, &cp)
+		}
+		items = safe
+	} else {
+		safe := make([]*constant.FreeSourceTemplate, 0, len(items))
+		for _, t := range items {
+			cp := *t
+			cp.AuthType = t.EffectiveAuthType()
 			safe = append(safe, &cp)
 		}
 		items = safe
@@ -70,6 +80,9 @@ func AddSelfChannelFromTemplate(c *gin.Context) {
 		MultiKeyMode string `json:"multi_key_mode"`
 		// AllowIps 免费层渠道的订阅 IP 白名单（逗号/换行分隔，支持 CIDR）；为空表示不限来源
 		AllowIps string `json:"allow_ips"`
+		// SubscriptionUrl 订阅型来源（authType=subscription）的机场订阅链接：
+		// 平台会解析出节点数/剩余流量，并把节点加进该用户的出口池。
+		SubscriptionUrl string `json:"subscription_url"`
 	}{}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ApiErrorT(c, "Invalid parameters")
@@ -166,6 +179,34 @@ func AddSelfChannelFromTemplate(c *gin.Context) {
 		if len(cleaned) > 0 {
 			channel.Key = strings.Join(cleaned, "\n")
 			addMode = "multi_to_single"
+		}
+	}
+	// 订阅型来源（authType=subscription）：用户粘的是机场订阅链接而不是密钥。
+	// 这里把订阅登记进该用户的出口池并立刻同步一次，节点数与剩余流量随之可见；
+	// 渠道本身走用户出口池（proxy 留空），不需要任何上游 Key。
+	if tpl.EffectiveAuthType() == "subscription" {
+		subUrl := strings.TrimSpace(req.SubscriptionUrl)
+		if subUrl == "" {
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": "订阅链接不能为空"})
+			return
+		}
+		if !strings.HasPrefix(subUrl, "http://") && !strings.HasPrefix(subUrl, "https://") {
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": "订阅链接必须以 http(s):// 开头"})
+			return
+		}
+		sub := &model.ProxySubscription{
+			UserId:  uid,
+			Name:    tpl.Name,
+			Url:     subUrl,
+			Enabled: true,
+		}
+		if err := model.CreateProxySubscription(sub); err != nil {
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": "保存订阅失败：" + err.Error()})
+			return
+		}
+		// 同步失败不阻塞建渠道：节点数和错误信息在订阅列表里可见。
+		if _, _, syncErr := syncProxySubscription(sub); syncErr != nil {
+			common.SysError(common.LogText("sync subscription %d failed: %s", sub.Id, syncErr.Error()))
 		}
 	}
 	addChannelExecute(c, &AddChannelRequest{
