@@ -16,7 +16,8 @@ type SelfAccountBinding struct {
 	Id       int    `json:"id" gorm:"primaryKey;autoIncrement"`
 	UserId   int    `json:"user_id" gorm:"not null;index:idx_sab_user"`
 	Provider string `json:"provider" gorm:"type:varchar(64);not null;index:idx_sab_provider"`
-	// Kind 绑定类型：password=账号密码（账号型反代）、oauth=授权登录（粘贴授权码/Token）、gateway=配套网关（如 magpie，一用户一实例）
+	// Kind 绑定类型：password=账号密码（账号型反代）、token=会话Token（密码登录被上游设备风控拦截时改用）、
+	// mixed=账号密码与会话Token混填、oauth=授权登录（粘贴授权码/Token）、gateway=配套网关（如 magpie，一用户一实例）
 	Kind string `json:"kind" gorm:"type:varchar(16);not null;default:'password'"`
 	// Proxy 出口代理：''=跟随平台默认（用户出口池）、'direct'=强制直连、其它=固定代理 URL（http/https/socks5）。
 	Proxy        string    `json:"proxy" gorm:"type:varchar(255);not null;default:''"`
@@ -223,6 +224,79 @@ func GetBindingById(id int) (*SelfAccountBinding, error) {
 		return nil, errors.New("binding not found")
 	}
 	return &b, err
+}
+
+// IsLikelySessionToken 判断第二段是「会话 token」而不是「密码」。
+// 用途：ds2api 这类网页反代，上游对数据中心 IP 的账号密码登录会返回
+// RISK_DEVICE_DETECTED，只能改用浏览器登录后拿到的会话 token（寿命数月）。
+// 判据：够长、无空白、且不像普通密码（普通密码很少超过 60 字符）。
+func IsLikelySessionToken(s string) bool {
+	s = strings.TrimSpace(s)
+	if len(s) < 60 {
+		return false
+	}
+	if strings.ContainsAny(s, " \t\r\n") {
+		return false
+	}
+	// JWT 三段式，或 DeepSeek 的裸 token（base64url 长串）
+	if strings.HasPrefix(s, "eyJ") {
+		return true
+	}
+	return strings.Count(s, ".") >= 2 || len(s) >= 80
+}
+
+// ParseAccountOrTokenLines 解析账号型反代的凭据，一行一个，支持三种写法：
+//
+//	账号----密码      （走账号密码登录）
+//	账号----会话Token （第二段够长且像 token 时自动识别，走 token 注入）
+//	裸 Token          （整行就是一个 token，账号留空，由上游自行识别）
+//
+// 识别出来的 token 存在 Password 字段，由开通器按 IsLikelySessionToken 判断后
+// 写成 ds2api 的 accounts[].token 而不是 accounts[].password。
+func ParseAccountOrTokenLines(raw string) ([]SelfAccountCred, error) {
+	var out []SelfAccountCred
+	seen := map[string]bool{}
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		var acc, secret string
+		if idx := strings.Index(line, "----"); idx >= 0 {
+			acc = strings.TrimSpace(line[:idx])
+			secret = strings.TrimSpace(line[idx+4:])
+		} else if IsLikelySessionToken(line) {
+			acc = ""
+			secret = line
+		} else {
+			switch {
+			case strings.Contains(line, "\t"):
+				p := strings.SplitN(line, "\t", 2)
+				acc, secret = strings.TrimSpace(p[0]), strings.TrimSpace(p[1])
+			case strings.Contains(line, "|"):
+				p := strings.SplitN(line, "|", 2)
+				acc, secret = strings.TrimSpace(p[0]), strings.TrimSpace(p[1])
+			default:
+				return nil, fmt.Errorf("格式不对：%s（应为 账号----密码，或 账号----会话Token，或直接粘贴 Token）", line)
+			}
+		}
+		if secret == "" {
+			return nil, fmt.Errorf("密码/Token 为空：%s", line)
+		}
+		key := strings.ToLower(acc + "|" + secret)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, SelfAccountCred{Account: acc, Password: secret})
+	}
+	if len(out) == 0 {
+		return nil, errors.New("没有解析到任何凭据，请按 账号----密码 或 账号----会话Token 每行一个填写")
+	}
+	if len(out) > 50 {
+		return nil, errors.New("单个绑定最多 50 条凭据")
+	}
+	return out, nil
 }
 
 // ParseOAuthToken 解析授权登录凭据：一行一个授权码 / 回调链接 / Token，
