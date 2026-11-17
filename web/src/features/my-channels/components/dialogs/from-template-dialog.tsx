@@ -194,7 +194,12 @@ export function FromTemplateDialog({
           : {}),
       })
       if (result.success) {
-        toast.success(t('Channel created from free source'))
+        // 订阅型来源不建渠道，只是把节点登记进出口池，提示要区分开。
+        toast.success(
+          isSubscription
+            ? t('Subscription saved to your egress pool')
+            : t('Channel created from free source')
+        )
         queryClient.invalidateQueries({
           queryKey: channelsQueryKeys.lists(),
         })
