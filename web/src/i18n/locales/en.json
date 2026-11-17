@@ -2857,7 +2857,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "Related Projects",
     "footer.defaultCopyright": "All rights reserved.",
-    "footer.new\u0061pi.projectAttributionSuffix": "All rights reserved. Designed and developed by the project contributors.",
+    "footer.newapi.projectAttributionSuffix": "All rights reserved. Designed and developed by the project contributors.",
     "For advanced custom channels this applies only to /v1/responses routes without protocol conversion.": "For advanced custom channels this applies only to /v1/responses routes without protocol conversion.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment",
     "For private deployments, format: https://fastgpt.run/api/openapi": "For private deployments, format: https://fastgpt.run/api/openapi",
@@ -7938,6 +7938,11 @@
     "Edit entry": "编辑条目",
     "Node count": "节点数",
     "Last synced": "最近同步",
-    "Free tier (IP allowlist) needs no API key": "免费层（IP 白名单）不需要 API Key"
+    "Free tier (IP allowlist) needs no API key": "免费层（IP 白名单）不需要 API Key",
+    "Airport subscription link": "Airport subscription link",
+    "Paste the subscription URL (http/https)": "Paste the subscription URL (http/https)",
+    "The platform parses node count and remaining traffic, adds those nodes to your egress pool, then routes this source through them. No API key needed.": "The platform parses node count and remaining traffic, adds those nodes to your egress pool, then routes this source through them. No API key needed.",
+    "No key needed for this source": "No key needed for this source",
+    "This source is authorized by IP or an account login; nothing secret is stored here.": "This source is authorized by IP or an account login; nothing secret is stored here."
   }
 }
