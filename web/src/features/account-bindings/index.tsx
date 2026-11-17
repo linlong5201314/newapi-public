@@ -249,11 +249,21 @@ export function AccountBindingsCard() {
                 ? provider === 'internlm-inkstone'
                   ? 'sk-…（书生 Token Plan 里的 API Key，每行一个）\n也可粘贴控制台 Cookie 里的 uaa-token，由平台代建 Key'
                   : '浏览器授权后的回调链接或 Token（每行一个）'
-                : '账号----密码\n账号----密码（每行一个，可一次粘贴多个）'
+                : provider === 'ds2api'
+                  ? '账号----密码\n或 账号----会话Token（推荐）\n或 直接粘贴 Token（每行一个）'
+                  : '账号----密码\n账号----密码（每行一个，可一次粘贴多个）'
         }
         value={accounts}
         onChange={(e) => setAccounts(e.target.value)}
       />
+      {provider === 'ds2api' && (
+        <div className='text-muted-foreground mt-1 text-xs leading-relaxed'>
+          DeepSeek 网页端对服务器 IP 的密码登录会返回 RISK_DEVICE_DETECTED，
+          建议改用会话 Token：浏览器登录 chat.deepseek.com → F12 → Application →
+          Local Storage → 复制 <code>userToken</code> 的值，按「账号----Token」粘贴。
+          Token 有效期数月，过期后重新粘贴即可。
+        </div>
+      )}
       {!isGateway && (
         <div className='mt-2'>
           <input
