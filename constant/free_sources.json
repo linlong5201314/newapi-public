@@ -17,7 +17,7 @@
         "openai/gpt-oss-20b",
         "qwen/qwen3-32b"
       ],
-      "freeNote": "Free tier: 30 RPM / 14.4K RPD — no credit card",
+      "freeNote": "免费层：每分钟 30 次 / 每天 1.44 万次，无需绑卡。控制台 console.groq.com 取密钥。",
       "monthlyTokens": 15000000,
       "freeType": "recurring-daily",
       "tos": "caution",
@@ -38,7 +38,7 @@
         "gemini-3.1-flash-lite",
         "gemini-3.5-flash"
       ],
-      "freeNote": "Free forever: 1,500 req/day for Gemini 2.5 Flash — no credit card, get key at aistudio.google.com",
+      "freeNote": "永久免费：Gemini 2.5 Flash 每天 1500 次，无需绑卡。密钥在 aistudio.google.com 获取。",
       "monthlyTokens": 60000000,
       "freeType": "recurring-daily",
       "tos": "caution",
@@ -56,7 +56,7 @@
         "zai-glm-4.7",
         "gpt-oss-120b"
       ],
-      "freeNote": "Free Trial: 1M tokens/day, 30K TPM, 5 RPM — no credit card.",
+      "freeNote": "免费试用：每天 100 万 token，每分钟 3 万 token、5 次请求，无需绑卡。",
       "monthlyTokens": 30000000,
       "freeType": "recurring-daily",
       "tos": "caution",
@@ -77,7 +77,7 @@
         "MiniMax-M2.7",
         "gpt-oss-120b"
       ],
-      "freeNote": "$5 free credits on signup (30-day validity), no credit card required",
+      "freeNote": "注册送 5 美元额度（30 天有效），无需绑卡。",
       "monthlyTokens": 6000000,
       "freeType": "recurring-daily",
       "tos": "caution",
@@ -118,7 +118,7 @@
       "models": [
         "openrouter/auto"
       ],
-      "freeNote": "Free models: 20 req/min, 50 req/day (1000 req/day with $10 credit)",
+      "freeNote": "免费模型：每分钟 20 次，每天 50 次（充值 10 美元后每天 1000 次）。",
       "monthlyTokens": 1200000,
       "freeType": "recurring-daily",
       "tos": "caution",
@@ -139,7 +139,7 @@
         "devstral-latest",
         "codestral-latest"
       ],
-      "freeNote": "La Plateforme free tier — no credit card",
+      "freeNote": "La Plateforme 免费层，无需绑卡。",
       "monthlyTokens": 1000000000,
       "freeType": "recurring-monthly",
       "tos": "caution",
@@ -216,7 +216,7 @@
       "models": [
         "arcee-ai/trinity-large-preview:free"
       ],
-      "freeNote": "Free Trinity Large Thinking model (262K context). No credit card required.",
+      "freeNote": "免费 Trinity Large Thinking 模型（26.2 万上下文），无需绑卡。",
       "monthlyTokens": 4800000,
       "freeType": "recurring-daily",
       "tos": "caution",
