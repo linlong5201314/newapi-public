@@ -7943,6 +7943,7 @@
     "Paste the subscription URL (http/https)": "Paste the subscription URL (http/https)",
     "The platform parses node count and remaining traffic, adds those nodes to your egress pool, then routes this source through them. No API key needed.": "The platform parses node count and remaining traffic, adds those nodes to your egress pool, then routes this source through them. No API key needed.",
     "No key needed for this source": "No key needed for this source",
-    "This source is authorized by IP or an account login; nothing secret is stored here.": "This source is authorized by IP or an account login; nothing secret is stored here."
+    "This source is authorized by IP or an account login; nothing secret is stored here.": "This source is authorized by IP or an account login; nothing secret is stored here.",
+    "Subscription saved to your egress pool": "Subscription saved to your egress pool"
   }
 }
