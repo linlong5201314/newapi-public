@@ -235,6 +235,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			service.MarkRequestPolicySuccess(c, relayInfo.StreamStatus)
 			relayInfo.LastError = nil
 			service.ReportRouteRuleSuccess(c, channel.Id)
+			// 渠道健康度：成功样本参与「延迟 + 近几次成功率」加权路由。
+			model.RecordChannelOutcome(channel.Id, true, time.Since(relayInfo.StartTime).Milliseconds())
 			return
 		}
 
@@ -244,6 +246,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 		decision := service.DecideRelayRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry())
 		service.RecordPolicyFailure(c, channel.Id, newAPIError, decision)
+		// 渠道健康度：只把「上游侧」失败计入降权，客户端参数错误不算渠道的问题。
+		if types.IsChannelError(newAPIError) || newAPIError.StatusCode >= 500 || newAPIError.StatusCode == http.StatusTooManyRequests {
+			model.RecordChannelOutcome(channel.Id, false, 0)
+		}
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError, relayInfo)
 
 		if decision.Action != "retry" {
