@@ -251,7 +251,11 @@ export function createRefreshRunner(
     }
 
     if (response.status === 401) {
-      runtime.clear(true)
+      // A revoked session family is terminal for this tab, but it must not take
+      // every other tab down with it: a stale refresh cookie in one tab used to
+      // broadcast a sign-out to the whole browser. Clear locally instead, and
+      // let each other tab discover the revocation on its own next refresh.
+      runtime.clear(code !== 'AUTH_SESSION_REVOKED')
       return { kind: 'anonymous' }
     }
 
