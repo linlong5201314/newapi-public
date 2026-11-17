@@ -121,6 +121,29 @@ describe('authentication session coordination', () => {
     expect(clears).toEqual([[true, undefined]])
   })
 
+  test('a revoked session family clears only this tab instead of signing out every tab', async () => {
+    const clears: Array<[boolean, string | undefined]> = []
+    const runtime: AuthRefreshRuntime = {
+      request: async () => ({
+        status: 401,
+        data: { success: false, code: 'AUTH_SESSION_REVOKED' },
+      }),
+      getExpectedSID: () => bundle.session.sid,
+      parseBundle: () => null,
+      acceptBundle: () => undefined,
+      clear: (synchronizeTabs, bootstrapState) => {
+        clears.push([synchronizeTabs, bootstrapState])
+      },
+      markTransient: () => undefined,
+      wait: async () => undefined,
+    }
+
+    expect(await createRefreshRunner(runtime)()).toEqual({
+      kind: 'anonymous',
+    })
+    expect(clears).toEqual([[false, undefined]])
+  })
+
   test('a temporary refresh failure remains retryable without clearing the session', async () => {
     let transientCount = 0
     let clearCount = 0
