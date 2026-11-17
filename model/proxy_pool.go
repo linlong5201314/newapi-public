@@ -361,11 +361,13 @@ func SetKernelFailoverProvider(fn func(userId int, proxyURL string) bool) {
 	kernelFailoverProvider = fn
 }
 
-// ListAllEnabledProxyEndpoints 列出全部用户的启用节点（内核配置编译用，按延迟升序）。
+// ListAllEnabledProxyEndpoints 列出启用节点（内核配置编译用：优先用户自有订阅节点 + 低延迟公共节点，上限 300 条避免跨区大字段阻塞）。
 func ListAllEnabledProxyEndpoints() ([]ProxyEndpoint, error) {
+	ensureProxySchemaOnce.Do(EnsureProxyPoolSchema)
 	var list []ProxyEndpoint
 	err := DB.Where("enabled = ? AND fail_count < ?", true, ProxyEndpointMaxFailCount).
-		Order("fail_count ASC, CASE WHEN latency_ms > 0 THEN latency_ms ELSE 99999 END ASC, weight DESC, id ASC").
+		Order("CASE WHEN source <> 'haizhu' THEN 0 ELSE 1 END ASC, fail_count ASC, CASE WHEN latency_ms > 0 THEN latency_ms ELSE 99999 END ASC, weight DESC, id ASC").
+		Limit(300).
 		Find(&list).Error
 	return list, err
 }
