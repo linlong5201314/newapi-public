@@ -94,6 +94,44 @@ func AddSelfChannelFromTemplate(c *gin.Context) {
 		return
 	}
 	req.Key = strings.TrimSpace(req.Key)
+	// 订阅型来源（authType=subscription）不是模型渠道，而是「出口 IP 池」的入口：
+	// 用户粘机场订阅链接 → 平台解析节点与剩余流量 → 节点进该用户出口池，
+	// 之后他用别的免费源时就能选这些节点出口。所以这里只登记订阅并同步，
+	// 不建渠道、不要 Key、也不返回任何部署地址。
+	if tpl.EffectiveAuthType() == "subscription" {
+		subUrl := strings.TrimSpace(req.SubscriptionUrl)
+		if subUrl == "" {
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": "订阅链接不能为空"})
+			return
+		}
+		if !strings.HasPrefix(subUrl, "http://") && !strings.HasPrefix(subUrl, "https://") {
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": "订阅链接必须以 http(s):// 开头"})
+			return
+		}
+		sub := &model.ProxySubscription{
+			UserId:  uid,
+			Name:    tpl.Name,
+			Url:     subUrl,
+			Enabled: true,
+		}
+		if err := model.CreateProxySubscription(sub); err != nil {
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": "保存订阅失败：" + err.Error()})
+			return
+		}
+		// 同步失败不算失败：节点数与错误信息在订阅列表里可见，用户可手动重试。
+		nodeCount, format, syncErr := syncProxySubscription(sub)
+		resp := gin.H{
+			"subscription_id": sub.Id,
+			"node_count":      nodeCount,
+			"format":          format,
+		}
+		if syncErr != nil {
+			common.SysError(common.LogText("sync subscription %d failed: %s", sub.Id, syncErr.Error()))
+			resp["warning"] = "订阅已保存，但首次同步失败：" + syncErr.Error()
+		}
+		common.ApiSuccess(c, resp)
+		return
+	}
 	// 免费层（tier=free）按出口 IP 白名单放行，不需要也不保存上游密钥；
 	// authMode=ip 的来源同样只按订阅来源放行。其余情况才强制要 key。
 	freeTier := normalizeChannelTier(req.Tier) == "free"
@@ -179,34 +217,6 @@ func AddSelfChannelFromTemplate(c *gin.Context) {
 		if len(cleaned) > 0 {
 			channel.Key = strings.Join(cleaned, "\n")
 			addMode = "multi_to_single"
-		}
-	}
-	// 订阅型来源（authType=subscription）：用户粘的是机场订阅链接而不是密钥。
-	// 这里把订阅登记进该用户的出口池并立刻同步一次，节点数与剩余流量随之可见；
-	// 渠道本身走用户出口池（proxy 留空），不需要任何上游 Key。
-	if tpl.EffectiveAuthType() == "subscription" {
-		subUrl := strings.TrimSpace(req.SubscriptionUrl)
-		if subUrl == "" {
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": "订阅链接不能为空"})
-			return
-		}
-		if !strings.HasPrefix(subUrl, "http://") && !strings.HasPrefix(subUrl, "https://") {
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": "订阅链接必须以 http(s):// 开头"})
-			return
-		}
-		sub := &model.ProxySubscription{
-			UserId:  uid,
-			Name:    tpl.Name,
-			Url:     subUrl,
-			Enabled: true,
-		}
-		if err := model.CreateProxySubscription(sub); err != nil {
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": "保存订阅失败：" + err.Error()})
-			return
-		}
-		// 同步失败不阻塞建渠道：节点数和错误信息在订阅列表里可见。
-		if _, _, syncErr := syncProxySubscription(sub); syncErr != nil {
-			common.SysError(common.LogText("sync subscription %d failed: %s", sub.Id, syncErr.Error()))
 		}
 	}
 	addChannelExecute(c, &AddChannelRequest{
