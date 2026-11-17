@@ -7418,6 +7418,11 @@
     "Edit entry": "編輯條目",
     "Node count": "節點數",
     "Last synced": "最近同步",
-    "Free tier (IP allowlist) needs no API key": "免費層（IP 白名單）不需要 API Key"
+    "Free tier (IP allowlist) needs no API key": "免費層（IP 白名單）不需要 API Key",
+    "Airport subscription link": "機場訂閱連結",
+    "Paste the subscription URL (http/https)": "貼上訂閱連結（http/https）",
+    "The platform parses node count and remaining traffic, adds those nodes to your egress pool, then routes this source through them. No API key needed.": "平台會解析節點數與剩餘流量，把這些節點加進你的出口池，再用它們轉發這個來源的請求；不需要填 API Key。",
+    "No key needed for this source": "這個來源不需要密鑰",
+    "This source is authorized by IP or an account login; nothing secret is stored here.": "該來源按出口 IP 或帳號登入授權，平台不保存任何密鑰。"
   }
 }
