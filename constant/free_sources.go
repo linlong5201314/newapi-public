@@ -38,6 +38,11 @@ type FreeSourceTemplate struct {
 	PoolKey       string            `json:"poolKey"`
 	// AuthMode 授权方式：account=账号密码 / oauth=跳转授权登录 / ip=IP 直连（无需密钥） / key=API Key
 	AuthMode string `json:"authMode,omitempty"`
+	// AuthType 接入形态（前端据此决定显示哪个输入框）：
+	//   none         → 无需密钥（IP 白名单 / 账号授权 / 配套网关）
+	//   key          → 需要填上游 API Key
+	//   subscription → 填机场/订阅链接，节点与额度由解析器读出来
+	AuthType string `json:"authType,omitempty"`
 	// HiddenEndpoint 为 true 时，普通用户拿到的模板不含 baseUrl / defaultExtra（只有管理员能看部署地址）
 	HiddenEndpoint bool `json:"hiddenEndpoint,omitempty"`
 }
@@ -66,6 +71,26 @@ func loadFreeSources() *freeSourcesFile {
 // GetFreeSourceTemplates 返回全部模板（只读共享切片，调用方不得修改）。
 func GetFreeSourceTemplates() []*FreeSourceTemplate {
 	return loadFreeSources().Templates
+}
+
+// EffectiveAuthType 返回模板的接入形态；老模板没写 authType 时按 authMode 推导，
+// 保证前后端在迁移期看到同一个口径。
+func (t *FreeSourceTemplate) EffectiveAuthType() string {
+	if t == nil {
+		return "key"
+	}
+	if v := strings.TrimSpace(t.AuthType); v != "" {
+		return v
+	}
+	switch t.AuthMode {
+	case "ip", "oauth", "account", "gateway", "bridge":
+		return "none"
+	default:
+		if t.KeyRequired {
+			return "key"
+		}
+		return "none"
+	}
 }
 
 // GetFreeSourceTemplate 按 id 取模板。
