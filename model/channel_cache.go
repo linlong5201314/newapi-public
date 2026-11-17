@@ -230,12 +230,10 @@ func GetRandomSatisfiedChannel(
 	targetPriority := int64(sortedUniquePriorities[retry])
 
 	// get the priority for the given retry number
-	var sumWeight = 0
 	var targetChannels []*Channel
 	for _, channelId := range channels {
 		if channel, ok := channelsIDM[channelId]; ok {
 			if channel.GetPriority() == targetPriority {
-				sumWeight += channel.GetWeight()
 				targetChannels = append(targetChannels, channel)
 			}
 		} else {
@@ -247,35 +245,30 @@ func GetRandomSatisfiedChannel(
 		return nil, errors.New(fmt.Sprintf("no channel found, group: %s, model: %s, priority: %d", group, model, targetPriority))
 	}
 
-	// smoothing factor and adjustment
-	smoothingFactor := 1
-	smoothingAdjustment := 0
-
-	if sumWeight == 0 {
-		// when all channels have weight 0, set sumWeight to the number of channels and set smoothing adjustment to 100
-		// each channel's effective weight = 100
-		sumWeight = len(targetChannels) * 100
-		smoothingAdjustment = 100
-	} else if sumWeight/len(targetChannels) < 10 {
-		// when the average weight is less than 10, set smoothing factor to 100
-		smoothingFactor = 100
+	// 健康度加权：把「近几次成功率」乘进权重，快而稳的渠道多分流量，
+	// 连续失败的渠道自动降权（Factor=0 时本轮不选）。
+	weights := make([]float64, len(targetChannels))
+	var sumWeight float64
+	for i, channel := range targetChannels {
+		weights[i] = float64(channel.GetWeight()) * ChannelHealthFactor(channel.Id)
+		sumWeight += weights[i]
+	}
+	if sumWeight <= 0 {
+		// 原始权重全为 0（或全部被健康度清零）时退化为等权，保持旧行为并避免打空。
+		for i := range weights {
+			weights[i] = 1
+		}
+		sumWeight = float64(len(weights))
 	}
 
-	// Calculate the total weight of all channels up to endIdx
-	totalWeight := sumWeight * smoothingFactor
-
-	// Generate a random value in the range [0, totalWeight)
-	randomWeight := rand.Intn(totalWeight)
-
-	// Find a channel based on its weight
-	for _, channel := range targetChannels {
-		randomWeight -= channel.GetWeight()*smoothingFactor + smoothingAdjustment
+	randomWeight := rand.Float64() * sumWeight
+	for i, channel := range targetChannels {
+		randomWeight -= weights[i]
 		if randomWeight < 0 {
 			return channel, nil
 		}
 	}
-	// return null if no channel is not found
-	return nil, errors.New("channel not found")
+	return targetChannels[len(targetChannels)-1], nil
 }
 
 func CacheGetChannel(id int) (*Channel, error) {
