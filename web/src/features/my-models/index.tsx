@@ -2,17 +2,19 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import {
   Boxes,
+  CheckSquare,
   ChevronDown,
   ChevronRight,
   Globe,
   Loader2,
-  MessageSquare,
   Plus,
   Radio,
   RefreshCw,
   Save,
   Search,
   Sparkles,
+  Square,
+  Trash2,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
@@ -23,6 +25,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import {
+  deleteChannel,
   fetchModels,
   getChannelDetail,
   getChannels,
@@ -34,14 +37,11 @@ import { inferModelVendor } from '@/features/public-pool'
 import { api } from '@/lib/api'
 
 /**
- * 「我的模型」页面（Item 3）：
- * 1. 按渠道分开展示用户自己的渠道列表；
- * 2. 点击渠道才展开显示该渠道下的模型列表（二级下钻）；
- * 3. 在每个渠道内可直接：
- *    - 从上游获取最新模型、手动添加模型名；
- *    - 勾选/取消勾选启用在「我的渠道」里的模型；
- *    - 勾选/取消勾选要公开到「公共池」的模型；
- *    - 一键带指定模型进入 DeepSeek 对话页 (/demo)。
+ * 「我的模型」页面（修复问题 4）：
+ * 1. 按渠道分开展示用户自己的渠道列表，支持在渠道行直接「一键删除渠道」；
+ * 2. 点击渠道才展开显示该渠道下的全部候选模型列表（all_models + 已选 models，即使只保留 1 个模型保存，下次打开也不会丢失其它模型）；
+ * 3. 提供「一键全选（启用在我的渠道）」、「一键全不选（启用在我的渠道）」、「全选公开到公共池」、「全不选公开」按钮；
+ * 4. 点击「从上游获取最新模型」可实时拉取 OpenRouter :free、OpenCode Free、Trae、WorkBuddy、小浣熊、Qoder CN 等最新模型。
  */
 export function MyModelsPage() {
   const [expandedChannelId, setExpandedChannelId] = useState<number | null>(null)
@@ -107,20 +107,20 @@ export function MyModelsPage() {
       </SectionPageLayout.Actions>
 
       <SectionPageLayout.Content>
-        <div className='space-y-4'>
+        <div className='space-y-4 pb-8'>
           <div className='grid gap-3 sm:grid-cols-3'>
             <Card className='py-3'>
               <CardContent className='space-y-0.5'>
                 <div className='text-muted-foreground text-xs'>我的渠道数</div>
                 <div className='font-mono text-2xl font-semibold'>{channels.length}</div>
-                <div className='text-muted-foreground text-xs'>点击下方任意渠道展开并编辑其模型</div>
+                <div className='text-muted-foreground text-xs'>点击下方任意渠道展开并编辑其模型，或一键删除渠道</div>
               </CardContent>
             </Card>
             <Card className='py-3'>
               <CardContent className='space-y-0.5'>
-                <div className='text-muted-foreground text-xs'>去重可用模型总数</div>
+                <div className='text-muted-foreground text-xs'>当前启用模型总数（去重）</div>
                 <div className='font-mono text-2xl font-semibold'>{totalModelsCount}</div>
-                <div className='text-muted-foreground text-xs'>涵盖自有 API / IP 免费层 / OAuth 渠道</div>
+                <div className='text-muted-foreground text-xs'>未勾选的模型也会保留在渠道候选池中，随时可重新启用</div>
               </CardContent>
             </Card>
             <Card className='py-3'>
@@ -129,7 +129,7 @@ export function MyModelsPage() {
                 <div className='font-mono text-2xl font-semibold'>
                   {channels.filter((c) => (c as any).visibility === 1).length}
                 </div>
-                <div className='text-muted-foreground text-xs'>支持按模型粒度勾选哪些进公共池</div>
+                <div className='text-muted-foreground text-xs'>支持一键全选/全不选启用在我的渠道或公开到公共池</div>
               </CardContent>
             </Card>
           </div>
@@ -209,10 +209,26 @@ function ChannelModelDrilldownCard({
   useEffect(() => {
     const detail = detailQuery.data?.data
     if (!detail) return
-    setCandidatePool((prev) => Array.from(new Set([...prev, ...(detail.models ?? [])])))
+    const allFromBackend = Array.from(
+      new Set([
+        ...(detail.all_models ?? []),
+        ...(detail.models ?? []),
+        ...currentModels,
+      ])
+    )
+    setCandidatePool((prev) => Array.from(new Set([...allFromBackend, ...prev])))
     setSelectedMyModels(detail.models ?? [])
     setSelectedPublicModels(detail.public_models ?? [])
-  }, [detailQuery.data])
+  }, [detailQuery.data, currentModels])
+
+  const deleteChannelMutation = useMutation({
+    mutationFn: () => deleteChannel(channel.id),
+    onSuccess: () => {
+      toast.success(`已删除渠道「${channel.name}」`)
+      void queryClient.invalidateQueries({ queryKey: channelsQueryKeys.all })
+    },
+    onError: () => toast.error('删除渠道失败'),
+  })
 
   const fetchUpstreamMutation = useMutation({
     mutationFn: () => fetchModels(channel.id),
@@ -220,9 +236,9 @@ function ChannelModelDrilldownCard({
       if (res.success && Array.isArray(res.data) && res.data.length > 0) {
         const fetched = res.data.map((m) => m.trim()).filter(Boolean)
         setCandidatePool((prev) => Array.from(new Set([...prev, ...fetched])))
-        toast.success(`从上游获取到 ${fetched.length} 个模型，请勾选需要启用的模型并保存`)
+        toast.success(`成功获取到 ${fetched.length} 个可用模型！可点击「一键全选」或按需勾选后保存`)
       } else {
-        toast.error(res.message || '未获取到更多模型')
+        toast.error(res.message || '未获取到额外模型')
       }
     },
     onError: () => toast.error('从上游获取模型失败'),
@@ -237,10 +253,15 @@ function ChannelModelDrilldownCard({
         visibility: selectedPublicModels.length > 0 ? 1 : 0,
         tier: isIpFree ? 'free' : 'api',
         publicModels: selectedPublicModels,
+        allModels: candidatePool,
       })
     },
     onSuccess: () => {
-      toast.success(`已保存渠道「${channel.name}」的模型与公共池设置`)
+      toast.success(
+        `已保存渠道「${channel.name}」：启用 ${selectedMyModels.length} 个模型（其余 ${
+          candidatePool.length - selectedMyModels.length
+        } 个仍保留在列表中可随时勾选）`
+      )
       void queryClient.invalidateQueries({ queryKey: channelsQueryKeys.all })
       void detailQuery.refetch()
     },
@@ -266,12 +287,12 @@ function ChannelModelDrilldownCard({
   return (
     <Card className='overflow-hidden'>
       <CardHeader className='p-0'>
-        <button
-          type='button'
-          onClick={onToggleExpand}
-          className='hover:bg-muted/40 flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left transition-colors'
-        >
-          <div className='flex min-w-0 items-center gap-2.5'>
+        <div className='hover:bg-muted/40 flex w-full items-center justify-between gap-3 px-4 py-3.5 transition-colors'>
+          <button
+            type='button'
+            onClick={onToggleExpand}
+            className='flex min-w-0 flex-1 items-center gap-2.5 text-left'
+          >
             {expanded ? (
               <ChevronDown className='h-4 w-4 shrink-0 text-primary' />
             ) : (
@@ -291,19 +312,42 @@ function ChannelModelDrilldownCard({
                 公开中
               </Badge>
             )}
-          </div>
-          <div className='flex shrink-0 items-center gap-2 text-xs text-muted-foreground'>
-            <span>已启用 {currentModels.length} 个模型</span>
-            <span className='text-primary font-medium'>
-              {expanded ? '收起模型' : '点击展开模型'}
+          </button>
+
+          <div className='flex shrink-0 items-center gap-2 text-xs'>
+            <span className='text-muted-foreground'>
+              已启用 {currentModels.length} 个模型
             </span>
+            <Button
+              size='sm'
+              variant='ghost'
+              className='h-7 px-2 text-xs text-primary'
+              onClick={onToggleExpand}
+            >
+              {expanded ? '收起模型' : '点击展开模型'}
+            </Button>
+            <Button
+              size='sm'
+              variant='destructive'
+              className='h-7 px-2.5 text-xs'
+              disabled={deleteChannelMutation.isPending}
+              onClick={() => deleteChannelMutation.mutate()}
+              title='一键删除该渠道'
+            >
+              {deleteChannelMutation.isPending ? (
+                <Loader2 className='me-1 h-3.5 w-3.5 animate-spin' />
+              ) : (
+                <Trash2 className='me-1 h-3.5 w-3.5' />
+              )}
+              删除渠道
+            </Button>
           </div>
-        </button>
+        </div>
       </CardHeader>
 
       {expanded && (
         <CardContent className='border-t bg-muted/15 p-4 space-y-3'>
-          {/* 渠道状态栏与操作工具条 */}
+          {/* 渠道状态与全选/全不选操作条 */}
           <div className='flex flex-wrap items-center justify-between gap-2 text-xs'>
             <div className='flex flex-wrap items-center gap-2 text-muted-foreground'>
               {detail?.proxy?.label && (
@@ -315,12 +359,12 @@ function ChannelModelDrilldownCard({
                 </Badge>
               )}
               <span>
-                我的渠道已选: <strong className='text-foreground'>{selectedMyModels.length}</strong> 个 ·
+                启用在我的渠道: <strong className='text-foreground'>{selectedMyModels.length}</strong> / {candidatePool.length} 个 ·
                 公开到公共池: <strong className='text-emerald-600'>{selectedPublicModels.length}</strong> 个
               </span>
             </div>
 
-            <div className='flex flex-wrap items-center gap-2'>
+            <div className='flex flex-wrap items-center gap-1.5'>
               <Button
                 size='sm'
                 variant='outline'
@@ -333,31 +377,48 @@ function ChannelModelDrilldownCard({
                 ) : (
                   <RefreshCw className='me-1 h-3.5 w-3.5' />
                 )}
-                从上游获取模型
+                获取上游最新模型
+              </Button>
+              <Button
+                size='sm'
+                variant='secondary'
+                className='h-8 text-xs'
+                onClick={() => setSelectedMyModels([...candidatePool])}
+              >
+                <CheckSquare className='me-1 h-3.5 w-3.5' />
+                一键全选（启用在我的渠道）
               </Button>
               <Button
                 size='sm'
                 variant='outline'
                 className='h-8 text-xs'
-                onClick={() => setSelectedMyModels(candidatePool)}
+                onClick={() => {
+                  setSelectedMyModels([])
+                  setSelectedPublicModels([])
+                }}
               >
-                全选我的渠道
+                <Square className='me-1 h-3.5 w-3.5' />
+                一键全不选（我的渠道）
+              </Button>
+              <Button
+                size='sm'
+                variant='outline'
+                className='h-8 text-xs text-emerald-600'
+                onClick={() => {
+                  setSelectedMyModels([...candidatePool])
+                  setSelectedPublicModels([...candidatePool])
+                }}
+              >
+                <Globe className='me-1 h-3.5 w-3.5' />
+                全选公开到公共池
               </Button>
               <Button
                 size='sm'
                 variant='outline'
                 className='h-8 text-xs'
-                onClick={() =>
-                  setSelectedPublicModels(
-                    selectedPublicModels.length === candidatePool.length
-                      ? []
-                      : [...candidatePool]
-                  )
-                }
+                onClick={() => setSelectedPublicModels([])}
               >
-                {selectedPublicModels.length === candidatePool.length
-                  ? '取消全部公开'
-                  : '全部公开到公共池'}
+                全不选公开
               </Button>
               <Button
                 size='sm'
@@ -409,10 +470,10 @@ function ChannelModelDrilldownCard({
           </div>
 
           {/* 模型列表 */}
-          <div className='max-h-72 overflow-y-auto rounded-lg border bg-background p-2 space-y-1'>
+          <div className='max-h-80 overflow-y-auto rounded-lg border bg-background p-2 space-y-1'>
             {visibleCandidates.length === 0 ? (
               <div className='py-6 text-center text-xs text-muted-foreground'>
-                暂无模型，请点击右上方「从上游获取模型」或在输入框手动添加。
+                暂无模型，请点击右上方「获取上游最新模型」或在输入框手动添加。
               </div>
             ) : (
               visibleCandidates.map((modelName) => {

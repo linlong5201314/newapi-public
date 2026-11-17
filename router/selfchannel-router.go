@@ -53,10 +53,16 @@ func registerSelfChannelRoutes(apiRouter *gin.RouterGroup) {
 		// 小浣熊浏览器授权：start 出授权页 → 浏览器回跳 callback（无 JWT）→ poll 取渠道
 		selfChannelRoute.POST("/oauth/raccoon/start", controller.SelfRaccoonOAuthStart)
 		selfChannelRoute.GET("/oauth/raccoon/poll", controller.SelfRaccoonOAuthPoll)
+		// DS2API（DeepSeek 网页端）一键生成授权链接 → 复制去浏览器登录/确认 → 自动返回建渠道
+		selfChannelRoute.POST("/oauth/ds2api/start", controller.SelfDs2ApiOAuthStart)
+		selfChannelRoute.GET("/oauth/ds2api/poll", controller.SelfDs2ApiOAuthPoll)
 		selfChannelRoute.POST("/import_trae", controller.SelfImportTrae)
 	}
-	// 授权回跳由浏览器直接访问，不能挂 UserAuth。
+	// 授权回跳与引导页由浏览器直接访问，不能挂 UserAuth。
 	apiRouter.GET("/channel/self/oauth/raccoon/callback", controller.SelfRaccoonOAuthCallback)
+	apiRouter.GET("/channel/self/oauth/ds2api/authorize", controller.SelfDs2ApiOAuthAuthorizePage)
+	apiRouter.GET("/channel/self/oauth/ds2api/callback", controller.SelfDs2ApiOAuthCallback)
+	apiRouter.POST("/channel/self/oauth/ds2api/callback", controller.SelfDs2ApiOAuthCallback)
 }
 
 // selfChannelEnabledGuard 平台总开关：SelfChannelEnabled=false 时全组 404。

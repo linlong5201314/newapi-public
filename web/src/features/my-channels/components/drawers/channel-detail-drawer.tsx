@@ -27,9 +27,11 @@ import {
   Loader2,
   Network,
   Pencil,
+  RefreshCw,
   Save,
   ShieldQuestion,
   Timer,
+  Trash2,
   Waypoints,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
@@ -49,7 +51,13 @@ import { selectRuntimeNode } from '@/features/proxy-pool/api'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
-import { getChannelDetail, setChannelAllowIps, updateChannel } from '../../api'
+import {
+  deleteChannel,
+  fetchModels,
+  getChannelDetail,
+  setChannelAllowIps,
+  updateChannel,
+} from '../../api'
 import { channelsQueryKeys } from '../../lib'
 import type { Channel } from '../../types'
 
@@ -60,8 +68,8 @@ interface ChannelDetailDrawerProps {
 }
 
 /**
- * 「我的渠道」详情抽屉：点开一个渠道就能看清它的健康度、实时额度、代理与代理 IP 选择、
- * 订阅 IP 数量、大概能用多少 token、名称编辑与渠道/公共池模型选择。
+ * 「我的渠道」二级详情抽屉：支持全屏顺畅上下滑动，实时查看额度、选择代理 IP / 订阅节点、
+ * 获取上游最新免费模型、一键全选/全不选模型、一键删除渠道。
  */
 export function ChannelDetailDrawer({
   channel,
@@ -100,6 +108,16 @@ export function ChannelDetailDrawer({
       void refetch()
     },
     onError: () => toast.error('改名失败，请重试'),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteChannel(channelId),
+    onSuccess: () => {
+      toast.success('渠道已删除')
+      void invalidate()
+      onOpenChange(false)
+    },
+    onError: () => toast.error('删除渠道失败'),
   })
 
   const allowIpsMutation = useMutation({
@@ -142,28 +160,47 @@ export function ChannelDetailDrawer({
   const isIpFree = Boolean(template?.ip_free)
   const estimate = detail?.token_estimate
 
-  const models = detail?.models ?? []
+  const [candidateModels, setCandidateModels] = useState<string[]>([])
   const [selectedModels, setSelectedModels] = useState<string[]>([])
   const [publicModels, setPublicModels] = useState<string[]>([])
 
   useEffect(() => {
     if (!detail) return
-    setSelectedModels(detail.models)
+    const all = Array.from(
+      new Set([...(detail.all_models ?? []), ...(detail.models ?? [])])
+    )
+    setCandidateModels(all)
+    setSelectedModels(detail.models ?? [])
     setPublicModels(detail.public_models ?? [])
   }, [detail])
 
+  const fetchUpstreamMutation = useMutation({
+    mutationFn: () => fetchModels(channelId),
+    onSuccess: (res) => {
+      if (res.success && Array.isArray(res.data) && res.data.length > 0) {
+        const fetched = res.data.map((m) => m.trim()).filter(Boolean)
+        setCandidateModels((prev) => Array.from(new Set([...prev, ...fetched])))
+        toast.success(`已从上游获取到 ${fetched.length} 个可用模型`)
+      } else {
+        toast.error(res.message || '未获取到额外模型')
+      }
+    },
+    onError: () => toast.error('获取上游模型失败'),
+  })
+
   const modelsMutation = useMutation({
-    mutationFn: async (payload: { myModels: string[]; pubModels: string[] }) => {
+    mutationFn: async (payload: { myModels: string[]; pubModels: string[]; allModels: string[] }) => {
       await updateChannel(channelId, { models: payload.myModels.join(',') })
       await api.post('/api/channel/self/visibility', {
         channelId,
         visibility: payload.pubModels.length > 0 ? 1 : detail?.channel.visibility ?? 0,
         tier: isIpFree ? 'free' : 'api',
         publicModels: payload.pubModels,
+        allModels: payload.allModels,
       })
     },
     onSuccess: () => {
-      toast.success('渠道模型与公共池公开配置已更新')
+      toast.success('渠道模型与公共池公开配置已保存')
       void invalidate()
       void refetch()
     },
@@ -176,45 +213,60 @@ export function ChannelDetailDrawer({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side='right' className='w-full sm:max-w-xl'>
-        <SheetHeader>
-          <SheetTitle className='flex items-center gap-2'>
-            {detail?.channel.name ?? channel?.name ?? '渠道详情'}
-            {template?.name ? (
-              <Badge variant='secondary' className='text-xs'>
-                {template.name}
-              </Badge>
-            ) : null}
-            {isIpFree ? (
-              <Badge className='bg-[#4d6bfe]/15 text-[#4d6bfe] text-xs'>
-                IP 免费层
-              </Badge>
-            ) : (
-              <Badge variant='outline' className='text-xs'>
-                密钥层
-              </Badge>
-            )}
-          </SheetTitle>
+      <SheetContent
+        side='right'
+        className='flex h-dvh max-h-dvh w-full flex-col overflow-hidden p-0 sm:max-w-xl'
+      >
+        <SheetHeader className='shrink-0 border-b px-5 py-4'>
+          <div className='flex items-center justify-between gap-2 pr-6'>
+            <SheetTitle className='flex flex-wrap items-center gap-2'>
+              {detail?.channel.name ?? channel?.name ?? '渠道详情'}
+              {template?.name ? (
+                <Badge variant='secondary' className='text-xs'>
+                  {template.name}
+                </Badge>
+              ) : null}
+              {isIpFree ? (
+                <Badge className='bg-[#4d6bfe]/15 text-[#4d6bfe] text-xs'>
+                  IP 免费层
+                </Badge>
+              ) : (
+                <Badge variant='outline' className='text-xs'>
+                  密钥层
+                </Badge>
+              )}
+            </SheetTitle>
+            <Button
+              size='sm'
+              variant='destructive'
+              className='h-7 px-2 text-xs'
+              disabled={deleteMutation.isPending}
+              onClick={() => deleteMutation.mutate()}
+            >
+              <Trash2 className='me-1 size-3.5' />
+              删除渠道
+            </Button>
+          </div>
           <SheetDescription>
             渠道 #{channelId} 的实时状态、额度、出口代理 IP 选择、订阅 IP 数量与模型管理
           </SheetDescription>
         </SheetHeader>
 
-        <div className='min-h-0 flex-1 overflow-y-auto px-1 pb-6'>
+        <div className='min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4'>
           {isLoading && (
-            <div className='flex items-center gap-2 px-4 py-10 text-sm text-muted-foreground'>
+            <div className='flex items-center gap-2 py-10 text-sm text-muted-foreground'>
               <Loader2 className='size-4 animate-spin' /> 正在加载渠道详情…
             </div>
           )}
 
           {isError && (
-            <div className='mx-4 mt-4 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive'>
+            <div className='rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive'>
               {(error as Error)?.message || '加载失败，请重试'}
             </div>
           )}
 
           {detail && (
-            <div className='space-y-4 px-4 pt-2'>
+            <div className='space-y-4 pb-10'>
               {/* 名称编辑 */}
               <section className='rounded-xl border border-border/70 p-3'>
                 <SectionTitle icon={<Pencil className='size-3.5' />} title='名称编辑' />
@@ -365,7 +417,6 @@ export function ChannelDetailDrawer({
                   <Stat label='公共池共享IP' value={detail.proxy_pool.public_pool_count ?? detail.proxy_pool.endpoint_enabled} />
                 </div>
 
-                {/* 代理 IP / 订阅节点下拉选择 */}
                 {selectableNodes.length > 0 && (
                   <div className='mt-3 space-y-1.5'>
                     <p className='text-[11px] font-medium text-muted-foreground'>
@@ -454,20 +505,75 @@ export function ChannelDetailDrawer({
 
               {/* 渠道模型 & 公共池模型选择 */}
               <section className='rounded-xl border border-border/70 p-3'>
-                <SectionTitle
-                  icon={<Globe2 className='size-3.5' />}
-                  title='渠道模型选择（可分别勾选加入我的渠道 / 加入公共池）'
-                />
-                <p className='mt-1 text-[11px] text-muted-foreground'>
-                  左列勾选保留在「我的渠道」，右列勾选将该模型公开到「公共池」供其他用户调用。
-                </p>
-                <div className='mt-2 max-h-56 space-y-1 overflow-y-auto rounded-lg border border-border/60 p-2'>
-                  {models.length === 0 && (
+                <div className='flex flex-wrap items-center justify-between gap-2'>
+                  <SectionTitle
+                    icon={<Globe2 className='size-3.5' />}
+                    title='渠道模型选择（支持获取最新免费模型、一键全选/全不选）'
+                  />
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    className='h-7 px-2 text-xs'
+                    disabled={fetchUpstreamMutation.isPending}
+                    onClick={() => fetchUpstreamMutation.mutate()}
+                  >
+                    {fetchUpstreamMutation.isPending ? (
+                      <Loader2 className='me-1 size-3 animate-spin' />
+                    ) : (
+                      <RefreshCw className='me-1 size-3' />
+                    )}
+                    获取上游最新模型
+                  </Button>
+                </div>
+
+                <div className='mt-2 flex flex-wrap items-center gap-1.5 text-xs'>
+                  <Button
+                    size='sm'
+                    variant='secondary'
+                    className='h-7 px-2 text-xs'
+                    onClick={() => setSelectedModels([...candidateModels])}
+                  >
+                    一键全选（启用在我的渠道）
+                  </Button>
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    className='h-7 px-2 text-xs'
+                    onClick={() => {
+                      setSelectedModels([])
+                      setPublicModels([])
+                    }}
+                  >
+                    一键全不选（我的渠道）
+                  </Button>
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    className='h-7 px-2 text-xs text-emerald-600'
+                    onClick={() => {
+                      setSelectedModels([...candidateModels])
+                      setPublicModels([...candidateModels])
+                    }}
+                  >
+                    全选公开到公共池
+                  </Button>
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    className='h-7 px-2 text-xs'
+                    onClick={() => setPublicModels([])}
+                  >
+                    全不选公开
+                  </Button>
+                </div>
+
+                <div className='mt-2 max-h-64 space-y-1 overflow-y-auto rounded-lg border border-border/60 p-2'>
+                  {candidateModels.length === 0 && (
                     <p className='px-1 py-2 text-xs text-muted-foreground'>
-                      这个渠道还没有模型，去编辑抽屉或「我的模型」页同步一次模型列表。
+                      点击右上方「获取上游最新模型」拉取可用模型列表。
                     </p>
                   )}
-                  {models.map((model) => {
+                  {candidateModels.map((model) => {
                     const checked = selectedModels.includes(model)
                     const pubChecked = publicModels.includes(model)
                     return (
@@ -495,7 +601,7 @@ export function ChannelDetailDrawer({
                               }}
                               className='size-3.5 accent-[#4d6bfe]'
                             />
-                            <span>我的渠道</span>
+                            <span>启用在我的渠道</span>
                           </label>
                           <label className='inline-flex cursor-pointer items-center gap-1 text-emerald-600'>
                             <input
@@ -523,7 +629,7 @@ export function ChannelDetailDrawer({
                 </div>
                 <div className='mt-2 flex items-center justify-between'>
                   <span className='text-[11px] text-muted-foreground'>
-                    我的渠道: {selectedModels.length} 个 · 公开到公共池: {publicModels.length} 个
+                    已启用在我的渠道: {selectedModels.length} / {candidateModels.length} 个 · 公开到公共池: {publicModels.length} 个
                   </span>
                   <Button
                     size='sm'
@@ -532,6 +638,7 @@ export function ChannelDetailDrawer({
                       modelsMutation.mutate({
                         myModels: selectedModels,
                         pubModels: publicModels,
+                        allModels: candidateModels,
                       })
                     }
                   >

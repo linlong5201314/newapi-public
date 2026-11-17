@@ -90,6 +90,7 @@ export async function getChannel(id: number): Promise<GetChannelResponse> {
 export type SelfChannelDetail = {
   channel: Channel
   models: string[]
+  all_models?: string[]
   public_models?: string[]
   health: {
     channel_id: number

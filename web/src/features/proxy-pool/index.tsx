@@ -68,6 +68,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { handleServerError } from '@/lib/handle-server-error'
+import { useIsAdmin } from '@/hooks/use-admin'
 
 import {
   createEndpoint,
@@ -92,6 +93,7 @@ const QUERY_KEY = ['proxy-pool'] as const
 
 export function ProxyPoolPage() {
   const { t } = useTranslation()
+  const isAdmin = useIsAdmin()
   const queryClient = useQueryClient()
   const [endpointOpen, setEndpointOpen] = useState(false)
   const [subscriptionOpen, setSubscriptionOpen] = useState(false)
@@ -373,15 +375,17 @@ export function ProxyPoolPage() {
       <SectionPageLayout.Title>{t('Egress IP Pool')}</SectionPageLayout.Title>
       <SectionPageLayout.Actions>
         <div className='flex flex-wrap items-center gap-2'>
-          <Button
-            size='sm'
-            variant='default'
-            disabled={importHaizhuMutation.isPending}
-            onClick={() => importHaizhuMutation.mutate('full')}
-          >
-            <Sparkles className='me-1 h-4 w-4' />
-            {importHaizhuMutation.isPending ? '正在导入…' : '导入 Haizhu 7114 公共节点'}
-          </Button>
+          {isAdmin && (
+            <Button
+              size='sm'
+              variant='default'
+              disabled={importHaizhuMutation.isPending}
+              onClick={() => importHaizhuMutation.mutate('full')}
+            >
+              <Sparkles className='me-1 h-4 w-4' />
+              {importHaizhuMutation.isPending ? '正在导入…' : '导入 Haizhu 7114 公共节点'}
+            </Button>
+          )}
           <Button size='sm' variant='outline' onClick={() => setSubscriptionOpen(true)}>
             <Rss className='me-1 h-4 w-4' />
             {t('Import subscription')}
@@ -390,15 +394,17 @@ export function ProxyPoolPage() {
             <Plus className='me-1 h-4 w-4' />
             {t('Add node')}
           </Button>
-          <Button
-            size='sm'
-            variant='outline'
-            disabled={exportMutation.isPending}
-            onClick={() => exportMutation.mutate()}
-          >
-            <Download className='me-1 h-4 w-4' />
-            {t('Export mihomo config')}
-          </Button>
+          {isAdmin && (
+            <Button
+              size='sm'
+              variant='outline'
+              disabled={exportMutation.isPending}
+              onClick={() => exportMutation.mutate()}
+            >
+              <Download className='me-1 h-4 w-4' />
+              {t('Export mihomo config')}
+            </Button>
+          )}
         </div>
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
@@ -407,14 +413,23 @@ export function ProxyPoolPage() {
             icon={<Zap className='h-4 w-4' />}
             label='可见可用节点总数'
             value={String(summary?.endpoint_total ?? endpoints.length)}
-            hint={`公共池公开: ${summary?.public_node_count ?? endpoints.filter((e) => e.public).length} · Haizhu内置: ${summary?.haizhu_node_count ?? 0}`}
+            hint={`公共池公开: ${summary?.public_node_count ?? endpoints.filter((e) => e.public).length} · 启用中: ${summary?.endpoint_enabled ?? endpoints.filter((e) => e.enabled).length}`}
           />
-          <StatCard
-            icon={<Globe className='h-4 w-4' />}
-            label='共享 mihomo 内核'
-            value={runtime?.running ? `运行中 (:${runtime.port || 23456})` : '待启动'}
-            hint={`已装载 ${runtime?.proxies ?? 0} 个代理节点，自动优选最快节点`}
-          />
+          {isAdmin ? (
+            <StatCard
+              icon={<Globe className='h-4 w-4' />}
+              label='共享 mihomo 内核（仅管理员可见）'
+              value={runtime?.running ? `运行中 (:${runtime.port || 23456})` : '待启动'}
+              hint={`已装载 ${runtime?.proxies ?? 0} 个代理节点，自动优选最快节点`}
+            />
+          ) : (
+            <StatCard
+              icon={<Globe className='h-4 w-4' />}
+              label='公共池共享节点'
+              value={String(summary?.public_node_count ?? endpoints.filter((e) => e.public).length)}
+              hint='自动按延迟优选最快出口，遇错自动熔断切换'
+            />
+          )}
           <StatCard
             icon={<Rss className='h-4 w-4' />}
             label={t('Subscriptions')}
@@ -429,59 +444,61 @@ export function ProxyPoolPage() {
           />
         </div>
 
-        {/* 共享 mihomo 内核控制卡 */}
-        <Card>
-          <CardHeader className='pb-3'>
-            <div className='flex flex-wrap items-center justify-between gap-2'>
-              <div>
-                <CardTitle className='flex items-center gap-2 text-base'>
-                  <Cpu className='h-4 w-4' />
-                  单实例共享 mihomo 边车内核（端口 127.0.0.1:23456）
-                </CardTitle>
-                <CardDescription>
-                  全站共用一套 mihomo 内核。公开节点（含 Haizhu 7114 节点与管理员公开节点）全员可用；你未勾选公开的私有节点/订阅只对你本人可见和可调用，别人既看不见也无法调用。
-                </CardDescription>
-              </div>
-              <Button
-                size='sm'
-                variant='outline'
-                disabled={reloadRuntimeMutation.isPending}
-                onClick={() => reloadRuntimeMutation.mutate()}
-              >
-                <RefreshCw className='me-1 h-3.5 w-3.5' />
-                重载内核配置
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent className='flex flex-wrap items-center gap-3 pt-0 text-xs'>
-            <Badge variant={runtime?.running ? 'default' : 'secondary'}>
-              {runtime?.running ? '内核在线' : '内核未运行'}
-            </Badge>
-            <span className='text-muted-foreground'>
-              当前出站策略：
-              <strong className='ms-1 font-mono text-foreground'>
-                {runtime?.selected_node || 'PUBLIC_FAST (自动测速最快)'}
-              </strong>
-            </span>
-            {runtime?.nodes && runtime.nodes.length > 0 && (
-              <div className='ms-auto flex items-center gap-2'>
-                <span className='text-muted-foreground'>手动指定出站节点：</span>
-                <select
-                  className='border-input bg-background h-8 max-w-[280px] rounded-md border px-2 text-xs'
-                  value={runtime.selected_node || 'PUBLIC_FAST'}
-                  onChange={(e) => selectNodeMutation.mutate(e.target.value)}
+        {/* 共享 mihomo 内核控制卡：仅超级管理员/管理员可见 */}
+        {isAdmin && (
+          <Card>
+            <CardHeader className='pb-3'>
+              <div className='flex flex-wrap items-center justify-between gap-2'>
+                <div>
+                  <CardTitle className='flex items-center gap-2 text-base'>
+                    <Cpu className='h-4 w-4' />
+                    单实例共享 mihomo 边车内核（仅管理员可见 · 端口 127.0.0.1:23456）
+                  </CardTitle>
+                  <CardDescription>
+                    全站共用一套 mihomo 内核。公开节点（含 Haizhu 7114 节点与管理员公开节点）全员可用；未勾选公开的私有节点/订阅只对添加者本人可见和可调用。
+                  </CardDescription>
+                </div>
+                <Button
+                  size='sm'
+                  variant='outline'
+                  disabled={reloadRuntimeMutation.isPending}
+                  onClick={() => reloadRuntimeMutation.mutate()}
                 >
-                  <option value='PUBLIC_FAST'>⚡ PUBLIC_FAST（自动测速优选最快节点）</option>
-                  {runtime.nodes.slice(0, 200).map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
+                  <RefreshCw className='me-1 h-3.5 w-3.5' />
+                  重载内核配置
+                </Button>
               </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardHeader>
+            <CardContent className='flex flex-wrap items-center gap-3 pt-0 text-xs'>
+              <Badge variant={runtime?.running ? 'default' : 'secondary'}>
+                {runtime?.running ? '内核在线' : '内核未运行'}
+              </Badge>
+              <span className='text-muted-foreground'>
+                当前出站策略：
+                <strong className='ms-1 font-mono text-foreground'>
+                  {runtime?.selected_node || 'PUBLIC_FAST (自动测速最快)'}
+                </strong>
+              </span>
+              {runtime?.nodes && runtime.nodes.length > 0 && (
+                <div className='ms-auto flex items-center gap-2'>
+                  <span className='text-muted-foreground'>手动指定出站节点：</span>
+                  <select
+                    className='border-input bg-background h-8 max-w-[280px] rounded-md border px-2 text-xs'
+                    value={runtime.selected_node || 'PUBLIC_FAST'}
+                    onChange={(e) => selectNodeMutation.mutate(e.target.value)}
+                  >
+                    <option value='PUBLIC_FAST'>⚡ PUBLIC_FAST（自动测速优选最快节点）</option>
+                    {runtime.nodes.slice(0, 200).map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {subscriptions.length > 0 && (
           <Card>

@@ -1,6 +1,7 @@
 package proxy_pool
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -55,5 +56,49 @@ cookie: HWWAFSESID=349689a3ea18fb48585; ds_session_id=c70d161b2aa44cb78970e5e466
 		t.Fatalf("device profiles collided between two accounts: %+v vs %+v", devA, devB)
 	}
 	t.Logf("Account 1 device_id=%s cookie=%s", devA.DeviceId, devA.Cookie)
-	t.Logf("Account 2 device_id=%s cookie=%s", devB.DeviceId, devB.Cookie)
+	t.Logf("Account 2 device_id=%s cookie=%s", devA.DeviceId, devB.Cookie)
+}
+
+func TestSyncOnlineSupabaseProxyPool(t *testing.T) {
+	if os.Getenv("SYNC_ONLINE_DB") != "1" {
+		t.Skip("set SYNC_ONLINE_DB=1 to migrate and seed online Supabase DB")
+	}
+	raw, err := os.ReadFile(`D:\控制面板总结聊天\panel\_vars-cache.json`)
+	if err != nil {
+		t.Fatalf("read _vars-cache.json: %v", err)
+	}
+	var cfg struct {
+		SQLDSN string `json:"SQL_DSN"`
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil || cfg.SQLDSN == "" {
+		t.Fatalf("parse SQL_DSN failed: %v", err)
+	}
+	_ = os.Setenv("SQL_DSN", cfg.SQLDSN)
+	_ = os.Setenv("SKIP_DB_MIGRATION", "true")
+	_ = os.Setenv("SKIP_64BIT_QUOTA_SCHEMA_CHECK", "true")
+	if err := model.InitDB(); err != nil {
+		t.Fatalf("InitDB failed: %v", err)
+	}
+	model.EnsureProxyPoolSchema()
+	// 把已有节点设为 public=true 并在缺少 haizhu 节点时导入精选/全量公共节点
+	_ = model.DB.Exec("UPDATE proxy_endpoints SET public = true WHERE user_id = 1").Error
+	_ = model.DB.Exec("UPDATE proxy_subscriptions SET public = true WHERE user_id = 1").Error
+
+	cnt, err := model.CountHaizhuEndpoints()
+	if err != nil {
+		t.Fatalf("CountHaizhuEndpoints after schema fix failed: %v", err)
+	}
+	t.Logf("Online DB existing haizhu endpoints = %d", cnt)
+	if cnt == 0 {
+		n, ierr := ImportHaizhuNodes(1, "full")
+		if ierr != nil {
+			t.Fatalf("ImportHaizhuNodes to online DB failed: %v", ierr)
+		}
+		t.Logf("Imported %d Haizhu public nodes into online Supabase DB", n)
+	}
+	list, err := model.ListProxyEndpoints(1)
+	if err != nil {
+		t.Fatalf("ListProxyEndpoints(1) on online DB failed: %v", err)
+	}
+	t.Logf("Online DB ListProxyEndpoints(1) succeeded: total visible = %d", len(list))
 }

@@ -612,12 +612,12 @@ func DeleteProxySubscription(c *gin.Context) {
 // GetProxyPoolSummary GET /api/proxy-pool/summary — 统计卡数据。
 func GetProxyPoolSummary(c *gin.Context) {
 	userId := c.GetInt("id")
-	endpoints, err := model.ListProxyEndpoints(userId)
+	stats, err := model.GetProxyPoolStatsForUser(userId)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	subscriptions, err := model.ListProxySubscriptions(userId)
+	subCount, err := model.CountProxySubscriptions(userId)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -627,33 +627,18 @@ func GetProxyPoolSummary(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-
-	enabledCount := 0
-	clientNodeCount := 0
-	publicCount := 0
-	haizhuCount := 0
-	for _, endpoint := range endpoints {
-		if endpoint.Enabled {
-			enabledCount++
-		}
-		if strings.TrimSpace(endpoint.RawUri) != "" {
-			clientNodeCount++
-		}
-		if endpoint.Public {
-			publicCount++
-		}
-		if endpoint.Source == "haizhu" {
-			haizhuCount++
-		}
+	usableCount := len(usableUrls)
+	if stats.Enabled > usableCount {
+		usableCount = stats.Enabled
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{
-		"endpoint_total":     len(endpoints),
-		"endpoint_enabled":   enabledCount,
-		"usable_url_count":   len(usableUrls),
-		"subscription_total": len(subscriptions),
-		"client_node_count":  clientNodeCount,
-		"public_node_count":  publicCount,
-		"haizhu_node_count":  haizhuCount,
+		"endpoint_total":     stats.Total,
+		"endpoint_enabled":   stats.Enabled,
+		"usable_url_count":   usableCount,
+		"subscription_total": subCount,
+		"client_node_count":  stats.ClientNodes,
+		"public_node_count":  stats.PublicNodes,
+		"haizhu_node_count":  stats.HaizhuNodes,
 	}})
 }
 

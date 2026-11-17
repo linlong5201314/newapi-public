@@ -164,6 +164,8 @@ func GetSelfChannelDetail(c *gin.Context) {
 		}
 	}
 
+	allModels := DefaultModelsForChannel(channel)
+
 	// key 一律不回给前端：详情页只需要「有没有配密钥」，不需要密钥本体。
 	hasKey := strings.TrimSpace(channel.Key) != ""
 	channel.Key = ""
@@ -174,6 +176,7 @@ func GetSelfChannelDetail(c *gin.Context) {
 		"data": gin.H{
 			"channel":       channel,
 			"models":        models,
+			"all_models":    allModels,
 			"public_models": publicModels,
 			"health":        health,
 			"proxy":         proxyView,

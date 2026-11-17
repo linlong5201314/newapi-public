@@ -234,9 +234,18 @@ func AddSelfChannelFromTemplate(c *gin.Context) {
 		Tier:       normalizeChannelTier(req.Tier),
 		AllowIps:   strings.TrimSpace(req.AllowIps),
 	}
+	allCandidateSet := map[string]bool{}
+	allCandidates := make([]string, 0, len(tpl.Models)+len(chosenModels))
+	for _, m := range append(append([]string(nil), tpl.Models...), chosenModels...) {
+		if v := strings.TrimSpace(m); v != "" && !allCandidateSet[v] {
+			allCandidateSet[v] = true
+			allCandidates = append(allCandidates, v)
+		}
+	}
 	otherInfo := map[string]any{
 		"templateId": tpl.Id,
 		"poolKey":    tpl.PoolKey,
+		"allModels":  allCandidates,
 	}
 	if len(publicModels) > 0 {
 		otherInfo["publicModels"] = publicModels
@@ -464,6 +473,7 @@ func SetSelfChannelVisibility(c *gin.Context) {
 		Tier         string   `json:"tier"`
 		AllowIps     string   `json:"allowIps"`
 		PublicModels []string `json:"publicModels"`
+		AllModels    []string `json:"allModels"`
 	}{}
 	if err := c.ShouldBindJSON(&req); err != nil || req.ChannelId <= 0 {
 		common.ApiErrorMsg(c, "Invalid parameters")
@@ -473,19 +483,32 @@ func SetSelfChannelVisibility(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	if req.PublicModels != nil {
+	if req.PublicModels != nil || req.AllModels != nil {
 		if ch, ok := loadSelfOwnedChannel(c, req.ChannelId, false); ok && ch != nil {
 			info := ch.GetOtherInfo()
 			if info == nil {
 				info = map[string]any{}
 			}
-			cleaned := make([]string, 0, len(req.PublicModels))
-			for _, m := range req.PublicModels {
-				if v := strings.TrimSpace(m); v != "" {
-					cleaned = append(cleaned, v)
+			if req.PublicModels != nil {
+				cleaned := make([]string, 0, len(req.PublicModels))
+				for _, m := range req.PublicModels {
+					if v := strings.TrimSpace(m); v != "" {
+						cleaned = append(cleaned, v)
+					}
 				}
+				info["publicModels"] = cleaned
 			}
-			info["publicModels"] = cleaned
+			if len(req.AllModels) > 0 {
+				cleanedAll := make([]string, 0, len(req.AllModels))
+				seen := map[string]bool{}
+				for _, m := range req.AllModels {
+					if v := strings.TrimSpace(m); v != "" && !seen[v] {
+						seen[v] = true
+						cleanedAll = append(cleanedAll, v)
+					}
+				}
+				info["allModels"] = cleanedAll
+			}
 			ch.SetOtherInfo(info)
 			_ = model.DB.Model(&model.Channel{}).Where("id = ? AND owner_id = ?", req.ChannelId, uid).Update("other_info", ch.OtherInfo).Error
 		}
@@ -498,6 +521,122 @@ func SetSelfChannelVisibility(c *gin.Context) {
 	}
 	model.InitChannelCache()
 	common.ApiSuccess(c, gin.H{"channelId": req.ChannelId, "visibility": normalizeChannelVisibility(req.Visibility), "tier": normalizeChannelTier(req.Tier)})
+}
+
+// FetchLiveFreeModelsForUpstream 针对 OpenRouter / OpenCode 及通用 OpenAI 兼容免费源实时探测上游最新免费模型列表。
+func FetchLiveFreeModelsForUpstream(baseURL, templateId, key, proxyURL string) ([]string, bool, int64) {
+	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	tplId := strings.ToLower(strings.TrimSpace(templateId))
+	isOpenRouter := tplId == "openrouter-free" || strings.Contains(strings.ToLower(base), "openrouter.ai")
+	isOpenCode := tplId == "opencode-free" || tplId == "opencode-zen" || strings.Contains(strings.ToLower(base), "opencode.ai")
+
+	seen := map[string]bool{}
+	var out []string
+	add := func(id string) {
+		v := strings.TrimSpace(id)
+		if v != "" && !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+
+	var latencyMs int64
+	probedLive := false
+
+	if base != "" && !strings.Contains(base, "{") {
+		modelsEndpoint := base + "/v1/models"
+		if strings.HasSuffix(base, "/v1") || strings.HasSuffix(base, "/openai") || strings.HasSuffix(base, "/compatibility") {
+			modelsEndpoint = base + "/models"
+		}
+		if client, err := service.GetHttpClientWithProxySettings(proxyURL, dto.ChannelSettings{}); err == nil {
+			probeClient := *client
+			probeClient.Timeout = 7 * time.Second
+			httpReq, rerr := http.NewRequest(http.MethodGet, modelsEndpoint, nil)
+			if rerr == nil {
+				cleanKey := strings.TrimSpace(key)
+				// OpenRouter 的 /api/v1/models 公开免鉴权；若带占位 key sk-free-* 反而会 401
+				if cleanKey != "" && !strings.HasPrefix(cleanKey, "sk-free-") {
+					httpReq.Header.Set("Authorization", "Bearer "+cleanKey)
+				}
+				start := time.Now()
+				if resp, derr := probeClient.Do(httpReq); derr == nil && resp != nil {
+					latencyMs = time.Since(start).Milliseconds()
+					body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+					_ = resp.Body.Close()
+					var payload struct {
+						Data []struct {
+							Id      string `json:"id"`
+							Pricing *struct {
+								Prompt     string `json:"prompt"`
+								Completion string `json:"completion"`
+							} `json:"pricing"`
+						} `json:"data"`
+					}
+					if common.Unmarshal(body, &payload) == nil && len(payload.Data) > 0 {
+						probedLive = true
+						for _, item := range payload.Data {
+							id := strings.TrimSpace(item.Id)
+							if id == "" {
+								continue
+							}
+							if isOpenRouter {
+								isFree := strings.HasSuffix(strings.ToLower(id), ":free") ||
+									id == "openrouter/auto" ||
+									id == "openrouter/free" ||
+									(item.Pricing != nil && item.Pricing.Prompt == "0" && item.Pricing.Completion == "0")
+								if !isFree {
+									continue
+								}
+							}
+							add(id)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// OpenRouter 热门免费模型保底补充（防止网络波动时列表只剩 1 个 openrouter/auto）
+	if isOpenRouter {
+		for _, m := range []string{
+			"openrouter/auto",
+			"openrouter/free",
+			"deepseek/deepseek-chat-v3-0324:free",
+			"deepseek/deepseek-r1:free",
+			"deepseek/deepseek-r1-0528:free",
+			"google/gemini-2.5-pro-exp-03-25:free",
+			"google/gemini-2.0-flash-exp:free",
+			"qwen/qwen3-235b-a22b:free",
+			"qwen/qwen3-32b:free",
+			"qwen/qwq-32b:free",
+			"meta-llama/llama-4-maverick:free",
+			"meta-llama/llama-4-scout:free",
+			"meta-llama/llama-3.3-70b-instruct:free",
+			"mistralai/mistral-small-3.1-24b-instruct:free",
+			"nvidia/llama-3.1-nemotron-ultra-253b-v1:free",
+		} {
+			add(m)
+		}
+	}
+
+	// OpenCode 免费模型保底补充（万一上游有新 free 模型，上面 probedLive 已收进 out，这里再补全经典 free 模型）
+	if isOpenCode {
+		for _, m := range []string{
+			"big-pickle",
+			"deepseek-v4.1-flash-free",
+			"glm-5.3-flash-free",
+			"longcat-2.5-free",
+			"minimax-m3.1-flash-free",
+			"mimo-v2.6-flash-free",
+			"nemotron-3.5-lightning-free",
+			"qwen3-coder-free",
+			"grok-code-fast-1-free",
+		} {
+			add(m)
+		}
+	}
+
+	return out, probedLive, latencyMs
 }
 
 // ProbeTemplateModels POST /api/channel/self/probe_template_models
@@ -528,16 +667,6 @@ func ProbeTemplateModels(c *gin.Context) {
 		proxyURL = ""
 	}
 
-	modelSet := map[string]bool{}
-	models := make([]string, 0, len(tpl.Models)+8)
-	addModel := func(m string) {
-		v := strings.TrimSpace(m)
-		if v != "" && !modelSet[v] {
-			modelSet[v] = true
-			models = append(models, v)
-		}
-	}
-
 	baseURL := strings.TrimRight(strings.TrimSpace(tpl.BaseUrl), "/")
 	for _, field := range tpl.ExtraFields {
 		val := strings.TrimSpace(req.Extra[field])
@@ -549,43 +678,20 @@ func ProbeTemplateModels(c *gin.Context) {
 		}
 	}
 
-	var latencyMs int64
-	probedLive := false
-	if baseURL != "" && !strings.Contains(baseURL, "{") {
-		modelsEndpoint := baseURL + "/v1/models"
-		if strings.HasSuffix(baseURL, "/v1") || strings.HasSuffix(baseURL, "/openai") {
-			modelsEndpoint = baseURL + "/models"
-		}
-		if client, err := service.GetHttpClientWithProxySettings(proxyURL, dto.ChannelSettings{}); err == nil {
-			probeClient := *client
-			probeClient.Timeout = 6 * time.Second
-			httpReq, rerr := http.NewRequest(http.MethodGet, modelsEndpoint, nil)
-			if rerr == nil {
-				key := strings.TrimSpace(req.Key)
-				if key != "" {
-					httpReq.Header.Set("Authorization", "Bearer "+key)
-				}
-				start := time.Now()
-				if resp, derr := probeClient.Do(httpReq); derr == nil && resp != nil {
-					latencyMs = time.Since(start).Milliseconds()
-					body, _ := io.ReadAll(io.LimitReader(resp.Body, 512<<10))
-					_ = resp.Body.Close()
-					var payload struct {
-						Data []struct {
-							Id string `json:"id"`
-						} `json:"data"`
-					}
-					if common.Unmarshal(body, &payload) == nil && len(payload.Data) > 0 {
-						probedLive = true
-						for _, item := range payload.Data {
-							addModel(item.Id)
-						}
-					}
-				}
-			}
+	liveModels, probedLive, latencyMs := FetchLiveFreeModelsForUpstream(baseURL, tpl.Id, req.Key, proxyURL)
+
+	modelSet := map[string]bool{}
+	models := make([]string, 0, len(liveModels)+len(tpl.Models)+8)
+	addModel := func(m string) {
+		v := strings.TrimSpace(m)
+		if v != "" && !modelSet[v] {
+			modelSet[v] = true
+			models = append(models, v)
 		}
 	}
-
+	for _, m := range liveModels {
+		addModel(m)
+	}
 	for _, m := range tpl.Models {
 		addModel(m)
 	}

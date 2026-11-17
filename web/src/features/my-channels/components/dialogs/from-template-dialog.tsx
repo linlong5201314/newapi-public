@@ -21,6 +21,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   CheckSquare,
+  Copy,
   Cpu,
   ExternalLink,
   Gift,
@@ -53,8 +54,10 @@ import { Skeleton } from '@/components/ui/skeleton'
 import {
   createBinding,
   importTrae,
+  pollDs2ApiOAuth,
   pollRaccoonOAuth,
   pollWorkbuddyOAuth,
+  startDs2ApiOAuth,
   startRaccoonOAuth,
   startWorkbuddyOAuth,
   type OAuthSession,
@@ -185,6 +188,7 @@ export function FromTemplateDialog({
   const [oauthRealm, setOauthRealm] = useState<'cn' | 'global'>('cn')
   const [wbSession, setWbSession] = useState<OAuthSession | null>(null)
   const [raccoonSession, setRaccoonSession] = useState<OAuthSession | null>(null)
+  const [ds2apiSession, setDs2apiSession] = useState<OAuthSession | null>(null)
   const [oauthStatusText, setOauthStatusText] = useState('')
 
   const { data: templates, isLoading } = useQuery({
@@ -242,10 +246,11 @@ export function FromTemplateDialog({
     setOauthStatusText('')
     setWbSession(null)
     setRaccoonSession(null)
+    setDs2apiSession(null)
     setIsSubmitting(false)
   }, [open])
 
-  // 切换模板时初始化模型列表与默认代理模式
+  // 切换模板时初始化模型列表与默认代理模式，针对 openrouter/opencode 等自动拉取最新免费模型
   useEffect(() => {
     if (!selected) return
     const list = selected.models ?? []
@@ -258,6 +263,19 @@ export function FromTemplateDialog({
       setProxyMode(ownNodes.length > 0 ? 'own_pool' : 'free_pool')
     } else {
       setProxyMode('own_pool')
+    }
+    if (
+      selected.id === 'openrouter-free' ||
+      selected.id === 'opencode-free' ||
+      selected.id === 'opencode-zen'
+    ) {
+      void probeTemplateModels({ templateId: selected.id }).then((res) => {
+        if (res.success && res.data?.models && res.data.models.length > 0) {
+          setAvailableModels(res.data.models)
+          setMyModels(res.data.models)
+          setProbeInfo(`已自动同步 ${res.data.models.length} 个最新免费 (Free) 模型`)
+        }
+      })
     }
   }, [selected, ownNodes.length])
 
@@ -314,6 +332,31 @@ export function FromTemplateDialog({
       window.clearInterval(timer)
     }
   }, [raccoonSession, queryClient, onOpenChange])
+
+  // DS2API（DeepSeek 网页端）授权链接轮询：授权页确认后自动返回并建好渠道
+  useEffect(() => {
+    if (!ds2apiSession) return
+    let alive = true
+    const timer = window.setInterval(async () => {
+      const res = await pollDs2ApiOAuth(ds2apiSession.sessionId)
+      if (!alive) return
+      if (res.done) {
+        window.clearInterval(timer)
+        setDs2apiSession(null)
+        toast.success(
+          res.channel?.id
+            ? `DS2API 授权成功，已分配独立虚拟设备指纹并开通渠道 #${res.channel.id}`
+            : 'DS2API 授权成功，渠道已自动开通'
+        )
+        void queryClient.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
+        onOpenChange(false)
+      }
+    }, 2500)
+    return () => {
+      alive = false
+      window.clearInterval(timer)
+    }
+  }, [ds2apiSession, queryClient, onOpenChange])
 
   const templateKind = selected ? classifyTemplate(selected) : 'api'
   const isSubscription = templateKind === 'sub'
@@ -455,6 +498,21 @@ export function FromTemplateDialog({
     setRaccoonSession(sess)
     setOauthStatusText('已打开小浣熊登录页，授权后本弹窗将自动开通渠道…')
     window.open(sess.authUrl, '_blank', 'noopener,noreferrer')
+  }
+
+  const startDs2ApiFlow = async () => {
+    setOauthStatusText('正在生成专属 DS2API 授权登录链接…')
+    const sess = await startDs2ApiOAuth()
+    if (!sess) {
+      setOauthStatusText('生成授权链接失败，请稍后重试')
+      return
+    }
+    setDs2apiSession(sess)
+    setOauthStatusText('已生成专属授权链接！可复制链接去浏览器登录，授权完成后本页将自动返回并开通渠道…')
+    void navigator.clipboard
+      ?.writeText(sess.authUrl)
+      .then(() => toast.success('DS2API 授权链接已复制到剪贴板，去浏览器打开完成授权即可自动返回'))
+      .catch(() => undefined)
   }
 
   const handleSubmit = async () => {
@@ -818,6 +876,71 @@ export function FromTemplateDialog({
                     </div>
                   )}
 
+                  {/* DS2API 一键生成授权链接 → 复制去浏览器登录 → 自动返回开通渠道 */}
+                  {selected.id === 'ds2api' && (
+                    <div className='space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-3 text-xs'>
+                      <div className='flex flex-wrap items-center justify-between gap-2'>
+                        <span className='font-medium text-foreground'>
+                          🔗 方式一：生成专属授权链接 → 复制去浏览器登录，授权后自动返回开通渠道
+                        </span>
+                        <div className='flex flex-wrap gap-1.5'>
+                          <Button
+                            size='sm'
+                            type='button'
+                            className='h-8 text-xs'
+                            onClick={() => void startDs2ApiFlow()}
+                          >
+                            {ds2apiSession ? '🔄 重新生成并复制链接' : '🔗 生成 DS2API 授权链接'}
+                          </Button>
+                          {ds2apiSession && (
+                            <>
+                              <Button
+                                size='sm'
+                                variant='secondary'
+                                type='button'
+                                className='h-8 text-xs'
+                                onClick={() => {
+                                  void navigator.clipboard
+                                    ?.writeText(ds2apiSession.authUrl)
+                                    .then(() => toast.success('授权链接已复制'))
+                                }}
+                              >
+                                <Copy className='me-1 size-3.5' />
+                                复制链接
+                              </Button>
+                              <Button
+                                size='sm'
+                                variant='outline'
+                                type='button'
+                                className='h-8 text-xs'
+                                onClick={() =>
+                                  window.open(ds2apiSession.authUrl, '_blank', 'noopener,noreferrer')
+                                }
+                              >
+                                <ExternalLink className='me-1 size-3.5' />
+                                直接打开授权页
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      {ds2apiSession && (
+                        <Input
+                          readOnly
+                          value={ds2apiSession.authUrl}
+                          onClick={(e) => (e.target as HTMLInputElement).select()}
+                          className='h-8 font-mono text-xs'
+                        />
+                      )}
+                      {oauthStatusText && (
+                        <div className='flex items-center gap-1.5 text-primary'>
+                          <Loader2 className='size-3.5 animate-spin' />
+                          <span>{oauthStatusText}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* Trae / Cline / Qoder CN / 书生·端砚 快捷跳转授权按钮 */}
                   {(selected.id === 'trae-cn' ||
                     selected.id === 'trae-intl' ||
@@ -1120,23 +1243,37 @@ export function FromTemplateDialog({
                   <div className='flex flex-wrap gap-2'>
                     <button
                       type='button'
-                      className='text-primary hover:underline'
-                      onClick={() => setMyModels(availableModels)}
+                      className='text-primary hover:underline font-medium'
+                      onClick={() => setMyModels([...availableModels])}
                     >
-                      全选我的渠道
+                      一键全选（启用在我的渠道）
                     </button>
                     <span>·</span>
                     <button
                       type='button'
-                      className='text-primary hover:underline'
-                      onClick={() =>
-                        setPublicModels(
-                          publicModels.length === availableModels.length ? [] : [...availableModels]
-                        )
-                      }
+                      className='text-muted-foreground hover:text-foreground hover:underline'
+                      onClick={() => {
+                        setMyModels([])
+                        setPublicModels([])
+                      }}
+                    >
+                      一键全不选（我的渠道）
+                    </button>
+                    <span>·</span>
+                    <button
+                      type='button'
+                      className='text-emerald-600 hover:underline font-medium'
+                      onClick={() => {
+                        if (publicModels.length === availableModels.length) {
+                          setPublicModels([])
+                        } else {
+                          setMyModels([...availableModels])
+                          setPublicModels([...availableModels])
+                        }
+                      }}
                     >
                       {publicModels.length === availableModels.length
-                        ? '取消全部公开'
+                        ? '全不选公开'
                         : '全选加入公共池'}
                     </button>
                   </div>

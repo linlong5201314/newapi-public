@@ -31,7 +31,11 @@ RUN go build -pgo="$(go list -m -f '{{.Dir}}' github.com/Calcium-Ion/moejs)/defa
 FROM debian:bookworm-slim@sha256:f06537653ac770703bc45b4b113475bd402f451e85223f0f2837acbf89ab020a
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates tzdata libasan8 wget \
+    && apt-get install -y --no-install-recommends ca-certificates tzdata libasan8 wget gzip \
+    && (wget -qO /tmp/mihomo.gz "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.19/mihomo-linux-amd64-compatible-v1.19.19.gz" \
+        && gzip -d /tmp/mihomo.gz \
+        && mv /tmp/mihomo /usr/local/bin/mihomo \
+        && chmod +x /usr/local/bin/mihomo || true) \
     && rm -rf /var/lib/apt/lists/* \
     && update-ca-certificates
 

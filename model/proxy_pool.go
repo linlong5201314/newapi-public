@@ -4,10 +4,13 @@
 package model
 
 import (
+	"sync"
 	"time"
 
 	"gorm.io/gorm"
 )
+
+var ensureProxySchemaOnce sync.Once
 
 const (
 	// ProxyEndpointMaxFailCount 连续失败达到该次数后节点退出可用列表。
@@ -62,13 +65,66 @@ type ProxySubscription struct {
 
 func (ProxySubscription) TableName() string { return "proxy_subscriptions" }
 
-// ListProxyEndpoints 列出某用户可见的出口节点：自己的 + 已公开进池的（优先未失败、低延迟节点）。
+// EnsureProxyPoolSchema 在 SKIP_DB_MIGRATION=true 时也确保代理池表的新增列（latency_ms / public / source）存在。
+func EnsureProxyPoolSchema() {
+	if DB == nil {
+		return
+	}
+	// 直接用轻量幂等 DDL 补列（避免跨区 PostgreSQL 上 GORM AutoMigrate 查数十次 information_schema 拖慢冷启动）
+	_ = DB.Exec("ALTER TABLE proxy_endpoints ADD COLUMN IF NOT EXISTS public boolean NOT NULL DEFAULT false").Error
+	_ = DB.Exec("ALTER TABLE proxy_endpoints ADD COLUMN IF NOT EXISTS latency_ms integer NOT NULL DEFAULT 0").Error
+	_ = DB.Exec("ALTER TABLE proxy_endpoints ADD COLUMN IF NOT EXISTS source varchar(40) NOT NULL DEFAULT 'manual'").Error
+	_ = DB.Exec("ALTER TABLE proxy_subscriptions ADD COLUMN IF NOT EXISTS public boolean NOT NULL DEFAULT false").Error
+}
+
+// ListProxyEndpoints 列出某用户可见的出口节点：自己的全部节点优先 + 已公开进池的低延迟节点（上限 600 条防止跨区超大包阻塞）。
 func ListProxyEndpoints(userId int) ([]ProxyEndpoint, error) {
+	ensureProxySchemaOnce.Do(EnsureProxyPoolSchema)
 	var list []ProxyEndpoint
-	err := DB.Where("user_id = ? OR public = ?", userId, true).
-		Order("fail_count ASC, CASE WHEN latency_ms > 0 THEN latency_ms ELSE 99999 END ASC, weight DESC, id ASC").
+	err := DB.Select("id, user_id, name, kind, url, CASE WHEN raw_uri <> '' THEN substr(raw_uri, 1, 20) ELSE '' END AS raw_uri, region, subscription_id, source, enabled, public, weight, latency_ms, fail_count, last_ok_at, last_error, created_at, updated_at").
+		Where("user_id = ? OR public = ?", userId, true).
+		Order("CASE WHEN user_id = " + itoaSafe(userId) + " AND source <> 'haizhu' THEN 0 ELSE 1 END ASC, fail_count ASC, CASE WHEN latency_ms > 0 THEN latency_ms ELSE 99999 END ASC, weight DESC, id ASC").
+		Limit(600).
 		Find(&list).Error
 	return list, err
+}
+
+// ProxyPoolStats 代理池聚合统计。
+type ProxyPoolStats struct {
+	Total       int `gorm:"column:total"`
+	Enabled     int `gorm:"column:enabled"`
+	ClientNodes int `gorm:"column:client_nodes"`
+	PublicNodes int `gorm:"column:public_nodes"`
+	HaizhuNodes int `gorm:"column:haizhu_nodes"`
+}
+
+// GetProxyPoolStatsForUser 单次 SQL 聚合统计该用户可见的代理池规模（跨区库 ~220ms）。
+func GetProxyPoolStatsForUser(userId int) (ProxyPoolStats, error) {
+	ensureProxySchemaOnce.Do(EnsureProxyPoolSchema)
+	var st ProxyPoolStats
+	err := DB.Model(&ProxyEndpoint{}).
+		Select(`COUNT(*) AS total,
+			COALESCE(SUM(CASE WHEN enabled = true THEN 1 ELSE 0 END), 0) AS enabled,
+			COALESCE(SUM(CASE WHEN raw_uri <> '' THEN 1 ELSE 0 END), 0) AS client_nodes,
+			COALESCE(SUM(CASE WHEN public = true THEN 1 ELSE 0 END), 0) AS public_nodes,
+			COALESCE(SUM(CASE WHEN source = 'haizhu' THEN 1 ELSE 0 END), 0) AS haizhu_nodes`).
+		Where("user_id = ? OR public = ?", userId, true).
+		Scan(&st).Error
+	return st, err
+}
+
+func itoaSafe(v int) string {
+	if v <= 0 {
+		return "0"
+	}
+	var buf [20]byte
+	i := len(buf)
+	for v > 0 {
+		i--
+		buf[i] = byte('0' + v%10)
+		v /= 10
+	}
+	return string(buf[i:])
 }
 
 // GetProxyEndpointVisible 读取当前用户可见的单个出口节点（自己的或公开的）。
@@ -106,7 +162,7 @@ func CreateProxyEndpoints(list []ProxyEndpoint) error {
 	if len(list) == 0 {
 		return nil
 	}
-	if err := DB.CreateInBatches(&list, 100).Error; err != nil {
+	if err := DB.CreateInBatches(&list, 800).Error; err != nil {
 		return err
 	}
 	InvalidateProxyPoolCache(list[0].UserId)
@@ -269,6 +325,7 @@ func CountProxySubscriptions(userId int) (int, error) {
 // 条件：enabled、url 非空、连续失败次数未达上限；优先使用未失败且延迟最低的节点；
 // 末尾追加内核（mihomo）的本地出口，让只有客户端协议（vless/ss/anytls…）的节点也能真正发请求。
 func ListUsableProxyUrls(userId int) ([]string, error) {
+	ensureProxySchemaOnce.Do(EnsureProxyPoolSchema)
 	var urls []string
 	err := DB.Model(&ProxyEndpoint{}).
 		Where("(user_id = ? OR public = ?) AND enabled = ? AND url <> '' AND fail_count < ?", userId, true, true, ProxyEndpointMaxFailCount).

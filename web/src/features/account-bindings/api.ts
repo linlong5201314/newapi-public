@@ -150,6 +150,33 @@ export async function importTrae(payload: {
   }
 }
 
+// DS2API（DeepSeek 网页端）：生成专属授权链接 → 复制/点击去浏览器登录确认 → 自动回传并开通渠道。
+export async function startDs2ApiOAuth(): Promise<OAuthSession | null> {
+  const res = await api.post<{
+    success: boolean
+    data?: OAuthSession
+    message?: string
+  }>('/api/channel/self/oauth/ds2api/start', {}, cfg())
+  return res.data?.success ? (res.data.data ?? null) : null
+}
+
+export async function pollDs2ApiOAuth(
+  sessionId: string
+): Promise<OAuthPollResult> {
+  const res = await api.get<{
+    success: boolean
+    data?: OAuthPollResult & { models?: string[] }
+    message?: string
+  }>(
+    `/api/channel/self/oauth/ds2api/poll?sessionId=${encodeURIComponent(sessionId)}`,
+    cfg()
+  )
+  if (!res.data?.success) {
+    return { done: false, message: res.data?.message }
+  }
+  return res.data.data ?? { done: false }
+}
+
 export type MagpiePlugin = {
   id: string
   name: string

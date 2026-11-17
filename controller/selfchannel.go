@@ -336,19 +336,63 @@ func FetchSelfChannelModels(c *gin.Context) {
 	if !ok {
 		return
 	}
-	// M3 账号型渠道（workbuddy/trae）：走各自上游模型端点（凭据型，非 OpenAI /models）。
+	// M3 账号型渠道（workbuddy/trae/cline/raccoon）：走各自上游模型端点 + 完整内置池回退。
 	if _, handled := SelfFetchAccountModels(c, channel); handled {
 		return
 	}
-	ids, err := fetchChannelUpstreamModelIDs(channel)
-	if err != nil {
-		common.ApiErrorT(c, "Failed to fetch models: {{error}}", map[string]any{"error": err.Error()})
-		return
+
+	info := channel.GetOtherInfo()
+	templateId, _ := info["templateId"].(string)
+	key := model.DecryptChannelKey(channel.Type, channel.Key)
+	if channel.ChannelInfo.IsMultiKey {
+		if keys := channel.GetKeys(); len(keys) > 0 {
+			key = keys[0]
+		}
 	}
+	proxyURL := strings.TrimSpace(channel.GetSetting().Proxy)
+	if proxyURL == "" {
+		proxyURL = model.PickUserProxyUrl(c.GetInt("id"))
+	} else if proxyURL == "direct" {
+		proxyURL = ""
+	}
+
+	seen := map[string]bool{}
+	var merged []string
+	add := func(list []string) {
+		for _, m := range list {
+			v := strings.TrimSpace(m)
+			if v != "" && !seen[v] {
+				seen[v] = true
+				merged = append(merged, v)
+			}
+		}
+	}
+
+	// 1. 针对 OpenRouter / OpenCode / 通用免费源实时拉取最新免费模型（含 :free 自动筛选）
+	liveFree, _, _ := FetchLiveFreeModelsForUpstream(channel.GetBaseURL(), templateId, key, proxyURL)
+	add(liveFree)
+
+	// 2. 尝试标准适配器上游拉取
+	if len(merged) == 0 {
+		if ids, uerr := fetchChannelUpstreamModelIDs(channel); uerr == nil {
+			add(ids)
+		}
+	}
+
+	// 3. 合并该渠道的完整内置/历史候选模型池（确保即使之前只保存了 1 个模型，也能找回全部模型）
+	add(DefaultModelsForChannel(channel))
+
+	if info == nil {
+		info = map[string]any{}
+	}
+	info["allModels"] = merged
+	channel.SetOtherInfo(info)
+	_ = model.DB.Model(&model.Channel{}).Where("id = ?", channel.Id).Update("other_info", channel.OtherInfo).Error
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    ids,
+		"data":    merged,
 	})
 }
 

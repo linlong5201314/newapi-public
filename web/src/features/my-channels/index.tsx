@@ -34,7 +34,7 @@ export function MyChannels() {
 
   return (
     <ChannelsProvider>
-      <SectionPageLayout fixedContent>
+      <SectionPageLayout>
         <SectionPageLayout.Title>
           <span className='truncate'>{t('My Channels')}</span>
         </SectionPageLayout.Title>
@@ -42,22 +42,25 @@ export function MyChannels() {
           <ChannelsPrimaryButtons />
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
-          <Alert className='mb-3 shrink-0'>
-            <Info className='h-4 w-4' />
-            <AlertDescription>
-              {t(
-                'Channels here are private to you. API requests are only routed to your own channels.'
-              )}
-              {' · '}
-              <span>
-                点击渠道名称可打开详情抽屉（查看实时额度、选择代理 IP / 订阅节点、编辑名称、管理模型与公开设置）；Token / OAuth 账号授权（Trae / WorkBuddy / 小浣熊 / Cline / Qoder CN / 书生·端砚 / DS2API）已全部整合至右上角「从免费源添加」。
-              </span>
-            </AlertDescription>
-          </Alert>
-          {/* [M2-FE] Free quota pool cards */}
-          <FreeUsageCards />
-          <MagpiePluginsCard />
-          <ChannelsTable />
+          <div className='space-y-3 pb-8'>
+            <Alert className='shrink-0'>
+              <Info className='h-4 w-4' />
+              <AlertDescription>
+                {t(
+                  'Channels here are private to you. API requests are only routed to your own channels.'
+                )}
+                {' · '}
+                <span>
+                  点击渠道名称可打开二级详情页（支持上下滑动查看实时额度、选择代理 IP / 订阅节点、编辑名称、一键全选/全不选模型与公开设置）。
+                </span>
+              </AlertDescription>
+            </Alert>
+            <FreeUsageCards />
+            <MagpiePluginsCard />
+            <div className='min-h-[540px]'>
+              <ChannelsTable />
+            </div>
+          </div>
         </SectionPageLayout.Content>
       </SectionPageLayout>
 
