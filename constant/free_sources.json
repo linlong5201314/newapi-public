@@ -1,6 +1,6 @@
 {
-  "version": 5,
-  "curatedAt": "2026-11-12",
+  "version": 6,
+  "curatedAt": "2026-11-17",
   "source": "assets/free-pools.json + assets/free-model-catalog.json + OmniRoute provider registry",
   "templates": [
     {
@@ -22,7 +22,8 @@
       "freeType": "recurring-daily",
       "tos": "caution",
       "poolKey": "groq",
-      "authMode": "key"
+      "authMode": "key",
+      "authType": "key"
     },
     {
       "id": "gemini",
@@ -43,7 +44,8 @@
       "freeType": "recurring-daily",
       "tos": "caution",
       "poolKey": "gemini-free",
-      "authMode": "key"
+      "authMode": "key",
+      "authType": "key"
     },
     {
       "id": "cerebras",
@@ -61,7 +63,8 @@
       "freeType": "recurring-daily",
       "tos": "caution",
       "poolKey": "cerebras",
-      "authMode": "key"
+      "authMode": "key",
+      "authType": "key"
     },
     {
       "id": "sambanova",
@@ -82,7 +85,8 @@
       "freeType": "recurring-daily",
       "tos": "caution",
       "poolKey": "sambanova",
-      "authMode": "key"
+      "authMode": "key",
+      "authType": "key"
     },
     {
       "id": "cloudflare-ai",
@@ -106,7 +110,8 @@
       "freeType": "recurring-daily",
       "tos": "caution",
       "poolKey": "cloudflare-ai",
-      "authMode": "key"
+      "authMode": "key",
+      "authType": "key"
     },
     {
       "id": "openrouter-free",
@@ -123,7 +128,8 @@
       "freeType": "recurring-daily",
       "tos": "caution",
       "poolKey": "openrouter-free",
-      "authMode": "key"
+      "authMode": "key",
+      "authType": "key"
     },
     {
       "id": "mistral",
@@ -144,7 +150,8 @@
       "freeType": "recurring-monthly",
       "tos": "caution",
       "poolKey": "mistral",
-      "authMode": "key"
+      "authMode": "key",
+      "authType": "key"
     },
     {
       "id": "github-models",
@@ -164,7 +171,8 @@
       "freeType": "recurring-daily",
       "tos": "caution",
       "poolKey": "github-models",
-      "authMode": "key"
+      "authMode": "key",
+      "authType": "key"
     },
     {
       "id": "siliconflow",
@@ -185,7 +193,8 @@
       "freeType": "recurring-uncapped",
       "tos": "caution",
       "poolKey": "siliconflow",
-      "authMode": "key"
+      "authMode": "key",
+      "authType": "key"
     },
     {
       "id": "glm-cn",
@@ -204,7 +213,8 @@
       "freeType": "recurring-uncapped",
       "tos": "ok",
       "poolKey": "zhipu-flash-free",
-      "authMode": "key"
+      "authMode": "key",
+      "authType": "key"
     },
     {
       "id": "arcee-free",
@@ -221,7 +231,8 @@
       "freeType": "recurring-daily",
       "tos": "caution",
       "poolKey": "arcee-free",
-      "authMode": "key"
+      "authMode": "key",
+      "authType": "key"
     },
     {
       "id": "llm7",
@@ -241,7 +252,8 @@
       "freeType": "recurring-daily",
       "tos": "caution",
       "poolKey": "llm7-free",
-      "authMode": "key"
+      "authMode": "key",
+      "authType": "none"
     },
     {
       "id": "cohere",
@@ -262,7 +274,8 @@
       "freeType": "recurring-monthly",
       "tos": "caution",
       "poolKey": "cohere",
-      "authMode": "key"
+      "authMode": "key",
+      "authType": "key"
     },
     {
       "id": "nvidia-nim",
@@ -282,7 +295,8 @@
       "freeType": "recurring-daily",
       "tos": "caution",
       "poolKey": "nvidia-nim",
-      "authMode": "key"
+      "authMode": "key",
+      "authType": "key"
     },
     {
       "id": "modelscope",
@@ -300,7 +314,8 @@
       "freeType": "recurring-daily",
       "tos": "caution",
       "poolKey": "modelscope",
-      "authMode": "key"
+      "authMode": "key",
+      "authType": "key"
     },
     {
       "id": "ovhcloud",
@@ -325,7 +340,8 @@
       "freeType": "recurring-uncapped",
       "tos": "ok",
       "poolKey": "ovhcloud",
-      "authMode": "key"
+      "authMode": "key",
+      "authType": "none"
     },
     {
       "id": "kilo-code",
@@ -346,7 +362,8 @@
       "freeType": "recurring-daily",
       "tos": "caution",
       "poolKey": "kilo-code",
-      "authMode": "key"
+      "authMode": "key",
+      "authType": "none"
     },
     {
       "id": "aion-labs",
@@ -366,7 +383,8 @@
       "freeType": "recurring-daily",
       "tos": "caution",
       "poolKey": "aion-labs",
-      "authMode": "key"
+      "authMode": "key",
+      "authType": "key"
     },
     {
       "id": "gonka-broker",
@@ -386,7 +404,8 @@
       "freeType": "recurring-monthly",
       "tos": "caution",
       "poolKey": "gonka-broker",
-      "authMode": "key"
+      "authMode": "key",
+      "authType": "key"
     },
     {
       "id": "pollinations",
@@ -407,7 +426,8 @@
       "freeType": "recurring-uncapped",
       "tos": "ok",
       "poolKey": "pollinations",
-      "authMode": "ip"
+      "authMode": "ip",
+      "authType": "none"
     },
     {
       "id": "cline-account",
@@ -434,7 +454,8 @@
       "tos": "own-account",
       "poolKey": "cline",
       "authMode": "oauth",
-      "hiddenEndpoint": true
+      "hiddenEndpoint": true,
+      "authType": "none"
     },
     {
       "id": "trae-cn",
@@ -456,7 +477,8 @@
       "tos": "own-account",
       "poolKey": "trae-cn",
       "authMode": "account",
-      "hiddenEndpoint": true
+      "hiddenEndpoint": true,
+      "authType": "none"
     },
     {
       "id": "trae-intl",
@@ -478,7 +500,8 @@
       "tos": "own-account",
       "poolKey": "trae-intl",
       "authMode": "account",
-      "hiddenEndpoint": true
+      "hiddenEndpoint": true,
+      "authType": "none"
     },
     {
       "id": "ds2api",
@@ -496,7 +519,8 @@
       "poolKey": "ds2api",
       "extraFields": [],
       "authMode": "account",
-      "hiddenEndpoint": true
+      "hiddenEndpoint": true,
+      "authType": "none"
     },
     {
       "id": "opencode-zen",
@@ -520,7 +544,8 @@
       "tos": "own-account",
       "poolKey": "opencode",
       "authMode": "key",
-      "hiddenEndpoint": false
+      "hiddenEndpoint": false,
+      "authType": "key"
     },
     {
       "id": "sensenova",
@@ -539,7 +564,8 @@
       "freeType": "recurring-monthly",
       "tos": "caution",
       "poolKey": "sensenova",
-      "authMode": "key"
+      "authMode": "key",
+      "authType": "key"
     },
     {
       "id": "cto-new-proxy",
@@ -561,7 +587,8 @@
         "base"
       ],
       "authMode": "account",
-      "hiddenEndpoint": true
+      "hiddenEndpoint": true,
+      "authType": "none"
     },
     {
       "id": "magpie",
@@ -583,7 +610,8 @@
         "base": "https://magpie-production-557f97bd.up.railway.app/v1"
       },
       "authMode": "gateway",
-      "hiddenEndpoint": true
+      "hiddenEndpoint": true,
+      "authType": "none"
     },
     {
       "id": "internlm",
@@ -599,7 +627,8 @@
         "Intern-S2"
       ],
       "signupUrl": "https://internlm.intern-ai.org.cn/api/tokens",
-      "freeNote": "官方 API Token（注册后在 API Tokens 页生成，免费额度按账号）。注意：2026-11-09 起旧入口只保留 Intern-S2，其它模型 id 会自动路由到它；2027-01-26 旧入口停服，改走 InternLM Discovery 的 Token Plan。"
+      "freeNote": "官方 API Token（注册后在 API Tokens 页生成，免费额度按账号）。注意：2026-11-09 起旧入口只保留 Intern-S2，其它模型 id 会自动路由到它；2027-01-26 旧入口停服，改走 InternLM Discovery 的 Token Plan。",
+      "authType": "key"
     },
     {
       "id": "xiaohuanxiong",
@@ -613,7 +642,8 @@
       "modelsList": [],
       "extraFields": [],
       "homepageUrl": "https://xiaohuanxiong.com/",
-      "freeNote": "不需要 API Key，也不需要自己部署任何东西。\n① 点这个链接登录并同意授权：https://xiaohuanxiong.com/code/authorize?login_source=desktop&appname=%E5%8A%9E%E5%85%AC%E5%B0%8F%E6%B5%A3%E7%86%8A%E5%AE%A2%E6%88%B7%E7%AB%AF&state=0000000000000000000000000000000000000000000000000000000000000000&desktop_callback=loopback&redirect=http%3A%2F%2F127.0.0.1%3A64650%2Fauth%2Fcallback\n② 浏览器会跳到 http://127.0.0.1:64650/auth/callback?code=...（页面打不开是正常的，因为本机没有监听），把地址栏那一整段复制下来；\n③ 在下面「账号授权」里粘贴这段地址（含 code=），或直接粘贴 access_token。\n平台会用你给的 code 换票、直连官方网页接口，并把模型挂到你的账号下；不会显示任何部署地址。同一时刻小浣熊只允许一个桌面会话，登录第二个账号会顶掉第一个。⚠️ 登录态等同账号，建议用小号。"
+      "freeNote": "不需要 API Key，也不需要自己部署任何东西。\n① 点这个链接登录并同意授权：https://xiaohuanxiong.com/code/authorize?login_source=desktop&appname=%E5%8A%9E%E5%85%AC%E5%B0%8F%E6%B5%A3%E7%86%8A%E5%AE%A2%E6%88%B7%E7%AB%AF&state=0000000000000000000000000000000000000000000000000000000000000000&desktop_callback=loopback&redirect=http%3A%2F%2F127.0.0.1%3A64650%2Fauth%2Fcallback\n② 浏览器会跳到 http://127.0.0.1:64650/auth/callback?code=...（页面打不开是正常的，因为本机没有监听），把地址栏那一整段复制下来；\n③ 在下面「账号授权」里粘贴这段地址（含 code=），或直接粘贴 access_token。\n平台会用你给的 code 换票、直连官方网页接口，并把模型挂到你的账号下；不会显示任何部署地址。同一时刻小浣熊只允许一个桌面会话，登录第二个账号会顶掉第一个。⚠️ 登录态等同账号，建议用小号。",
+      "authType": "none"
     },
     {
       "id": "internlm-inkstone",
@@ -627,7 +657,29 @@
       "modelsList": [],
       "extraFields": [],
       "homepageUrl": "https://discovery.intern-ai.org.cn/",
-      "freeNote": "不需要 API Key：打开 https://discovery.intern-ai.org.cn/ 登录，\n按 F12 → Application/存储 → Cookies → 复制 uaa-token 的值，粘贴到下面「账号授权」。\n平台会用它在你的账号下创建一把 ink- 前缀的 API Key（明文只返回一次），并接到 OpenAI 兼容端点；单账号最多 10 把，删号时只清理 ink- 前缀。"
+      "freeNote": "不需要 API Key：打开 https://discovery.intern-ai.org.cn/ 登录，\n按 F12 → Application/存储 → Cookies → 复制 uaa-token 的值，粘贴到下面「账号授权」。\n平台会用它在你的账号下创建一把 ink- 前缀的 API Key（明文只返回一次），并接到 OpenAI 兼容端点；单账号最多 10 把，删号时只清理 ink- 前缀。",
+      "authType": "none"
+    },
+    {
+      "id": "proxy-subscription",
+      "name": "机场订阅（自建出口 IP）",
+      "channelType": 1,
+      "baseUrl": "{base}",
+      "signupUrl": "",
+      "keyRequired": false,
+      "extraFields": [
+        "base"
+      ],
+      "defaultExtra": {},
+      "models": [],
+      "freeNote": "把机场订阅链接粘进来，平台会解析节点数量与剩余流量，并把这些节点加进你的出口池；之后用同一订阅来源访问免费源即可。适合需要固定住宅/机房出口 IP 的上游。",
+      "monthlyTokens": 0,
+      "freeType": "reverse-proxy",
+      "tos": "own-account",
+      "poolKey": "proxy",
+      "authMode": "subscription",
+      "authType": "subscription",
+      "hiddenEndpoint": true
     }
   ]
 }
