@@ -2857,7 +2857,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "相关项目",
     "footer.defaultCopyright": "版权所有。",
-    "footer.new\u0061pi.projectAttributionSuffix": "版权所有，由项目贡献者设计与开发。",
+    "footer.newapi.projectAttributionSuffix": "版权所有，由项目贡献者设计与开发。",
     "For advanced custom channels this applies only to /v1/responses routes without protocol conversion.": "高级自定义渠道仅对 /v1/responses 且不做协议转换的路由生效。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "对于 2025 年 5 月 10 日之后添加的渠道，在部署时无需从模型名称中移除 \".\"",
     "For private deployments, format: https://fastgpt.run/api/openapi": "对于私有部署，格式为：https://fastgpt.run/api/openapi",
@@ -7938,6 +7938,11 @@
     "Edit entry": "编辑条目",
     "Node count": "节点数",
     "Last synced": "最近同步",
-    "Free tier (IP allowlist) needs no API key": "免费层（IP 白名单）不需要 API Key"
+    "Free tier (IP allowlist) needs no API key": "免费层（IP 白名单）不需要 API Key",
+    "Airport subscription link": "机场订阅链接",
+    "Paste the subscription URL (http/https)": "粘贴订阅链接（http/https）",
+    "The platform parses node count and remaining traffic, adds those nodes to your egress pool, then routes this source through them. No API key needed.": "平台会解析节点数与剩余流量，把这些节点加进你的出口池，再用它们转发这个来源的请求；不需要填 API Key。",
+    "No key needed for this source": "这个来源不需要密钥",
+    "This source is authorized by IP or an account login; nothing secret is stored here.": "该来源按出口 IP 或账号登录授权，平台不保存任何密钥。"
   }
 }
