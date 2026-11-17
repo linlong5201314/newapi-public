@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -17,14 +18,44 @@ import (
 )
 
 const (
-	AccessTokenTTL        = 15 * time.Minute
-	SecurityProofTTL      = time.Minute
-	LoginSessionTTL       = 30 * 24 * time.Hour
-	RefreshReplayWindow   = 30 * time.Second
 	accessTokenUse        = "access"
 	securityProofTokenUse = "security_proof"
 	authTokenIssuer       = "new-api"
 	authTokenAudience     = "new-api-dashboard"
+)
+
+// durationSecondsFromEnv reads a positive integer number of seconds from the
+// environment. It deliberately does not log on a bad value: these variables are
+// initialized while the package loads, before the log writer is safe to use.
+func durationSecondsFromEnv(name string, fallback time.Duration) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	seconds, err := strconv.Atoi(raw)
+	if err != nil || seconds <= 0 {
+		return fallback
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+// Token lifetimes are variables, not constants, so a deployment can tune them
+// through the environment without a rebuild.
+//
+// RefreshReplayWindow is the grace window in which a refresh token that was
+// just rotated away is still accepted. Refresh tokens rotate on every refresh,
+// and a client refreshes from more than one place: several browser tabs, a
+// dashboard opened in two windows, or — as in a multi-node deployment without a
+// shared Redis — the same browser landing on a different instance each request.
+// A window that is too narrow turns that ordinary race into "reuse detected",
+// which revokes the whole token family (model.RotateUserSessionRefresh) and
+// signs the user out mid-session. One day keeps the family intact for any
+// realistic client while still flagging a token replayed long after it rotated.
+var (
+	AccessTokenTTL      = durationSecondsFromEnv("ACCESS_TOKEN_TTL_SECONDS", 2*time.Hour)
+	SecurityProofTTL    = durationSecondsFromEnv("SECURITY_PROOF_TTL_SECONDS", time.Minute)
+	LoginSessionTTL     = durationSecondsFromEnv("LOGIN_SESSION_TTL_SECONDS", 30*24*time.Hour)
+	RefreshReplayWindow = durationSecondsFromEnv("REFRESH_REPLAY_WINDOW_SECONDS", 24*time.Hour)
 )
 
 var (
