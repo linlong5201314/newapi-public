@@ -217,7 +217,7 @@ export function AccountBindingsCard() {
         上游账号授权（账号密码 / 浏览器授权 / 配套网关）
       </div>
       <div className='text-muted-foreground mb-2 text-xs'>
-        只支持你自己的账号：提交后平台为你单独开通（一用户一实例），凭据与实例都不与其他用户共用，也看不到任何部署地址。选「Magpie 配套网关」填上游「供应商----密钥」，平台为你单独起一台网关；小浣熊、书生·端砚这类客户端登录态来源，用下面的浏览器授权直接接入，不需要自建网关。
+        只支持你自己的账号：提交后平台为你单独开通（一用户一实例），凭据与实例都不与其他用户共用，也看不到任何部署地址。选「Magpie 配套网关」填上游「供应商----密钥」，平台为你单独起一台网关；小浣熊点「开始授权」用浏览器登录一次即可；书生·端砚直接粘贴 Token Plan 里的 sk- Key（或在控制台复制 Cookie 里的 uaa-token 让平台代建 Key）。
       </div>
       <div className='flex flex-wrap gap-2'>
         <select
@@ -246,7 +246,9 @@ export function AccountBindingsCard() {
             : isBridge
               ? 'access_token----refresh_token\n（每行一个账号，来源：小浣熊 auth.json）'
               : isOAuth
-                ? '浏览器授权后的回调链接或 Token（每行一个）'
+                ? provider === 'internlm-inkstone'
+                  ? 'sk-…（书生 Token Plan 里的 API Key，每行一个）\n也可粘贴控制台 Cookie 里的 uaa-token，由平台代建 Key'
+                  : '浏览器授权后的回调链接或 Token（每行一个）'
                 : '账号----密码\n账号----密码（每行一个，可一次粘贴多个）'
         }
         value={accounts}
