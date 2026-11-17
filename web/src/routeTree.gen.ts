@@ -40,6 +40,7 @@ import { Route as AuthenticatedChatChatIdRouteImport } from './routes/_authentic
 import { Route as AuthenticatedCheckinIndexRouteImport } from './routes/_authenticated/checkin/index'
 import { Route as AuthenticatedDashboardIndexRouteImport } from './routes/_authenticated/dashboard/index'
 import { Route as AuthenticatedDashboardSectionRouteImport } from './routes/_authenticated/dashboard/$section'
+import { Route as AuthenticatedDemoIndexRouteImport } from './routes/_authenticated/demo/index'
 import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenticated/errors/$error'
 import { Route as AuthenticatedFreePoolIndexRouteImport } from './routes/_authenticated/free-pool/index'
 import { Route as AuthenticatedKeysIndexRouteImport } from './routes/_authenticated/keys/index'
@@ -239,6 +240,11 @@ const AuthenticatedDashboardSectionRoute =
     path: '/dashboard/$section',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedDemoIndexRoute = AuthenticatedDemoIndexRouteImport.update({
+  id: '/demo/',
+  path: '/demo/',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedErrorsErrorRoute =
   AuthenticatedErrorsErrorRouteImport.update({
     id: '/errors/$error',
@@ -510,6 +516,7 @@ export interface FileRoutesByFullPath {
   '/channels/': typeof AuthenticatedChannelsIndexRoute
   '/checkin/': typeof AuthenticatedCheckinIndexRoute
   '/dashboard/': typeof AuthenticatedDashboardIndexRoute
+  '/demo/': typeof AuthenticatedDemoIndexRoute
   '/free-pool/': typeof AuthenticatedFreePoolIndexRoute
   '/keys/': typeof AuthenticatedKeysIndexRoute
   '/models/': typeof AuthenticatedModelsIndexRoute
@@ -580,6 +587,7 @@ export interface FileRoutesByTo {
   '/channels': typeof AuthenticatedChannelsIndexRoute
   '/checkin': typeof AuthenticatedCheckinIndexRoute
   '/dashboard': typeof AuthenticatedDashboardIndexRoute
+  '/demo': typeof AuthenticatedDemoIndexRoute
   '/free-pool': typeof AuthenticatedFreePoolIndexRoute
   '/keys': typeof AuthenticatedKeysIndexRoute
   '/models': typeof AuthenticatedModelsIndexRoute
@@ -654,6 +662,7 @@ export interface FileRoutesById {
   '/_authenticated/channels/': typeof AuthenticatedChannelsIndexRoute
   '/_authenticated/checkin/': typeof AuthenticatedCheckinIndexRoute
   '/_authenticated/dashboard/': typeof AuthenticatedDashboardIndexRoute
+  '/_authenticated/demo/': typeof AuthenticatedDemoIndexRoute
   '/_authenticated/free-pool/': typeof AuthenticatedFreePoolIndexRoute
   '/_authenticated/keys/': typeof AuthenticatedKeysIndexRoute
   '/_authenticated/models/': typeof AuthenticatedModelsIndexRoute
@@ -727,6 +736,7 @@ export interface FileRouteTypes {
     | '/channels/'
     | '/checkin/'
     | '/dashboard/'
+    | '/demo/'
     | '/free-pool/'
     | '/keys/'
     | '/models/'
@@ -797,6 +807,7 @@ export interface FileRouteTypes {
     | '/channels'
     | '/checkin'
     | '/dashboard'
+    | '/demo'
     | '/free-pool'
     | '/keys'
     | '/models'
@@ -870,6 +881,7 @@ export interface FileRouteTypes {
     | '/_authenticated/channels/'
     | '/_authenticated/checkin/'
     | '/_authenticated/dashboard/'
+    | '/_authenticated/demo/'
     | '/_authenticated/free-pool/'
     | '/_authenticated/keys/'
     | '/_authenticated/models/'
@@ -1144,6 +1156,13 @@ declare module '@tanstack/react-router' {
       path: '/dashboard/$section'
       fullPath: '/dashboard/$section'
       preLoaderRoute: typeof AuthenticatedDashboardSectionRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/demo/': {
+      id: '/_authenticated/demo/'
+      path: '/demo'
+      fullPath: '/demo/'
+      preLoaderRoute: typeof AuthenticatedDemoIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/errors/$error': {
@@ -1531,6 +1550,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedChannelsIndexRoute: typeof AuthenticatedChannelsIndexRoute
   AuthenticatedCheckinIndexRoute: typeof AuthenticatedCheckinIndexRoute
   AuthenticatedDashboardIndexRoute: typeof AuthenticatedDashboardIndexRoute
+  AuthenticatedDemoIndexRoute: typeof AuthenticatedDemoIndexRoute
   AuthenticatedFreePoolIndexRoute: typeof AuthenticatedFreePoolIndexRoute
   AuthenticatedKeysIndexRoute: typeof AuthenticatedKeysIndexRoute
   AuthenticatedModelsIndexRoute: typeof AuthenticatedModelsIndexRoute
@@ -1565,6 +1585,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedChannelsIndexRoute: AuthenticatedChannelsIndexRoute,
   AuthenticatedCheckinIndexRoute: AuthenticatedCheckinIndexRoute,
   AuthenticatedDashboardIndexRoute: AuthenticatedDashboardIndexRoute,
+  AuthenticatedDemoIndexRoute: AuthenticatedDemoIndexRoute,
   AuthenticatedFreePoolIndexRoute: AuthenticatedFreePoolIndexRoute,
   AuthenticatedKeysIndexRoute: AuthenticatedKeysIndexRoute,
   AuthenticatedModelsIndexRoute: AuthenticatedModelsIndexRoute,

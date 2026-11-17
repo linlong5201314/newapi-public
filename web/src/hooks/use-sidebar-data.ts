@@ -1,12 +1,4 @@
 /*
-          {
-          {
-            // [PUBLIC-POOL] 公共池：用户公开出来的自建渠道，登录用户都能用
-            title: '公共池',
-            url: '/public-pool',
-            icon: Globe,
-            requiredRole: ROLE.USER,
-          },
 Copyright (C) 2023-2026 QuantumNous
 
 This program is free software: you can redistribute it and/or modify
@@ -44,6 +36,7 @@ import {
   Network,
   ServerCog,
   Settings,
+  Sparkles,
   Star,
   ShieldCheck,
   Ticket,
@@ -87,6 +80,12 @@ export function useSidebarData(badges: SidebarBadges = {}): SidebarData {
         id: 'chat',
         title: t('Chat'),
         items: [
+          {
+            // [DS-DEMO] DeepSeek 官方 demo 风格的对话首页；游乐场保留不动
+            title: 'DeepSeek 对话',
+            url: '/demo',
+            icon: Sparkles,
+          },
           {
             title: t('Playground'),
             url: '/playground',

@@ -1,4 +1,4 @@
-/*
+﻿/*
 Copyright (C) 2023-2026 QuantumNous
 
 This program is free software: you can redistribute it and/or modify
@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 /* eslint-disable react-refresh/only-export-components */
 import { useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
+import { ChevronRight } from 'lucide-react'
 import { useMemo, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -56,6 +57,7 @@ import {
 } from '../lib'
 import type { Channel } from '../types'
 import { TaskPluginChannelBadge } from './channel-type-badge'
+import { useOpenChannelDetail } from './channels-detail-context'
 import { DataTableRowActions } from './data-table-row-actions'
 import { NumericSpinnerInput } from './numeric-spinner-input'
 
@@ -97,6 +99,8 @@ function ChannelFieldCell({
 /**
  * Slim column set for the self-service "My Channels" table:
  * name, type, status, model count, priority, weight, response time, actions.
+ *
+ * 渠道名是详情入口：点名字打开详情抽屉（健康度 / 额度 / 出口 / 模型）。
  */
 export function useChannelsColumns(): ColumnDef<Channel>[] {
   const { t } = useTranslation()
@@ -124,11 +128,7 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
           return (
             <div className='flex max-w-full min-w-0 items-center gap-2'>
               <div className='flex max-w-full min-w-0 flex-col gap-1'>
-                <TruncatedText
-                  text={name}
-                  className='font-medium'
-                  maxWidth='max-w-full'
-                />
+                <ChannelNameButton channel={channel} name={name} />
                 {isAccountCredentialType &&
                   (credentialNickname || channel.balance > 0) && (
                     <span className='text-muted-foreground truncate text-xs'>
@@ -411,5 +411,29 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
       },
     ],
     [t]
+  )
+}
+
+/**
+ * 渠道名按钮：点开详情抽屉。打开函数从 context 取，避免列定义闭包捕获旧回调。
+ */
+function ChannelNameButton({
+  channel,
+  name,
+}: {
+  channel: Channel
+  name: string
+}) {
+  const openChannelDetail = useOpenChannelDetail()
+  return (
+    <button
+      type='button'
+      onClick={() => openChannelDetail?.(channel)}
+      className='group/name flex max-w-full min-w-0 items-center gap-1 text-left transition-colors hover:text-[#4d6bfe]'
+      title='查看渠道详情'
+    >
+      <TruncatedText text={name} className='font-medium' maxWidth='max-w-full' />
+      <ChevronRight className='size-3.5 shrink-0 opacity-0 transition-opacity group-hover/name:opacity-100' />
+    </button>
   )
 }

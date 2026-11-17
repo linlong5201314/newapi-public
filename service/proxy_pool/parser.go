@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -32,7 +33,7 @@ const (
 var supportedSchemes = []string{
 	"vmess", "vless", "trojan", "ss",
 	"socks5", "socks5h", "http", "https",
-	"hysteria2", "tuic",
+	"hysteria2", "tuic", "anytls", "hysteria",
 }
 
 // directProxySchemes 这些 scheme 的 URI 可以直接交给 HTTP 客户端当代理使用。
@@ -45,6 +46,40 @@ type ParsedNode struct {
 	Url    string // 可直接使用时有值
 	RawUri string // 客户端型节点原始 URI
 	Region string // 从名字里猜地区（香港/新加坡/美国/日本/英国/HK/SG/US/JP/UK）
+}
+
+// infoNodeMarkers 机场常用「信息节点」的名字片段：这些条目只是把流量/到期/官网写成节点，
+// 拨不通也不该进内核，必须过滤，否则内核里一半是垃圾节点。
+var infoNodeMarkers = []string{
+	"剩余流量", "距离下次重置", "套餐到期", "到期", "官网", "保持更新", "进不去",
+	"看不到", "换新软件", "旧线路", "线路很少", "订阅", "重置", "试用",
+}
+
+// domainLikeName 名字里带域名（x-superflash.com/marketing 之类的广告位）一律按信息节点处理。
+var domainLikeName = regexp.MustCompile(`(?i)[a-z0-9][a-z0-9-]*\.(com|cn|net|org|io|me|xyz|top|cc|vip)\b`)
+
+// isInfoNode 判断一条节点是不是机场塞的广告/信息条目。
+func isInfoNode(name string) bool {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return false
+	}
+	for _, marker := range infoNodeMarkers {
+		if strings.Contains(trimmed, marker) {
+			return true
+		}
+	}
+	return domainLikeName.MatchString(trimmed)
+}
+
+// isLoopbackServer 信息节点常把 server 指向本机；这种条目拨号必然失败。
+func isLoopbackServer(server string) bool {
+	host := strings.ToLower(strings.TrimSpace(server))
+	switch host {
+	case "", "127.0.0.1", "localhost", "::1", "0.0.0.0":
+		return true
+	}
+	return false
 }
 
 // ParseSubscription 解析订阅内容。
@@ -65,18 +100,41 @@ func ParseSubscription(body []byte, format string) ([]ParsedNode, string, error)
 	switch detected {
 	case "clash":
 		nodes, err := parseClash(text)
-		return nodes, "clash", err
+		return cleanNodes(nodes), "clash", err
 	case "base64":
 		decoded, err := decodeBase64Loose(text)
 		if err != nil {
 			return nil, "base64", fmt.Errorf("decode base64 subscription: %w", err)
 		}
-		return parseUriList(string(decoded)), "base64", nil
+		return cleanNodes(parseUriList(string(decoded))), "base64", nil
 	case "uri-list":
-		return parseUriList(text), "uri-list", nil
+		return cleanNodes(parseUriList(text)), "uri-list", nil
 	default:
 		return nil, detected, fmt.Errorf("unsupported subscription format %q", format)
 	}
+}
+
+// cleanNodes 去掉信息节点与重名节点，保证「解析出多少 = 能拨多少」。
+func cleanNodes(nodes []ParsedNode) []ParsedNode {
+	if len(nodes) == 0 {
+		return nodes
+	}
+	cleaned := make([]ParsedNode, 0, len(nodes))
+	seen := make(map[string]struct{}, len(nodes))
+	for _, node := range nodes {
+		if isInfoNode(node.Name) {
+			continue
+		}
+		key := strings.TrimSpace(node.Name)
+		if key != "" {
+			if _, dup := seen[key]; dup {
+				continue
+			}
+			seen[key] = struct{}{}
+		}
+		cleaned = append(cleaned, node)
+	}
+	return cleaned
 }
 
 // detectFormat 按内容猜订阅格式：clash 配置 → base64 包裹的行列表 → 纯行列表。
@@ -118,14 +176,15 @@ func parseClash(text string) ([]ParsedNode, error) {
 func clashProxyToNode(proxy map[string]any) (ParsedNode, bool) {
 	proxyType := strings.ToLower(strings.TrimSpace(yamlString(proxy["type"])))
 	switch proxyType {
-	case "http", "https", "socks5", "socks5h", "ss", "vmess", "vless", "trojan", "hysteria2", "tuic":
+	case "http", "https", "socks5", "socks5h", "ss", "vmess", "vless", "trojan",
+		"hysteria2", "hysteria", "tuic", "anytls":
 	default:
 		return ParsedNode{}, false
 	}
 
 	server := strings.TrimSpace(yamlString(proxy["server"]))
 	port := strings.TrimSpace(yamlString(proxy["port"]))
-	if server == "" || port == "" {
+	if server == "" || port == "" || isLoopbackServer(server) {
 		return ParsedNode{}, false
 	}
 

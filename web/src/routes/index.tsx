@@ -16,10 +16,30 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { useEffect } from 'react'
 
 import { Home } from '@/features/home'
+import { useAuthStore } from '@/stores/auth-store'
 
+/**
+ * 首页分流：已登录用户直接进 DeepSeek 风格对话页，未登录/未初始化时仍是
+ * 原来的产品落地页（对外介绍、定价、排行榜都不动）。
+ */
 export const Route = createFileRoute('/')({
-  component: Home,
+  component: RootPage,
 })
+
+function RootPage() {
+  const user = useAuthStore((state) => state.auth.user)
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    if (!user) return
+    void navigate({ to: '/demo', replace: true })
+  }, [navigate, user])
+
+  if (user) return null
+
+  return <Home />
+}

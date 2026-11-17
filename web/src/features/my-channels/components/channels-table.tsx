@@ -20,7 +20,7 @@ import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
 import type { OnChangeFn, SortingState } from '@tanstack/react-table'
 import { RefreshCw } from 'lucide-react'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -50,6 +50,8 @@ import { channelsQueryKeys, getChannelTableRowId } from '../lib'
 import type { Channel, ChannelSortBy } from '../types'
 import { useChannelsColumns } from './channels-columns'
 import { useChannels } from './channels-provider'
+import { ChannelDetailProvider } from './channels-detail-context'
+import { ChannelDetailDrawer } from './drawers/channel-detail-drawer'
 
 const route = getRouteApi('/_authenticated/my-channels/')
 const MY_CHANNELS_COLUMN_VISIBILITY_STORAGE_KEY =
@@ -72,6 +74,8 @@ export function ChannelsTable() {
   const { t } = useTranslation()
   const { sorting, setSorting } = useChannels()
   const isMobile = useMediaQuery('(max-width: 640px)')
+  // 详情抽屉：点渠道名打开，null 表示关闭。
+  const [detailChannel, setDetailChannel] = useState<Channel | null>(null)
 
   // URL state management
   const {
@@ -194,7 +198,8 @@ export function ChannelsTable() {
   })
 
   return (
-    <div role='region' aria-label={t('My Channels')} className='relative h-full min-h-0'>
+    <ChannelDetailProvider onOpen={setDetailChannel}>
+      <div role='region' aria-label={t('My Channels')} className='relative h-full min-h-0'>
       <DataTablePage
         table={table}
         columns={columns}
@@ -251,6 +256,14 @@ export function ChannelsTable() {
           return DISABLED_ROW_DESKTOP
         }}
       />
-    </div>
+      <ChannelDetailDrawer
+        channel={detailChannel}
+        open={detailChannel !== null}
+        onOpenChange={(next) => {
+          if (!next) setDetailChannel(null)
+        }}
+      />
+      </div>
+    </ChannelDetailProvider>
   )
 }

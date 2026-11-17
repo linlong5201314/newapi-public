@@ -28,5 +28,10 @@ func registerProxyPoolRoutes(apiRouter *gin.RouterGroup) {
 
 		proxyRoute.GET("/summary", controller.GetProxyPoolSummary)
 		proxyRoute.GET("/export", controller.ExportProxyPoolConfig)
+
+		// 内核边车：机场/客户端节点 → 本地可拨号出口
+		proxyRoute.GET("/runtime", controller.GetProxyRuntimeStatus)
+		proxyRoute.POST("/runtime/reload", controller.ReloadProxyRuntime)
+		proxyRoute.POST("/runtime/select", controller.SelectProxyRuntimeNode)
 	}
 }

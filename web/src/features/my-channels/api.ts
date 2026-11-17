@@ -86,6 +86,73 @@ export async function getChannel(id: number): Promise<GetChannelResponse> {
   return res.data
 }
 
+/** 详情抽屉：渠道 + 健康度 + 额度 + 出口池 + 模板元数据（一次取齐）。 */
+export type SelfChannelDetail = {
+  channel: Channel
+  models: string[]
+  health: {
+    channel_id: number
+    samples: number
+    recent_ok: number
+    recent_fail: number
+    success_rate: number
+    avg_latency_ms: number
+    factor: number
+    state: 'healthy' | 'degraded' | 'down' | 'unknown'
+  }
+  proxy: { mode: 'pool' | 'direct' | 'fixed'; label: string; value: string }
+  allow_ips: string
+  template: {
+    id: string
+    name: string
+    auth_type: string
+    auth_mode: string
+    free_type: string
+    monthly_tokens: number
+    ip_free: boolean
+  }
+  token_estimate: {
+    measured: boolean
+    hidden: boolean
+    reason: string
+    remaining: number | null
+    monthly: number
+    used: number
+  }
+  proxy_pool: {
+    endpoint_total: number
+    endpoint_enabled: number
+    usable_url_count: number
+    subscription_total: number
+    subscription_nodes: number
+    regions: Record<string, number>
+  }
+  has_key: boolean
+  is_owned: boolean
+}
+
+export async function getChannelDetail(id: number): Promise<{
+  success: boolean
+  message?: string
+  data?: SelfChannelDetail
+}> {
+  const res = await api.get(`${SELF_BASE}/${id}/detail`)
+  return res.data
+}
+
+/** 免费层 IP 白名单（允许传空串清空）。 */
+export async function setChannelAllowIps(
+  id: number,
+  allowIps: string
+): Promise<{ success: boolean; message?: string }> {
+  const res = await api.post(
+    `${SELF_BASE}/${id}/allow_ips`,
+    { allowIps },
+    channelActionConfig()
+  )
+  return res.data
+}
+
 /**
  * Create new channel(s) owned by the current user.
  * Supports single, batch, and multi-key modes.

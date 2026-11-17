@@ -35,6 +35,9 @@ func registerSelfChannelRoutes(apiRouter *gin.RouterGroup) {
 		selfChannelRoute.DELETE("/bindings/:id", controller.DeleteSelfBinding)
 		selfChannelRoute.POST("/bindings/:id/public", controller.SetSelfBindingPublic)
 		selfChannelRoute.GET("/:id", controller.GetSelfChannel)
+		// 详情抽屉：一次取齐渠道 + 健康度 + 额度 + 出口池 + 模板元数据
+		selfChannelRoute.GET("/:id/detail", controller.GetSelfChannelDetail)
+		selfChannelRoute.POST("/:id/allow_ips", controller.SetSelfChannelAllowIpsHandler)
 		selfChannelRoute.POST("/", controller.AddSelfChannel)
 		selfChannelRoute.PUT("/", controller.UpdateSelfChannel)
 		selfChannelRoute.DELETE("/:id", controller.DeleteSelfChannel)

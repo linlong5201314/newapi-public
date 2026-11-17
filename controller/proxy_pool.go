@@ -327,6 +327,7 @@ func CreateProxySubscription(c *gin.Context) {
 
 	nodeCount, detectedFormat, syncErr := syncProxySubscription(sub)
 	if syncErr != nil {
+		triggerKernelReload()
 		c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{
 			"id":         sub.Id,
 			"node_count": nodeCount,
@@ -335,6 +336,7 @@ func CreateProxySubscription(c *gin.Context) {
 		}})
 		return
 	}
+	triggerKernelReload()
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{
 		"id":         sub.Id,
 		"node_count": nodeCount,
@@ -363,6 +365,7 @@ func SyncProxySubscription(c *gin.Context) {
 		common.ApiError(c, syncErr)
 		return
 	}
+	triggerKernelReload()
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{
 		"id":         sub.Id,
 		"node_count": nodeCount,

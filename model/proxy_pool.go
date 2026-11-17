@@ -27,8 +27,10 @@ type ProxyEndpoint struct {
 	Region         string     `json:"region" gorm:"type:varchar(60)"`
 	SubscriptionId int        `json:"subscription_id" gorm:"index;default:0"` // 0=手动添加
 	Enabled        bool       `json:"enabled" gorm:"default:true"`
-	Weight         int        `json:"weight" gorm:"default:1"`
-	FailCount      int        `json:"fail_count" gorm:"default:0"`
+	// Public=true 时该节点进入公共池：所有用户可见可选；false 时仅归属用户可见可用。
+	Public    bool `json:"public" gorm:"index;default:false"`
+	Weight    int  `json:"weight" gorm:"default:1"`
+	FailCount int  `json:"fail_count" gorm:"default:0"`
 	LastOkAt       *time.Time `json:"last_ok_at"`
 	LastError      string     `json:"last_error" gorm:"type:varchar(500)"`
 	CreatedAt      time.Time  `json:"created_at" gorm:"autoCreateTime"`
@@ -57,10 +59,10 @@ type ProxySubscription struct {
 
 func (ProxySubscription) TableName() string { return "proxy_subscriptions" }
 
-// ListProxyEndpoints 列出某用户的全部出口节点（按 id 升序）。
+// ListProxyEndpoints 列出某用户可见的出口节点：自己的 + 已公开进池的。
 func ListProxyEndpoints(userId int) ([]ProxyEndpoint, error) {
 	var list []ProxyEndpoint
-	err := DB.Where("user_id = ?", userId).Order("id").Find(&list).Error
+	err := DB.Where("user_id = ? OR public = ?", userId, true).Order("id").Find(&list).Error
 	return list, err
 }
 
@@ -222,12 +224,35 @@ func CountProxySubscriptions(userId int) (int, error) {
 }
 
 // ListUsableProxyUrls 返回某用户当前可用于上游轮换的代理 URL。
-// 条件：enabled、url 非空、连续失败次数未达上限。
+// 条件：enabled、url 非空、连续失败次数未达上限；末尾追加内核（mihomo）的本地出口，
+// 让只有客户端协议（vless/ss/anytls…）的机场节点也能真正发请求。
 func ListUsableProxyUrls(userId int) ([]string, error) {
 	var urls []string
 	err := DB.Model(&ProxyEndpoint{}).
-		Where("user_id = ? AND enabled = ? AND url <> '' AND fail_count < ?", userId, true, ProxyEndpointMaxFailCount).
+		Where("(user_id = ? OR public = ?) AND enabled = ? AND url <> '' AND fail_count < ?", userId, true, true, ProxyEndpointMaxFailCount).
 		Order("id").
 		Pluck("url", &urls).Error
-	return urls, err
+	if err != nil {
+		return nil, err
+	}
+	return append(urls, extraProxyURLProvider(userId)...), nil
+}
+
+// extraProxyURLProvider 由内核管理器注册（避免 model → service 的循环依赖）。
+var extraProxyURLProvider = func(int) []string { return nil }
+
+// SetExtraProxyURLProvider 注册内核出口提供者。
+func SetExtraProxyURLProvider(fn func(userId int) []string) {
+	if fn == nil {
+		extraProxyURLProvider = func(int) []string { return nil }
+		return
+	}
+	extraProxyURLProvider = fn
+}
+
+// ListAllEnabledProxyEndpoints 列出全部用户的启用节点（内核配置编译用）。
+func ListAllEnabledProxyEndpoints() ([]ProxyEndpoint, error) {
+	var list []ProxyEndpoint
+	err := DB.Where("enabled = ?", true).Order("user_id, id").Find(&list).Error
+	return list, err
 }
