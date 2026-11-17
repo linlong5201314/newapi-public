@@ -45,6 +45,11 @@ type publicChannelView struct {
 	OwnerAvatar  string `json:"owner_avatar"`
 	Tier         string `json:"tier"`
 	ResponseTime int    `json:"response_time"`
+	// 节点健康度：近 5 次成功率与降权状态，前端直接展示「可用/降权/不可用」。
+	HealthState  string  `json:"health_state"`
+	SuccessRate  float64 `json:"success_rate"`
+	AvgLatencyMs int64   `json:"avg_latency_ms"`
+	Samples      int     `json:"samples"`
 }
 
 // GetPublicPoolModels GET /api/public_pool/models
@@ -83,20 +88,49 @@ func GetPublicPoolModels(c *gin.Context) {
 			OwnerAvatar:  b.OwnerAvatar,
 			Tier:         b.Tier,
 			ResponseTime: b.ResponseTime,
+			HealthState:  "unknown",
 		})
 	}
+	// 健康度一次批量取，避免逐渠道查 Redis。
+	channelIds := make([]int, 0, len(briefs))
+	for _, b := range briefs {
+		channelIds = append(channelIds, b.ChannelId)
+	}
+	healthMap := model.ChannelHealthBatch(channelIds)
 	items := make([]*publicModelAgg, 0, len(byModel))
 	for _, agg := range byModel {
-		// 多人公开同一模型时，快的那台排前面（前端直接按这个顺序展示，不用再排）
-		sort.Slice(agg.Channels, func(i, j int) bool {
-			ai, aj := agg.Channels[i].ResponseTime, agg.Channels[j].ResponseTime
-			if ai <= 0 {
+		for i := range agg.Channels {
+			view := &agg.Channels[i]
+			if h, ok := healthMap[view.ChannelId]; ok {
+				view.HealthState = h.State
+				view.SuccessRate = h.SuccessRate
+				view.AvgLatencyMs = h.AvgLatencyMs
+				view.Samples = h.Samples
+				// 实测平均延迟比历史测速更贴近当下，优先用它排序。
+				if h.AvgLatencyMs > 0 && (view.ResponseTime <= 0 || int(h.AvgLatencyMs) < view.ResponseTime) {
+					view.ResponseTime = int(h.AvgLatencyMs)
+					if agg.FastestMs < 0 || view.ResponseTime < agg.FastestMs {
+						agg.FastestMs = view.ResponseTime
+					}
+				}
+			}
+		}
+		// 多人公开同一模型时，健康且快的排前面；down 的排最后。
+		sort.SliceStable(agg.Channels, func(i, j int) bool {
+			ai, aj := agg.Channels[i], agg.Channels[j]
+			if (ai.HealthState == "down") != (aj.HealthState == "down") {
+				return aj.HealthState == "down"
+			}
+			if ai.ResponseTime <= 0 && aj.ResponseTime <= 0 {
 				return false
 			}
-			if aj <= 0 {
+			if ai.ResponseTime <= 0 {
+				return false
+			}
+			if aj.ResponseTime <= 0 {
 				return true
 			}
-			return ai < aj
+			return ai.ResponseTime < aj.ResponseTime
 		})
 		items = append(items, agg)
 	}
