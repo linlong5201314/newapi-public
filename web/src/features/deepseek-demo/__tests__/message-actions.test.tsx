@@ -67,19 +67,19 @@ describe('demo response actions', () => {
     expect(reasoning).toHaveAttribute('aria-expanded', 'true')
   })
 
-  it('suggestions fill a draft through the callback rather than pretending to submit', () => {
-    const onSuggestion = vi.fn()
+  it('shows only the official greeting for a new chat, without invented suggestion cards', () => {
     render(
       <DemoMessageList
         messages={[]}
         isStreaming={false}
-        onSuggestion={onSuggestion}
+        onSuggestion={vi.fn()}
         onRegenerate={vi.fn()}
       />
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Explain code' }))
-    expect(onSuggestion).toHaveBeenCalledWith(
-      'Explain this code and point out potential problems.'
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+      'How can I help you today?'
     )
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+    expect(screen.queryByText('DeepSeek')).not.toBeInTheDocument()
   })
 })

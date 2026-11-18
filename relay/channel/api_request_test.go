@@ -242,3 +242,12 @@ func TestEgressProxyErrorPreservesIdentityWithoutCredentials(t *testing.T) {
 	assert.NotContains(t, err.Error(), "fixture")
 	assert.NotContains(t, err.Error(), "@")
 }
+
+func TestProxyFailoverPreservesProviderAccessAndQuotaDecisions(t *testing.T) {
+	for _, status := range []int{http.StatusForbidden, http.StatusTooManyRequests, http.StatusUnauthorized} {
+		assert.False(t, shouldFailoverProxyStatus(status), "access or quota rejection must not trigger exit rotation")
+	}
+	for _, status := range []int{http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout} {
+		assert.True(t, shouldFailoverProxyStatus(status))
+	}
+}

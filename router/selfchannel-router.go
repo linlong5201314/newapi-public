@@ -49,13 +49,15 @@ func registerSelfChannelRoutes(apiRouter *gin.RouterGroup) {
 		selfChannelRoute.POST("/copy/:id", controller.CopySelfChannel)
 		// M3 账号型渠道登录/导入（workbuddy OAuth 设备流 / trae 凭据导入）
 		selfChannelRoute.POST("/oauth/start", controller.SelfOAuthStart)
+		selfChannelRoute.POST("/oauth/cancel", middleware.CriticalRateLimit(), controller.SelfOAuthCancel)
 		selfChannelRoute.GET("/oauth/poll", controller.SelfOAuthPoll)
-		// 小浣熊浏览器授权：start 出授权页 → 浏览器回跳 callback（无 JWT）→ poll 取渠道
+		// Raccoon: explicit unavailable capability; upstream supports loopback only.
 		selfChannelRoute.POST("/oauth/raccoon/start", controller.SelfRaccoonOAuthStart)
 		selfChannelRoute.GET("/oauth/raccoon/poll", controller.SelfRaccoonOAuthPoll)
 		// DS2API（DeepSeek 网页端）一键生成授权链接 → 复制去浏览器登录/确认 → 自动返回建渠道
 		selfChannelRoute.POST("/oauth/ds2api/start", middleware.CriticalRateLimit(), controller.SelfDs2ApiOAuthStart)
 		selfChannelRoute.GET("/oauth/ds2api/poll", controller.SelfDs2ApiOAuthPoll)
+		selfChannelRoute.POST("/oauth/ds2api/cancel", middleware.CriticalRateLimit(), controller.SelfDs2ApiOAuthCancel)
 		selfChannelRoute.POST("/oauth/freepi/start", middleware.CriticalRateLimit(), controller.StartFreePiOAuth)
 		selfChannelRoute.POST("/oauth/freepi/poll", middleware.CriticalRateLimit(), controller.PollFreePiOAuth)
 		selfChannelRoute.POST("/oauth/freepi/consent", middleware.CriticalRateLimit(), controller.ConsentFreePiOAuth)
@@ -63,7 +65,7 @@ func registerSelfChannelRoutes(apiRouter *gin.RouterGroup) {
 		selfChannelRoute.POST("/import_trae", controller.SelfImportTrae)
 	}
 	// 授权回跳与引导页由浏览器直接访问，不能挂 UserAuth。
-	apiRouter.GET("/channel/self/oauth/raccoon/callback", controller.SelfRaccoonOAuthCallback)
+	apiRouter.GET("/channel/self/oauth/raccoon/callback", selfChannelEnabledGuard(), controller.SelfRaccoonOAuthCallback)
 	// Refresh cookies are scoped to /api/user/auth; the browser ceremony must
 	// share that path to verify the initiating platform session on every request.
 	apiRouter.GET("/user/auth/ds2api/login", selfChannelEnabledGuard(), controller.SelfDs2ApiOAuthAuthorizePage)

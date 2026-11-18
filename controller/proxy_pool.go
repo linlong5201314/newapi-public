@@ -616,16 +616,28 @@ func DeleteProxySubscription(c *gin.Context) {
 }
 
 type proxyPoolSummary struct {
-	EndpointTotal         int `json:"endpoint_total"`
-	EndpointEnabled       int `json:"endpoint_enabled"`
-	UsableURLCount        int `json:"usable_url_count"`
-	SubscriptionTotal     int `json:"subscription_total"`
-	ClientNodeCount       int `json:"client_node_count"`
-	PublicNodeCount       int `json:"public_node_count"`
-	HaizhuNodeCount       int `json:"haizhu_node_count"`
-	ConfiguredDirectCount int `json:"configured_direct_count"`
-	ProbedHealthyCount    int `json:"probed_healthy_count"`
-	KernelLoadedCount     int `json:"kernel_loaded_count"`
+	ImportedTotal         int    `json:"imported_total"`
+	Enabled               int    `json:"enabled"`
+	LoadedThisProcess     int    `json:"loaded_this_process"`
+	ProbedHealthy         int    `json:"probed_healthy"`
+	Unknown               int    `json:"unknown"`
+	Failed                int    `json:"failed"`
+	Disabled              int    `json:"disabled"`
+	InventoryScope        string `json:"inventory_scope"`
+	LoadedScope           string `json:"loaded_scope"`
+	InventoryRemaining    int    `json:"inventory_remaining"`
+	ListLimit             int    `json:"list_limit"`
+	RuntimePreloadLimit   int    `json:"runtime_preload_limit"`
+	EndpointTotal         int    `json:"endpoint_total"`
+	EndpointEnabled       int    `json:"endpoint_enabled"`
+	UsableURLCount        int    `json:"usable_url_count"`
+	SubscriptionTotal     int    `json:"subscription_total"`
+	ClientNodeCount       int    `json:"client_node_count"`
+	PublicNodeCount       int    `json:"public_node_count"`
+	HaizhuNodeCount       int    `json:"haizhu_node_count"`
+	ConfiguredDirectCount int    `json:"configured_direct_count"`
+	ProbedHealthyCount    int    `json:"probed_healthy_count"`
+	KernelLoadedCount     int    `json:"kernel_loaded_count"`
 }
 
 // GetProxyPoolSummary always includes data; failures remain success=false, never a fake healthy pool.
@@ -646,12 +658,20 @@ func GetProxyPoolSummary(c *gin.Context) {
 		return
 	}
 	kernelLoaded := 0
-	for _, raw := range usableURLs {
-		if parsed, parseErr := url.Parse(raw); parseErr == nil && parsed.Hostname() == "127.0.0.1" && parsed.User != nil && parsed.User.Username() == "endpoint" {
-			kernelLoaded++
+	loadedIDs := proxy_pool.ManagerInstance().LoadedEndpointIDs()
+	if len(loadedIDs) > 0 {
+		var count int64
+		if countErr := model.DB.Model(&model.ProxyEndpoint{}).Where("id IN ? AND (user_id = ? OR public = ?)", loadedIDs, userID, true).Count(&count).Error; countErr != nil {
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": "Proxy pool unavailable", "data": proxyPoolSummary{}})
+			return
 		}
+		kernelLoaded = int(count)
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": proxyPoolSummary{
+		ImportedTotal: stats.Total, Enabled: stats.Enabled, LoadedThisProcess: kernelLoaded,
+		ProbedHealthy: stats.HealthyNodes, Unknown: stats.UnknownNodes, Failed: stats.FailedNodes, Disabled: stats.Total - stats.Enabled,
+		InventoryScope: "database_visible_to_user", LoadedScope: "this_process_visible_to_user",
+		InventoryRemaining: max(0, stats.Total-kernelLoaded), ListLimit: 600, RuntimePreloadLimit: model.ProxyRuntimePreloadLimit(),
 		EndpointTotal: stats.Total, EndpointEnabled: stats.Enabled,
 		UsableURLCount: len(usableURLs), SubscriptionTotal: subCount,
 		ClientNodeCount: stats.ClientNodes, PublicNodeCount: stats.PublicNodes, HaizhuNodeCount: stats.HaizhuNodes,

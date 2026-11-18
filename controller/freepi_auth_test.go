@@ -20,8 +20,11 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/alicebob/miniredis/v2"
+	"github.com/alicebob/miniredis/v2/server"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -107,6 +110,7 @@ func TestFreePiAuthorizationDatabaseMatrix(t *testing.T) {
 			t.Cleanup(func() { *client = originalClient })
 			pollCalls, consentCalls := 0, 0
 			consentRequired, maliciousVerification, slowDown := false, false, false
+			completeVerification := ""
 			client.Transport = freePiTestTransport(func(request *http.Request) (*http.Response, error) {
 				assert.Equal(t, "api.freepi.ai", request.URL.Host)
 				text, status := "", http.StatusOK
@@ -118,7 +122,7 @@ func TestFreePiAuthorizationDatabaseMatrix(t *testing.T) {
 					if maliciousVerification {
 						uri = "https://attacker.invalid/login/device"
 					}
-					text = fmt.Sprintf(`{"session_id":"private-upstream-device-session","user_code":"ABCD-EFGH","verification_uri":%q,"interval":5,"expires_in":900}`, uri)
+					text = fmt.Sprintf(`{"session_id":"private-upstream-device-session","user_code":"ABCD-EFGH","verification_uri":%q,"verification_uri_complete":%q,"interval":5,"expires_in":900}`, uri, completeVerification)
 				case "/auth/token":
 					pollCalls++
 					if slowDown {
@@ -179,6 +183,33 @@ func TestFreePiAuthorizationDatabaseMatrix(t *testing.T) {
 				require.NoError(t, model.WithFreePiAuthFlow(state, identity, func(_ *gorm.DB, s *model.FreePiAuthState) error { s.NextPollAt = 0; return nil }))
 			}
 
+			t.Run("complete_device_link_is_forwarded_only_when_official_and_matches_code", func(t *testing.T) {
+				for _, uri := range []string{"https://github.com/login/device?user_code=ABCD-EFGH", "https://attacker.invalid/login/device?user_code=ABCD-EFGH", "https://github.com/login/device?user_code=WRONG", "https://github.com/login/device?user_code=ABCD-EFGH&redirect_uri=https://attacker.invalid"} {
+					completeVerification = uri
+					w := request("/start", `{"proxy_policy":{"mode":"direct"}}`)
+					require.Equal(t, 200, w.Code, w.Body.String())
+					var response struct {
+						Data struct {
+							State    string `json:"state"`
+							Complete string `json:"verificationUriComplete"`
+						} `json:"data"`
+					}
+					require.NoError(t, common.Unmarshal(w.Body.Bytes(), &response))
+					if uri == "https://github.com/login/device?user_code=ABCD-EFGH" {
+						assert.Equal(t, uri, response.Data.Complete)
+					} else {
+						assert.Empty(t, response.Data.Complete)
+					}
+					require.NoError(t, model.WithFreePiAuthFlow(response.Data.State, identity, func(_ *gorm.DB, state *model.FreePiAuthState) error {
+						require.NotNil(t, state.ProxyPolicy)
+						assert.Equal(t, "direct", state.ProxyPolicy.Mode)
+						assert.True(t, strings.HasPrefix(state.EgressKey, "freepi:"))
+						return nil
+					}))
+					require.Equal(t, 200, request("/cancel", fmt.Sprintf(`{"state":%q}`, response.Data.State)).Code)
+				}
+				completeVerification = ""
+			})
 			t.Run("private_success_and_idempotent_replay_do_not_reveal_credentials", func(t *testing.T) {
 				state := start(`{"displayName":"my-freepi"}`)
 				ready(state)
@@ -229,6 +260,110 @@ func TestFreePiAuthorizationDatabaseMatrix(t *testing.T) {
 				assert.Equal(t, 12, actual.TotalTokens)
 				assert.Equal(t, 9, actual.PromptTokens)
 				assert.Equal(t, 3, actual.CompletionTokens)
+			})
+			t.Run("pool_channel_stays_disabled_until_binding_and_cancel_prevents_activation", func(t *testing.T) {
+				for _, cancelFirst := range []bool{false, true} {
+					state := start(`{}`)
+					var channelID int
+					require.NoError(t, model.WithFreePiAuthFlow(state, identity, func(tx *gorm.DB, flow *model.FreePiAuthState) error {
+						flow.ProxyPolicy = &dto.ChannelProxyPolicy{Mode: "public_pool"}
+						require.NoError(t, model.CompleteFreePiChannel(tx, flow, "pool-only-fixture-token", "pool-account", constant.ChannelTypeFreePi))
+						assert.Equal(t, "binding", flow.Status)
+						channelID = flow.ChannelID
+						return nil
+					}))
+					var channel model.Channel
+					require.NoError(t, db.First(&channel, channelID).Error)
+					assert.Equal(t, common.ChannelStatusAutoDisabled, channel.Status)
+					var enabled int64
+					require.NoError(t, db.Model(&model.Ability{}).Where("channel_id = ? AND enabled = ?", channelID, true).Count(&enabled).Error)
+					assert.Zero(t, enabled)
+					var binding model.SelfAccountBinding
+					require.NoError(t, db.Where("channel_id = ?", channelID).First(&binding).Error)
+					assert.Equal(t, "pending", binding.Status)
+					if cancelFirst {
+						require.Equal(t, 200, request("/cancel", fmt.Sprintf(`{"state":%q}`, state)).Code)
+					}
+					w := request("/poll", fmt.Sprintf(`{"state":%q}`, state))
+					require.NoError(t, db.First(&channel, channelID).Error)
+					if cancelFirst {
+						assert.Equal(t, 400, w.Code)
+						assert.Equal(t, common.ChannelStatusAutoDisabled, channel.Status)
+					} else {
+						require.Equal(t, 200, w.Code, w.Body.String())
+						assert.Contains(t, w.Body.String(), `"done":true`)
+						assert.Equal(t, common.ChannelStatusEnabled, channel.Status)
+						require.NoError(t, db.Where("channel_id = ?", channelID).First(&binding).Error)
+						assert.Equal(t, "ready", binding.Status)
+					}
+				}
+			})
+			t.Run("pool_activation_preserves_owner_manual_disable", func(t *testing.T) {
+				state := start(`{}`)
+				var channelID int
+				require.NoError(t, model.WithFreePiAuthFlow(state, identity, func(tx *gorm.DB, flow *model.FreePiAuthState) error {
+					flow.ProxyPolicy = &dto.ChannelProxyPolicy{Mode: "public_pool"}
+					require.NoError(t, model.CompleteFreePiChannel(tx, flow, "manual-disable-fixture", "manual-disable-owner", constant.ChannelTypeFreePi))
+					channelID = flow.ChannelID
+					return nil
+				}))
+				// Owner disable commits while the shared alias is still outstanding.
+				require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", channelID).Update("status", common.ChannelStatusManuallyDisabled).Error)
+				w := request("/poll", fmt.Sprintf(`{"state":%q}`, state))
+				assert.NotEqual(t, http.StatusOK, w.Code, w.Body.String())
+				var channel model.Channel
+				require.NoError(t, db.First(&channel, channelID).Error)
+				assert.Equal(t, common.ChannelStatusManuallyDisabled, channel.Status)
+				var enabled int64
+				require.NoError(t, db.Model(&model.Ability{}).Where("channel_id = ? AND enabled = ?", channelID, true).Count(&enabled).Error)
+				assert.Zero(t, enabled)
+				var binding model.SelfAccountBinding
+				require.NoError(t, db.Where("channel_id = ?", channelID).First(&binding).Error)
+				assert.Equal(t, "pending", binding.Status)
+				require.NoError(t, model.WithFreePiAuthFlow(state, identity, func(_ *gorm.DB, flow *model.FreePiAuthState) error {
+					assert.Equal(t, "binding", flow.Status)
+					return nil
+				}))
+				require.Equal(t, 200, request("/cancel", fmt.Sprintf(`{"state":%q}`, state)).Code)
+			})
+			t.Run("completed_pool_poll_is_idempotent_when_binding_store_is_unavailable", func(t *testing.T) {
+				state := start(`{}`)
+				var channelID int
+				require.NoError(t, model.WithFreePiAuthFlow(state, identity, func(tx *gorm.DB, flow *model.FreePiAuthState) error {
+					flow.ProxyPolicy = &dto.ChannelProxyPolicy{Mode: "public_pool"}
+					require.NoError(t, model.CompleteFreePiChannel(tx, flow, "idempotent-fixture", "completed-pool-owner", constant.ChannelTypeFreePi))
+					channelID = flow.ChannelID
+					return nil
+				}))
+				require.Equal(t, 200, request("/poll", fmt.Sprintf(`{"state":%q}`, state)).Code)
+				before := pollCalls
+				oldRedis, oldClient := common.RedisEnabled, common.RDB
+				redisServer := miniredis.RunT(t)
+				redisServer.Server().SetPreHook(func(c *server.Peer, command string, args ...string) bool {
+					if strings.EqualFold(command, "eval") && len(args) > 2 && strings.HasPrefix(args[2], "proxy-pool:sticky:") {
+						c.WriteError("ERR binding store unavailable")
+						return true
+					}
+					return false
+				})
+				redisClient := redis.NewClient(&redis.Options{Addr: redisServer.Addr(), MaxRetries: -1})
+				t.Cleanup(func() { assert.NoError(t, redisClient.Close()) })
+				common.RedisEnabled, common.RDB = true, redisClient
+				t.Cleanup(func() { common.RedisEnabled, common.RDB = oldRedis, oldClient })
+				for range 2 {
+					w := request("/poll", fmt.Sprintf(`{"state":%q}`, state))
+					assert.Equal(t, 200, w.Code, w.Body.String())
+					assert.Contains(t, w.Body.String(), `"done":true`)
+				}
+				common.RedisEnabled, common.RDB = oldRedis, oldClient
+				assert.Equal(t, before, pollCalls)
+				var channel model.Channel
+				require.NoError(t, db.First(&channel, channelID).Error)
+				assert.Equal(t, common.ChannelStatusEnabled, channel.Status)
+				var enabled int64
+				require.NoError(t, db.Model(&model.Ability{}).Where("channel_id = ? AND enabled = ?", channelID, true).Count(&enabled).Error)
+				assert.EqualValues(t, 1, enabled)
+				require.NoError(t, model.WithFreePiAuthFlow(state, identity, func(_ *gorm.DB, flow *model.FreePiAuthState) error { assert.Equal(t, "done", flow.Status); return nil }))
 			})
 			t.Run("consent_requires_explicit_acceptance_and_public_sharing_is_explicit", func(t *testing.T) {
 				assert.Equal(t, 400, request("/start", `{"public":true}`).Code)

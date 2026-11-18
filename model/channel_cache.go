@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/rand"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -14,7 +13,6 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	kitdto "github.com/QuantumNous/new-api/relaykit/dto"
-	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )
 
@@ -55,21 +53,18 @@ func InitChannelCache() {
 	for group := range groups {
 		newGroup2model2channels[group] = make(map[string]map[int][]int)
 	}
-	for _, channel := range channels {
-		if channel.Status != common.ChannelStatusEnabled {
-			continue // skip disabled channels
+	for _, ability := range abilities {
+		channel := newChannelId2channel[ability.ChannelId]
+		if !ability.Enabled || channel == nil || channel.Status != common.ChannelStatusEnabled {
+			continue
 		}
-		groups := strings.SplitSeq(channel.Group, ",")
-		for group := range groups {
-			models := channel.GetModels()
-			for _, model := range models {
-				if _, ok := newGroup2model2channels[group][model]; !ok {
-					newGroup2model2channels[group][model] = make(map[int][]int)
-				}
-				ownerId := channel.OwnerId
-				newGroup2model2channels[group][model][ownerId] = append(newGroup2model2channels[group][model][ownerId], channel.Id)
-			}
+		if newGroup2model2channels[ability.Group] == nil {
+			newGroup2model2channels[ability.Group] = make(map[string]map[int][]int)
 		}
+		if newGroup2model2channels[ability.Group][ability.Model] == nil {
+			newGroup2model2channels[ability.Group][ability.Model] = make(map[int][]int)
+		}
+		newGroup2model2channels[ability.Group][ability.Model][channel.OwnerId] = append(newGroup2model2channels[ability.Group][ability.Model][channel.OwnerId], channel.Id)
 	}
 
 	// sort by priority (within each owner bucket)
@@ -120,58 +115,16 @@ func SyncChannelCache(frequency int) {
 	}
 }
 
-// selectOwnerBucketIDs 按租户归属选取候选渠道 ID：
-// ownerUserId>0 时优先用户自建渠道桶；用户桶为空且开启
-// SelfChannelUsePublicFallback 时回落到平台公共渠道桶（ownerId=0）。
-// ownerUserId<=0（系统/无用户上下文）只看平台桶，保持旧行为。
-// 调用方必须持有 channelSyncLock（至少读锁）。
-func selectOwnerBucketIDs(owner2channels map[int][]int, ownerUserId int) []int {
-	if len(owner2channels) == 0 {
-		return nil
-	}
-	// 公共池合并：owner_id>0 且 Visibility=1 的渠道对所有登录用户可路由。
-	// 这些渠道散布在各自 owner 桶里，这里按 channel.Visibility 挑出来合并进候选集，
-	// 否则公开出去等于没公开（用户只能命中自己的桶）。
-	pickPublic := func(excludeOwner int) []int {
-		var ids []int
-		for owner, list := range owner2channels {
-			if owner == excludeOwner || owner == 0 {
-				continue
-			}
-			for _, id := range list {
-				if ch, ok := channelsIDM[id]; ok && ch != nil && ch.Visibility == 1 {
-					ids = append(ids, id)
-				}
-			}
-		}
-		return ids
-	}
-	// 平台渠道（owner_id=0）由管理员维护：只有 visibility=1 才对外公开，
-	// 否则仅管理员自己可见，避免“管理员一加账号所有人都能用”。
-	pickPlatformPublic := func() []int {
-		var ids []int
-		for _, id := range owner2channels[0] {
-			if ch, ok := channelsIDM[id]; ok && ch != nil && ch.Visibility == 1 {
+// selectOwnerBucketIDs applies tenant visibility while the caller holds channelSyncLock.
+func selectOwnerBucketIDs(owner2channels map[int][]int, ownerUserId int, modelName string) []int {
+	var ids []int
+	for _, list := range owner2channels {
+		for _, id := range list {
+			if ChannelModelVisibleToOwner(channelsIDM[id], modelName, ownerUserId) {
 				ids = append(ids, id)
 			}
 		}
-		return ids
 	}
-	if ownerUserId > 0 {
-		ids := append([]int{}, owner2channels[ownerUserId]...)
-		ids = append(ids, pickPublic(ownerUserId)...)
-		ids = append(ids, pickPlatformPublic()...)
-		if len(ids) > 0 {
-			return ids
-		}
-		if operation_setting.SelfChannelUsePublicFallback {
-			return owner2channels[0]
-		}
-		return nil
-	}
-	// 平台/系统上下文：只取管理员公开出来的平台渠道 + 所有公开出来的自建渠道
-	ids := append([]int{}, pickPlatformPublic()...)
-	ids = append(ids, pickPublic(0)...)
 	return ids
 }
 
@@ -191,12 +144,12 @@ func GetRandomSatisfiedChannel(
 	defer channelSyncLock.RUnlock()
 
 	// First, try to find channels with the exact model name.
-	channels, _ := filterCandidateIDs(selectOwnerBucketIDs(group2model2channels[group][model], ownerUserId), model, filters)
+	channels, _ := filterCandidateIDs(selectOwnerBucketIDs(group2model2channels[group][model], ownerUserId, model), model, filters)
 
 	// If no channels found, try to find channels with the normalized model name.
 	if len(channels) == 0 {
 		normalizedModel := ratio_setting.RoutingMatchModelName(model)
-		channels, _ = filterCandidateIDs(selectOwnerBucketIDs(group2model2channels[group][normalizedModel], ownerUserId), model, filters)
+		channels, _ = filterCandidateIDs(selectOwnerBucketIDs(group2model2channels[group][normalizedModel], ownerUserId, model), model, filters)
 	}
 
 	if len(channels) == 0 {

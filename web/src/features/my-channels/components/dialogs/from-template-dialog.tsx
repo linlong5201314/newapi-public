@@ -37,6 +37,7 @@ import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -49,13 +50,13 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
+  cancelDs2ApiOAuth,
+  cancelWorkbuddyOAuth,
   createBinding,
   importTrae,
   pollDs2ApiOAuth,
-  pollRaccoonOAuth,
   pollWorkbuddyOAuth,
   startDs2ApiOAuth,
-  startRaccoonOAuth,
   startWorkbuddyOAuth,
   type OAuthSession,
 } from '@/features/account-bindings/api'
@@ -176,13 +177,71 @@ export function FromTemplateDialog({
   // Token / OAuth 账号授权状态（内嵌在创建渠道弹窗内）
   const [authTokensInput, setAuthTokensInput] = useState('')
   const [traeUid, setTraeUid] = useState('')
+  const [traeConfirmed, setTraeConfirmed] = useState(false)
+  const wbRequest = useRef(0)
+  const pendingWb = useRef<string | null>(null)
+  const wbPopup = useRef<Window | null>(null)
   const [oauthRealm, setOauthRealm] = useState<'cn' | 'global'>('cn')
   const [wbSession, setWbSession] = useState<OAuthSession | null>(null)
-  const [raccoonSession, setRaccoonSession] = useState<OAuthSession | null>(
-    null
-  )
   const [ds2apiSession, setDs2apiSession] = useState<OAuthSession | null>(null)
   const [oauthStatusText, setOauthStatusText] = useState('')
+  const [authStarting, setAuthStarting] = useState(false)
+  const authRequest = useRef(0)
+  const pendingDs2 = useRef<string | null>(null)
+  const authPopup = useRef<Window | null>(null)
+
+  useEffect(() => {
+    if (open) return
+    authRequest.current++
+    setAuthStarting(false)
+    const state = pendingDs2.current
+    pendingDs2.current = null
+    setDs2apiSession(null)
+    authPopup.current?.close()
+    if (state) {
+      void cancelDs2ApiOAuth(state).catch((error: unknown) =>
+        handleServerError(error)
+      )
+    }
+  }, [open])
+
+  useEffect(
+    () => () => {
+      authRequest.current++
+      authPopup.current?.close()
+      if (pendingDs2.current) {
+        void cancelDs2ApiOAuth(pendingDs2.current).catch(() => undefined)
+      }
+    },
+    []
+  )
+
+  useEffect(() => {
+    setTraeConfirmed(false)
+    if (open && selected?.id === 'workbuddy') return
+    wbRequest.current++
+    setWbSession(null)
+    setAuthStarting(false)
+    const sessionId = pendingWb.current
+    pendingWb.current = null
+    wbPopup.current?.close()
+    if (sessionId) {
+      void cancelWorkbuddyOAuth(sessionId).catch((error: unknown) =>
+        handleServerError(error)
+      )
+    }
+  }, [open, selected?.id])
+
+  useEffect(
+    () => () => {
+      wbRequest.current++
+      wbPopup.current?.close()
+      const sessionId = pendingWb.current
+      pendingWb.current = null
+      if (sessionId) void cancelWorkbuddyOAuth(sessionId).catch(() => undefined)
+    },
+    []
+  )
 
   const { data: templates, isLoading } = useQuery({
     queryKey: [...channelsQueryKeys.all, 'free-templates'],
@@ -234,7 +293,6 @@ export function FromTemplateDialog({
     setTraeUid('')
     setOauthStatusText('')
     setWbSession(null)
-    setRaccoonSession(null)
     setDs2apiSession(null)
     setIsSubmitting(false)
   }, [open])
@@ -286,92 +344,111 @@ export function FromTemplateDialog({
     }
   }, [selected, open])
 
-  // WorkBuddy OAuth 轮询
+  // Poll sequentially and stop on expiry, cancellation, or a terminal error.
   useEffect(() => {
-    if (!wbSession) return
-    let alive = true
-    const timer = window.setInterval(async () => {
-      const res = await pollWorkbuddyOAuth(wbSession.sessionId)
-      if (!alive) return
-      if (res.done) {
-        window.clearInterval(timer)
+    if (!wbSession || !open) return
+    let active = true
+    let timer: ReturnType<typeof setTimeout>
+    const expiresAt = Date.now() + (wbSession.expiresIn ?? 600) * 1000
+    const poll = async () => {
+      try {
+        if (Date.now() >= expiresAt) {
+          throw new Error(t('Authorization session expired'))
+        }
+        const res = await pollWorkbuddyOAuth(wbSession.sessionId)
+        if (!active) return
+        if (!res.done) {
+          timer = setTimeout(() => {
+            void poll()
+          }, 2000)
+          return
+        }
+        pendingWb.current = null
         setWbSession(null)
-        toast.success(
-          res.channel?.id
-            ? `WorkBuddy 授权成功，已开通渠道 #${res.channel.id}`
-            : 'WorkBuddy 授权成功，渠道已开通'
-        )
+        wbPopup.current?.close()
+        toast.success(t('Account login completed; channel created'))
         void queryClient.invalidateQueries({
           queryKey: channelsQueryKeys.lists(),
         })
         onOpenChange(false)
-      }
-    }, 3000)
-    return () => {
-      alive = false
-      window.clearInterval(timer)
-    }
-  }, [wbSession, queryClient, onOpenChange])
-
-  // 小浣熊 OAuth 轮询
-  useEffect(() => {
-    if (!raccoonSession) return
-    let alive = true
-    const timer = window.setInterval(async () => {
-      const res = await pollRaccoonOAuth(raccoonSession.sessionId)
-      if (!alive) return
-      if (res.done) {
-        window.clearInterval(timer)
-        setRaccoonSession(null)
-        toast.success(
-          res.channel?.id
-            ? `小浣熊授权成功，已开通渠道 #${res.channel.id}`
-            : '小浣熊授权成功，渠道已开通'
+      } catch (error) {
+        if (!active) return
+        const sessionId = pendingWb.current
+        pendingWb.current = null
+        setWbSession(null)
+        wbPopup.current?.close()
+        setOauthStatusText(
+          t(
+            'Authorization stopped. Start again after checking your login session'
+          )
         )
-        void queryClient.invalidateQueries({
-          queryKey: channelsQueryKeys.lists(),
-        })
-        onOpenChange(false)
-      } else if (res.message) {
-        window.clearInterval(timer)
-        setRaccoonSession(null)
-        setOauthStatusText(res.message)
+        if (sessionId) {
+          void cancelWorkbuddyOAuth(sessionId).catch(() => undefined)
+        }
+        handleServerError(error)
       }
-    }, 3000)
-    return () => {
-      alive = false
-      window.clearInterval(timer)
     }
-  }, [raccoonSession, queryClient, onOpenChange])
+    timer = setTimeout(() => {
+      void poll()
+    }, 2000)
+    return () => {
+      active = false
+      clearTimeout(timer)
+    }
+  }, [wbSession, open, queryClient, onOpenChange, t])
 
-  // DS2API（DeepSeek 网页端）授权链接轮询：授权页确认后自动返回并建好渠道
+  // Sequential owner-scoped polling; errors and expiry are terminal.
   useEffect(() => {
-    if (!ds2apiSession) return
-    let alive = true
-    const timer = window.setInterval(async () => {
-      const res = await pollDs2ApiOAuth(ds2apiSession.sessionId)
-      if (!alive) return
-      if (res.done) {
-        window.clearInterval(timer)
+    if (!ds2apiSession || !open) return
+    let active = true
+    let timer: ReturnType<typeof setTimeout>
+    const expiresAt = Date.now() + (ds2apiSession.expiresIn ?? 300) * 1000
+    const poll = async () => {
+      try {
+        if (Date.now() >= expiresAt) {
+          throw new Error(t('Account login session not found or expired'))
+        }
+        const res = await pollDs2ApiOAuth(ds2apiSession.sessionId)
+        if (!active) return
+        if (!res.done) {
+          timer = setTimeout(() => {
+            void poll()
+          }, 2500)
+          return
+        }
+        pendingDs2.current = null
         setDs2apiSession(null)
         toast.success(
-          res.channel?.id
-            ? t('Account login completed; channel #{{id}} created', {
-                id: res.channel.id,
-              })
-            : t('Account login completed; channel created')
+          t('Account login completed; channel #{{id}} created', {
+            id: res.channel?.id,
+          })
         )
         void queryClient.invalidateQueries({
           queryKey: channelsQueryKeys.lists(),
         })
         onOpenChange(false)
+      } catch (error) {
+        if (!active) return
+        const state = pendingDs2.current
+        pendingDs2.current = null
+        setDs2apiSession(null)
+        setOauthStatusText(
+          t(
+            'Account login stopped. Start again after checking your dashboard session'
+          )
+        )
+        if (state) void cancelDs2ApiOAuth(state).catch(() => undefined)
+        handleServerError(error)
       }
+    }
+    timer = setTimeout(() => {
+      void poll()
     }, 2500)
     return () => {
-      alive = false
-      window.clearInterval(timer)
+      active = false
+      clearTimeout(timer)
     }
-  }, [ds2apiSession, queryClient, onOpenChange, t])
+  }, [ds2apiSession, open, queryClient, onOpenChange, t])
 
   const templateKind = selected ? classifyTemplate(selected) : 'api'
   const isSubscription = templateKind === 'sub'
@@ -417,8 +494,12 @@ export function FromTemplateDialog({
   }
   const tokenPlaceholders: Record<string, string> = {
     ds2api: t('Paste an existing token, or use the account login link above.'),
-    'trae-cn': '粘贴 Trae 登录回调链接 https://...?code=... 或 refreshToken',
-    'trae-intl': '粘贴 Trae 登录回调链接 https://...?code=... 或 refreshToken',
+    'trae-cn': t(
+      'Use your own refresh token or the official http://127.0.0.1:port/authorize callback.'
+    ),
+    'trae-intl': t(
+      'Use your own refresh token or the official http://127.0.0.1:port/authorize callback.'
+    ),
     'qoder-cn':
       '粘贴 Qoder CN 的 Personal Access Token (PAT) 或桌面端登录态 token（每行一个）',
     'cline-account':
@@ -451,6 +532,12 @@ export function FromTemplateDialog({
     if (isSubscription) return subscriptionOk
     if (isAuthTemplate) {
       if (selected.id === 'magpie') return true
+      if (
+        (selected.id === 'trae-cn' || selected.id === 'trae-intl') &&
+        !traeConfirmed
+      ) {
+        return false
+      }
       return authTokensInput.trim().length > 0
     }
     if (isApiKeyTemplate) {
@@ -466,6 +553,7 @@ export function FromTemplateDialog({
     subscriptionOk,
     isAuthTemplate,
     authTokensInput,
+    traeConfirmed,
     isApiKeyTemplate,
     hasAnyKey,
     extrasComplete,
@@ -551,54 +639,146 @@ export function FromTemplateDialog({
   }
 
   const startWorkBuddyFlow = async () => {
-    setOauthStatusText('正在创建 WorkBuddy 设备授权会话…')
-    const sess = await startWorkbuddyOAuth(oauthRealm)
-    if (!sess) {
-      setOauthStatusText('发起授权失败，请稍后重试')
-      return
+    if (authStarting) return
+    const request = ++wbRequest.current
+    wbPopup.current?.close()
+    const popup = window.open('about:blank', '_blank')
+    if (popup) popup.opener = null
+    wbPopup.current = popup
+    setAuthStarting(true)
+    setOauthStatusText(t('Creating authorization session...'))
+    try {
+      const previous = pendingWb.current
+      pendingWb.current = null
+      setWbSession(null)
+      if (previous) await cancelWorkbuddyOAuth(previous)
+      if (request !== wbRequest.current) return
+      if (!popup || popup.closed) {
+        throw new Error(
+          t(
+            'Your browser blocked the login window. Allow popups and try again.'
+          )
+        )
+      }
+      const sess = await startWorkbuddyOAuth(oauthRealm, {
+        proxy: resolveOutboundProxy(),
+        proxy_policy: proxyPolicy,
+        displayName: customName.trim() || undefined,
+        public: visibility,
+      })
+      if (!sess) throw new Error(t('Failed to start authorization'))
+      if (request !== wbRequest.current || popup.closed) {
+        popup.close()
+        await cancelWorkbuddyOAuth(sess.sessionId)
+        return
+      }
+      pendingWb.current = sess.sessionId
+      setWbSession(sess)
+      popup.location.href = sess.authUrl
+      setOauthStatusText(
+        t(
+          'Finish signing in in the authorization window. This page refreshes automatically.'
+        )
+      )
+    } catch (error) {
+      popup?.close()
+      if (request === wbRequest.current) {
+        const sessionId = pendingWb.current
+        pendingWb.current = null
+        setWbSession(null)
+        if (sessionId) {
+          void cancelWorkbuddyOAuth(sessionId).catch(() => undefined)
+        }
+        setOauthStatusText(t('Failed to start authorization'))
+        handleServerError(error)
+      }
+    } finally {
+      if (request === wbRequest.current) setAuthStarting(false)
     }
-    setWbSession(sess)
-    setOauthStatusText(
-      '已打开授权窗口，请在浏览器完成登录，本弹窗将自动开通渠道…'
-    )
-    window.open(sess.authUrl, '_blank', 'noopener,noreferrer')
   }
 
-  const startRaccoonFlow = async () => {
-    setOauthStatusText('正在创建小浣熊浏览器授权会话…')
-    const sess = await startRaccoonOAuth()
-    if (!sess) {
-      setOauthStatusText('发起授权失败，请稍后重试')
-      return
+  const cancelWorkBuddyFlow = async () => {
+    wbRequest.current++
+    setAuthStarting(false)
+    const sessionId = pendingWb.current
+    pendingWb.current = null
+    setWbSession(null)
+    wbPopup.current?.close()
+    setOauthStatusText(t('Account login was cancelled. Start again'))
+    if (sessionId) {
+      try {
+        await cancelWorkbuddyOAuth(sessionId)
+      } catch (error) {
+        handleServerError(error)
+      }
     }
-    setRaccoonSession(sess)
-    setOauthStatusText('已打开小浣熊登录页，授权后本弹窗将自动开通渠道…')
-    window.open(sess.authUrl, '_blank', 'noopener,noreferrer')
   }
 
   const startDs2ApiFlow = async () => {
+    if (authStarting) return
+    const request = ++authRequest.current
+    // Reserve on the user gesture, before awaiting the network.
+    const popup = window.open('about:blank', '_blank')
+    if (popup) popup.opener = null
+    authPopup.current = popup
+    setAuthStarting(true)
     setOauthStatusText(t('Creating an account login link...'))
-    const sess = await startDs2ApiOAuth({
-      proxy: resolveOutboundProxy(),
-      proxy_policy: proxyPolicy,
-      models: myModels,
-      all_models: availableModels,
-      public_models: publicModels,
-    })
-    if (!sess) {
-      setOauthStatusText('生成授权链接失败，请稍后重试')
-      return
+    try {
+      if (pendingDs2.current) await cancelDs2ApiOAuth(pendingDs2.current)
+      pendingDs2.current = null
+      const sess = await startDs2ApiOAuth({
+        proxy: resolveOutboundProxy(),
+        proxy_policy: proxyPolicy,
+        models: myModels,
+        all_models: availableModels,
+        public_models: publicModels,
+      })
+      if (!sess) throw new Error(t('Unable to create account login session'))
+      if (request !== authRequest.current) {
+        popup?.close()
+        await cancelDs2ApiOAuth(sess.sessionId)
+        return
+      }
+      pendingDs2.current = sess.sessionId
+      setDs2apiSession(sess)
+      if (popup && !popup.closed) {
+        popup.location.href = sess.authUrl
+        setOauthStatusText(
+          t(
+            'Open the account login page and sign in with your own account. The channel is created after login.'
+          )
+        )
+      } else {
+        setOauthStatusText(
+          t(
+            'Your browser blocked the login window. Use Open account login page to continue.'
+          )
+        )
+      }
+    } catch (error) {
+      popup?.close()
+      if (request === authRequest.current) {
+        setDs2apiSession(null)
+        setOauthStatusText(t('Unable to create account login session'))
+        handleServerError(error)
+      }
+    } finally {
+      if (request === authRequest.current) setAuthStarting(false)
     }
-    setDs2apiSession(sess)
-    setOauthStatusText(
-      t(
-        'Open the account login page and sign in with your own account. The channel is created after login.'
-      )
-    )
-    void navigator.clipboard
-      ?.writeText(sess.authUrl)
-      .then(() => toast.success(t('Account login link copied')))
-      .catch(() => undefined)
+  }
+
+  const cancelDs2Flow = async () => {
+    if (!ds2apiSession) return
+    const state = ds2apiSession.sessionId
+    try {
+      await cancelDs2ApiOAuth(state)
+      pendingDs2.current = null
+      setDs2apiSession(null)
+      authPopup.current?.close()
+      setOauthStatusText(t('Account login was cancelled. Start again'))
+    } catch (error) {
+      handleServerError(error)
+    }
   }
 
   const handleSubmit = async () => {
@@ -609,12 +789,39 @@ export function FromTemplateDialog({
       if (isAuthTemplate) {
         const raw = authTokensInput.trim()
         if (selected.id === 'trae-cn' || selected.id === 'trae-intl') {
-          const looksUrl = raw.startsWith('http') || raw.includes('code=')
-          const res = await importTrae(
-            looksUrl
-              ? { callbackUrl: raw, uid: traeUid.trim() || undefined }
-              : { refreshToken: raw, uid: traeUid.trim() || undefined }
-          )
+          if (!traeConfirmed) return
+          const looksUrl =
+            /^https?:/i.test(raw) ||
+            raw.includes('://') ||
+            raw.includes('code=')
+          if (looksUrl) {
+            const url = new URL(raw)
+            if (
+              url.protocol !== 'http:' ||
+              url.hostname !== '127.0.0.1' ||
+              !url.port ||
+              url.pathname !== '/authorize' ||
+              url.username ||
+              url.password ||
+              url.hash
+            ) {
+              setOauthStatusText(
+                t(
+                  'Use your own refresh token or the official http://127.0.0.1:port/authorize callback.'
+                )
+              )
+              return
+            }
+          }
+          const res = await importTrae({
+            ...(looksUrl ? { callbackUrl: raw } : { refreshToken: raw }),
+            uid: traeUid.trim() || undefined,
+            confirmRotation: traeConfirmed,
+            proxy: resolveOutboundProxy(),
+            proxy_policy: proxyPolicy,
+            displayName: customName.trim() || undefined,
+            public: visibility,
+          })
           if (res.ok) {
             toast.success(res.notice || 'Trae 授权导入成功，渠道已开通')
             void queryClient.invalidateQueries({
@@ -747,8 +954,11 @@ export function FromTemplateDialog({
 
   const filteredTemplates = useMemo(() => {
     if (!templates) return []
-    if (categoryTab === 'all') return templates
-    return templates.filter((tpl) => classifyTemplate(tpl) === categoryTab)
+    return templates.filter(
+      (tpl) =>
+        !tpl.id.startsWith('opencode-') &&
+        (categoryTab === 'all' || classifyTemplate(tpl) === categoryTab)
+    )
   }, [templates, categoryTab])
 
   return (
@@ -924,6 +1134,8 @@ export function FromTemplateDialog({
               )}
               {selected.id === 'freepi' && (
                 <FreePiAuthorizationCard
+                  proxy={resolveOutboundProxy()}
+                  proxyPolicy={proxyPolicy}
                   onComplete={() => {
                     void queryClient.invalidateQueries({
                       queryKey: channelsQueryKeys.all,
@@ -950,37 +1162,62 @@ export function FromTemplateDialog({
                       <Button
                         size='sm'
                         type='button'
+                        disabled={
+                          authStarting ||
+                          !isChannelProxySelectionComplete(
+                            proxyPolicy,
+                            proxyUrl
+                          )
+                        }
                         onClick={() => void startWorkBuddyFlow()}
                       >
-                        {wbSession
-                          ? '重新打开设备授权'
-                          : '🚀 开始 WorkBuddy OAuth 授权'}
+                        {t(
+                          authStarting
+                            ? 'Creating authorization session...'
+                            : 'Start WorkBuddy authorization'
+                        )}
                       </Button>
+                      {(wbSession || authStarting) && (
+                        <Button
+                          type='button'
+                          size='sm'
+                          variant='outline'
+                          onClick={() => void cancelWorkBuddyFlow()}
+                        >
+                          {t('Cancel authorization')}
+                        </Button>
+                      )}
                       {oauthStatusText && (
-                        <span className='text-primary'>{oauthStatusText}</span>
+                        <span role='status' className='text-primary'>
+                          {oauthStatusText}
+                        </span>
                       )}
                     </div>
                   )}
 
-                  {/* 小浣熊 一键浏览器授权 */}
                   {selected.id === 'xiaohuanxiong' && (
-                    <div className='bg-muted/50 flex flex-wrap items-center gap-2 rounded-lg p-2.5 text-xs'>
-                      <Button
-                        size='sm'
-                        type='button'
-                        onClick={() => void startRaccoonFlow()}
+                    <div
+                      role='status'
+                      className='bg-muted/50 space-y-2 rounded-lg p-2.5 text-xs'
+                    >
+                      <p>
+                        {t(
+                          'Raccoon browser authorization only supports an official local client. Gateway callbacks are not supported'
+                        )}
+                      </p>
+                      <p>
+                        {t(
+                          'Use credentials exported by your own official Raccoon client below. A website login URL or authorization code is not a usable API credential.'
+                        )}
+                      </p>
+                      <a
+                        href='https://xiaohuanxiong.com'
+                        target='_blank'
+                        rel='noopener noreferrer'
+                        className='text-primary underline'
                       >
-                        {raccoonSession
-                          ? '重新打开小浣熊授权'
-                          : '🦝 开始小浣熊浏览器 OAuth 授权'}
-                      </Button>
-                      <span className='text-muted-foreground'>
-                        点击在新窗口登录小浣熊即可自动回跳建渠道，或在下方直接粘贴回调链接
-                        / Token：
-                      </span>
-                      {oauthStatusText && (
-                        <span className='text-primary'>{oauthStatusText}</span>
-                      )}
+                        {t('Open official Raccoon client')}
+                      </a>
                     </div>
                   )}
 
@@ -999,6 +1236,7 @@ export function FromTemplateDialog({
                             type='button'
                             className='h-8 text-xs'
                             onClick={() => void startDs2ApiFlow()}
+                            disabled={authStarting}
                           >
                             {ds2apiSession
                               ? t('Regenerate account login link')
@@ -1006,6 +1244,14 @@ export function FromTemplateDialog({
                           </Button>
                           {ds2apiSession && (
                             <>
+                              <Button
+                                size='sm'
+                                variant='outline'
+                                type='button'
+                                onClick={() => void cancelDs2Flow()}
+                              >
+                                {t('Cancel authorization')}
+                              </Button>
                               <Button
                                 size='sm'
                                 variant='secondary'
@@ -1084,12 +1330,22 @@ export function FromTemplateDialog({
                         打开 {selected.name} 授权 / Token 页面
                       </Button>
                       <span className='text-muted-foreground'>
-                        登录后复制 Token / 回调 URL 粘贴到下方即可直接开通渠道
+                        {selected.id === 'trae-cn' ||
+                        selected.id === 'trae-intl'
+                          ? t(
+                              'Trae import uses your own official client credentials, not one-click browser OAuth.'
+                            )
+                          : '登录后复制 Token / 回调 URL 粘贴到下方即可直接开通渠道'}
                       </span>
                     </div>
                   )}
 
                   <textarea
+                    aria-label={
+                      selected.id === 'trae-cn' || selected.id === 'trae-intl'
+                        ? t('Trae callback URL or refresh token')
+                        : undefined
+                    }
                     value={authTokensInput}
                     onChange={(e) => setAuthTokensInput(e.target.value)}
                     rows={4}
@@ -1102,12 +1358,34 @@ export function FromTemplateDialog({
 
                   {(selected.id === 'trae-cn' ||
                     selected.id === 'trae-intl') && (
-                    <Input
-                      value={traeUid}
-                      onChange={(e) => setTraeUid(e.target.value)}
-                      placeholder='Trae UID（可选，用回调链接导入时自动识别）'
-                      className='h-8 text-xs'
-                    />
+                    <div className='space-y-2'>
+                      <Input
+                        value={traeUid}
+                        onChange={(e) => setTraeUid(e.target.value)}
+                        placeholder='Trae UID（可选，用回调链接导入时自动识别）'
+                        className='h-8 text-xs'
+                      />
+                      <Label className='flex items-start gap-2 text-xs'>
+                        <Checkbox
+                          checked={traeConfirmed}
+                          disabled={isSubmitting}
+                          onCheckedChange={(checked) =>
+                            setTraeConfirmed(checked === true)
+                          }
+                        />
+                        {t(
+                          'I understand that importing Trae credentials rotates tokens and may sign out other clients.'
+                        )}
+                      </Label>
+                      {oauthStatusText && (
+                        <p
+                          role='status'
+                          className='text-muted-foreground text-xs'
+                        >
+                          {oauthStatusText}
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
@@ -1208,6 +1486,11 @@ export function FromTemplateDialog({
                     )}
                 </div>
 
+                <p className='text-muted-foreground text-xs'>
+                  {t(
+                    'Platform IP-based free models are available to everyone through Public models. Your sources stay private unless you choose to share them.'
+                  )}
+                </p>
                 <ChannelProxySelector
                   enabled={open}
                   policy={proxyPolicy}

@@ -24,7 +24,7 @@ func TestProxyPoolSummaryDatabaseFailureContract(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 	var response struct {
 		Success bool           `json:"success"`
-		Data    map[string]int `json:"data"`
+		Data    map[string]any `json:"data"`
 		Message string         `json:"message"`
 	}
 	require.NoError(t, common.Unmarshal(w.Body.Bytes(), &response))
@@ -33,7 +33,7 @@ func TestProxyPoolSummaryDatabaseFailureContract(t *testing.T) {
 	for _, key := range []string{"endpoint_total", "endpoint_enabled", "usable_url_count", "subscription_total", "client_node_count", "public_node_count", "haizhu_node_count", "kernel_loaded_count", "probed_healthy_count"} {
 		value, present := response.Data[key]
 		assert.True(t, present, key)
-		assert.Zero(t, value, key)
+		assert.Equal(t, float64(0), value, key)
 	}
 }
 

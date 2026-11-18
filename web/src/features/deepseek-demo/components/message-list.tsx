@@ -36,26 +36,6 @@ import { Markdown } from '@/components/ui/markdown'
 
 import type { DemoMessage } from '../types'
 
-const SUGGESTIONS = [
-  {
-    title: 'Introduce yourself',
-    prompt: 'Help me write a short introduction for my new colleagues.',
-  },
-  {
-    title: 'Explain code',
-    prompt: 'Explain this code and point out potential problems.',
-  },
-  {
-    title: 'Summarize an article',
-    prompt: 'Organize the following text into clear key points.',
-  },
-  {
-    title: 'Translate and polish',
-    prompt:
-      'Translate the following text into natural English and explain your word choices.',
-  },
-]
-
 interface MessageListProps {
   messages: DemoMessage[]
   isStreaming: boolean
@@ -67,40 +47,18 @@ export function DemoMessageList(props: MessageListProps) {
   const { t } = useTranslation()
   if (props.messages.length === 0) {
     return (
-      <div className='flex min-h-0 flex-1 overflow-y-auto'>
-        <ConversationEmptyState className='m-auto h-auto px-5 py-8'>
-          <span
-            aria-hidden='true'
-            className='mb-2 text-3xl font-semibold tracking-tight text-[#4d6bfe]'
-          >
-            DeepSeek
-          </span>
-          <h1 className='text-xl font-semibold sm:text-2xl'>
-            {t('How can I help you today?')}
-          </h1>
-          <p className='text-muted-foreground max-w-md text-sm'>
-            {t('Use your signed-in account. No API key required.')}
-          </p>
-          <div className='mt-5 grid w-full max-w-xl grid-cols-1 gap-2 sm:grid-cols-2'>
-            {SUGGESTIONS.map((item) => (
-              <Button
-                key={item.title}
-                variant='outline'
-                onClick={() => props.onSuggestion(t(item.prompt))}
-                className='h-auto min-h-11 justify-start rounded-2xl px-4 py-3 text-left text-sm font-normal whitespace-normal'
-              >
-                {t(item.title)}
-              </Button>
-            ))}
-          </div>
-        </ConversationEmptyState>
-      </div>
+      <ConversationEmptyState className='ds-demo-greeting'>
+        <h1>{t('How can I help you today?')}</h1>
+      </ConversationEmptyState>
     )
   }
 
   return (
-    <Conversation aria-label={t('Conversation messages')}>
-      <ConversationContent className='mx-auto flex w-full max-w-3xl flex-col gap-7 px-4 py-6 sm:px-5'>
+    <Conversation
+      className='ds-demo-messages'
+      aria-label={t('Conversation messages')}
+    >
+      <ConversationContent className='ds-demo-message-column'>
         {props.messages.map((message, index) => (
           <MessageBubble
             key={message.id}
@@ -126,22 +84,14 @@ function MessageBubble(props: {
   const message = props.message
   if (message.role === 'user') {
     return (
-      <div className='flex justify-end'>
-        <div className='bg-muted max-w-[90%] rounded-2xl px-4 py-3 text-sm leading-relaxed break-words whitespace-pre-wrap sm:max-w-[85%]'>
-          {message.content}
-        </div>
+      <div className='ds-demo-user-message'>
+        <div className='ds-demo-user-bubble'>{message.content}</div>
       </div>
     )
   }
   const streaming = message.status === 'streaming'
   return (
-    <div className='group flex min-w-0 gap-3' aria-busy={streaming}>
-      <span
-        aria-hidden='true'
-        className='mt-1 flex size-7 shrink-0 items-center justify-center rounded-full bg-[#4d6bfe]/10 text-xs font-semibold text-[#4d6bfe]'
-      >
-        D
-      </span>
+    <div className='group ds-demo-assistant-message' aria-busy={streaming}>
       <div className='min-w-0 flex-1'>
         {message.reasoning?.trim() && (
           <Reasoning
@@ -153,7 +103,7 @@ function MessageBubble(props: {
           </Reasoning>
         )}
         {message.content && (
-          <Markdown breaks className='text-sm leading-7 break-words'>
+          <Markdown breaks className='ds-demo-markdown'>
             {message.content}
           </Markdown>
         )}
@@ -186,7 +136,7 @@ function MessageBubble(props: {
           </p>
         )}
         {!streaming && (
-          <div className='mt-2 flex items-center gap-1 sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100'>
+          <div className='ds-demo-response-actions'>
             {message.content && (
               <CopyButton
                 value={message.content}

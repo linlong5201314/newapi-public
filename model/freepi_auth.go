@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"gorm.io/gorm"
 )
 
@@ -17,16 +18,19 @@ var ErrFreePiAuthLimit = errors.New("Too many active FreePi authorization reques
 // FreePiAuthState never crosses the browser boundary. The whole payload is
 // encrypted; the opaque state is HMACed by AuthFlow before persistence.
 type FreePiAuthState struct {
-	Identity        AuthSessionIdentity `json:"identity"`
-	UpstreamSession string              `json:"upstream_session,omitempty"`
-	DisplayName     string              `json:"display_name"`
-	Public          bool                `json:"public"`
-	Interval        int                 `json:"interval"`
-	NextPollAt      int64               `json:"next_poll_at"`
-	Status          string              `json:"status"`
-	ChannelID       int                 `json:"channel_id,omitempty"`
-	ClientVersion   string              `json:"client_version"`
-	Models          []string            `json:"models"`
+	Proxy           string                  `json:"proxy,omitempty"`
+	ProxyPolicy     *dto.ChannelProxyPolicy `json:"proxy_policy,omitempty"`
+	EgressKey       string                  `json:"egress_key,omitempty"`
+	Identity        AuthSessionIdentity     `json:"identity"`
+	UpstreamSession string                  `json:"upstream_session,omitempty"`
+	DisplayName     string                  `json:"display_name"`
+	Public          bool                    `json:"public"`
+	Interval        int                     `json:"interval"`
+	NextPollAt      int64                   `json:"next_poll_at"`
+	Status          string                  `json:"status"`
+	ChannelID       int                     `json:"channel_id,omitempty"`
+	ClientVersion   string                  `json:"client_version"`
+	Models          []string                `json:"models"`
 }
 
 func CreateFreePiAuthFlow(state FreePiAuthState, expiresAt time.Time) (string, error) {
@@ -162,11 +166,16 @@ func CompleteFreePiChannel(tx *gorm.DB, state *FreePiAuthState, token, handle st
 	if !common.IsEncryptedSecret(key) {
 		return ErrFreePiEncryptionRequired
 	}
+	needsBinding := state.Proxy == "userpool" || state.ProxyPolicy != nil && state.ProxyPolicy.Mode != "direct" && state.ProxyPolicy.Mode != "fixed"
 	base := "https://api.freepi.ai"
 	channel := Channel{Type: channelType, Key: key, Name: state.DisplayName, BaseURL: &base, Models: strings.Join(state.Models, ","), Group: "default", OwnerId: state.Identity.UserID, Status: common.ChannelStatusEnabled, Tier: "api", CreatedTime: time.Now().Unix()}
 	if state.Public {
 		channel.Visibility = 1
 	}
+	if needsBinding {
+		channel.Status = common.ChannelStatusAutoDisabled
+	}
+	channel.SetSetting(dto.ChannelSettings{Proxy: state.Proxy, ProxyPolicy: state.ProxyPolicy})
 	channel.SetOtherInfo(map[string]any{"templateId": "freepi", "poolKey": "freepi", "allModels": state.Models, "freepiClientVersion": state.ClientVersion})
 	if err := tx.Create(&channel).Error; err != nil {
 		return err
@@ -174,21 +183,19 @@ func CompleteFreePiChannel(tx *gorm.DB, state *FreePiAuthState, token, handle st
 	if err := channel.AddAbilities(tx); err != nil {
 		return err
 	}
-	creds, err := common.Marshal([]SelfAccountCred{{Account: handle, Password: token}})
-	if err != nil {
+	binding := SelfAccountBinding{Proxy: state.Proxy, ProxyPolicy: state.ProxyPolicy, UserId: state.Identity.UserID, Provider: "freepi", Kind: "oauth", DisplayName: channel.Name, AccountMask: maskAccount(handle), AccountCount: 1, Public: channel.Visibility, Status: "ready", ChannelId: channel.Id}
+	if needsBinding {
+		binding.Status = "pending"
+	}
+	if err := binding.EncodeAccounts([]SelfAccountCred{{Account: handle, Password: token}}); err != nil {
 		return err
 	}
-	encrypted, err := common.EncryptSecret(string(creds))
-	if err != nil {
-		return err
-	}
-	if !common.IsEncryptedSecret(encrypted) {
-		return ErrFreePiEncryptionRequired
-	}
-	binding := SelfAccountBinding{UserId: state.Identity.UserID, Provider: "freepi", Kind: "oauth", DisplayName: channel.Name, AccountsEnc: encrypted, AccountMask: maskAccount(handle), AccountCount: 1, Public: channel.Visibility, Status: "ready", ChannelId: channel.Id}
 	if err := tx.Create(&binding).Error; err != nil {
 		return err
 	}
 	state.ChannelID, state.Status, state.UpstreamSession = channel.Id, "done", ""
+	if needsBinding {
+		state.Status = "binding"
+	}
 	return nil
 }

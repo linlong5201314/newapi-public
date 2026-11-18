@@ -17,23 +17,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Link } from '@tanstack/react-router'
-import {
-  Key,
-  MessageSquarePlus,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Radio,
-  FlaskConical,
-  Trash2,
-} from 'lucide-react'
+import { Key, Radio, FlaskConical, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
 
 import type { DemoConversation } from '../types'
+import { IconPanelLeftOutline16, NewChatIcon } from './official-icons'
 
 interface DemoSidebarProps {
   conversations: DemoConversation[]
@@ -79,7 +71,7 @@ export function DemoSidebar(props: DemoSidebarProps) {
     return (
       <aside
         aria-label={t('Chat history')}
-        className='border-border/60 bg-muted/40 flex h-full w-14 shrink-0 flex-col items-center gap-3 border-r py-4'
+        className='ds-demo-sidebar ds-demo-sidebar-collapsed'
       >
         <Button
           variant='ghost'
@@ -87,7 +79,7 @@ export function DemoSidebar(props: DemoSidebarProps) {
           onClick={props.onToggleCollapse}
           aria-label={t('Expand sidebar')}
         >
-          <PanelLeftOpen aria-hidden='true' />
+          <IconPanelLeftOutline16 />
         </Button>
         <Button
           variant='ghost'
@@ -95,7 +87,7 @@ export function DemoSidebar(props: DemoSidebarProps) {
           onClick={props.onNew}
           aria-label={t('New chat')}
         >
-          <MessageSquarePlus aria-hidden='true' />
+          <NewChatIcon />
         </Button>
       </aside>
     )
@@ -103,37 +95,30 @@ export function DemoSidebar(props: DemoSidebarProps) {
 
   return (
     <>
-      <aside
-        aria-label={t('Chat history')}
-        className='border-border/60 bg-muted/40 flex h-full w-64 max-w-full shrink-0 flex-col border-r'
-      >
-        <div className='flex items-center justify-between px-4 pt-4 pb-2'>
-          <span className='text-lg font-semibold tracking-tight text-[#4d6bfe]'>
-            DeepSeek · NewAPI
-          </span>
+      <aside aria-label={t('Chat history')} className='ds-demo-sidebar'>
+        <div className='ds-demo-sidebar-top'>
+          <span className='ds-demo-app-name'>DeepSeek · NewAPI</span>
           <Button
             variant='ghost'
             size='icon'
             onClick={props.onToggleCollapse}
             aria-label={t('Collapse sidebar')}
+            className='ds-demo-sidebar-toggle'
           >
-            <PanelLeftClose aria-hidden='true' />
+            <IconPanelLeftOutline16 />
           </Button>
         </div>
-        <div className='px-3 pt-2 pb-4'>
+        <div>
           <Button
             onClick={props.onNew}
             variant='secondary'
-            className='h-11 w-full justify-start rounded-xl bg-[#4d6bfe]/10 text-[#4d6bfe] hover:bg-[#4d6bfe]/20'
+            className='ds-demo-new-chat'
           >
-            <MessageSquarePlus aria-hidden='true' />
+            <NewChatIcon />
             {t('New chat')}
           </Button>
         </div>
-        <nav
-          aria-label={t('Conversations')}
-          className='min-h-0 flex-1 overflow-y-auto px-2 pb-2'
-        >
+        <nav aria-label={t('Conversations')} className='ds-demo-sidebar-nav'>
           {props.conversations.length === 0 && (
             <p className='text-muted-foreground px-3 py-6 text-xs'>
               {t('Your conversations will appear here.')}
@@ -142,20 +127,15 @@ export function DemoSidebar(props: DemoSidebarProps) {
           {sections
             .filter((section) => section.items.length > 0)
             .map((section) => (
-              <section key={section.label} className='mb-3'>
-                <h2 className='text-muted-foreground px-2 py-1 text-xs'>
-                  {section.label}
-                </h2>
+              <section key={section.label} className='ds-demo-history-section'>
+                <h2 className='ds-demo-history-heading'>{section.label}</h2>
                 {[...section.items]
                   .sort((a, b) => b.updatedAt - a.updatedAt)
                   .map((conversation) => (
                     <div
                       key={conversation.id}
-                      className={cn(
-                        'group flex items-center gap-1 rounded-xl px-1',
-                        conversation.id === props.activeId &&
-                          'bg-background shadow-xs'
-                      )}
+                      className='group ds-demo-history-item'
+                      data-active={conversation.id === props.activeId}
                     >
                       <Button
                         variant='ghost'
@@ -165,7 +145,7 @@ export function DemoSidebar(props: DemoSidebarProps) {
                             ? 'page'
                             : undefined
                         }
-                        className='h-11 min-w-0 flex-1 justify-start'
+                        className='ds-demo-history-select'
                         title={conversation.title}
                       >
                         <span className='truncate'>{conversation.title}</span>
@@ -175,7 +155,7 @@ export function DemoSidebar(props: DemoSidebarProps) {
                         size='icon'
                         aria-label={t('Delete conversation')}
                         onClick={() => setDeleteId(conversation.id)}
-                        className='text-muted-foreground hover:text-destructive size-9 shrink-0 sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100'
+                        className='ds-demo-history-delete'
                       >
                         <Trash2 className='size-4' aria-hidden='true' />
                       </Button>
@@ -184,31 +164,28 @@ export function DemoSidebar(props: DemoSidebarProps) {
               </section>
             ))}
         </nav>
-        <div className='border-border/60 border-t p-3'>
-          <div className='mb-2 grid grid-cols-3 gap-1'>
-            <Link
-              to='/playground'
-              className='text-muted-foreground hover:bg-muted flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg text-xs'
-            >
+        <div className='ds-demo-sidebar-footer'>
+          <Link to='/dashboard' className='ds-demo-sidebar-link'>
+            {t('Back to console')}
+          </Link>
+          <p className='text-muted-foreground py-1 text-[11px]'>
+            NewAPI · QuantumNous
+          </p>
+          <div className='ds-demo-sidebar-links'>
+            <Link to='/playground' className='ds-demo-sidebar-link'>
               <FlaskConical className='size-4' aria-hidden='true' />
               {t('Playground')}
             </Link>
-            <Link
-              to='/my-channels'
-              className='text-muted-foreground hover:bg-muted flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg text-xs'
-            >
+            <Link to='/my-channels' className='ds-demo-sidebar-link'>
               <Radio className='size-4' aria-hidden='true' />
               {t('My channels')}
             </Link>
-            <Link
-              to='/keys'
-              className='text-muted-foreground hover:bg-muted flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg text-xs'
-            >
+            <Link to='/keys' className='ds-demo-sidebar-link'>
               <Key className='size-4' aria-hidden='true' />
               {t('Keys')}
             </Link>
           </div>
-          <div className='flex items-center gap-2 rounded-lg px-2 py-1.5'>
+          <div className='ds-demo-sidebar-profile'>
             <span
               aria-hidden='true'
               className='bg-muted flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold'

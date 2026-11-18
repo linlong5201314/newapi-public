@@ -45,6 +45,8 @@ export function ChannelProxySelector(props: {
     !ownSubscriptions.some(
       (subscription) => subscription.id === props.policy.subscription_id
     )
+  const legacyMode =
+    props.policy.mode === 'direct' || props.policy.mode === 'public_pool'
   return (
     <div className='space-y-3'>
       <div className='space-y-1.5'>
@@ -54,17 +56,28 @@ export function ChannelProxySelector(props: {
           className='w-full'
           disabled={props.disabled}
           value={props.policy.mode}
-          onChange={(event) =>
-            props.onPolicyChange({
-              mode: event.target.value as ChannelProxyPolicy['mode'],
-            })
-          }
+          aria-describedby={legacyMode ? `${id}-legacy` : undefined}
+          onChange={(event) => {
+            const mode = event.target.value
+            if (
+              mode === 'user_pool' ||
+              mode === 'subscription' ||
+              mode === 'endpoint' ||
+              mode === 'fixed'
+            ) {
+              props.onPolicyChange({ mode })
+            }
+          }}
         >
+          {legacyMode && (
+            <NativeSelectOption value={props.policy.mode} disabled>
+              {props.policy.mode === 'direct'
+                ? t('Legacy direct connection (read-only)')
+                : t('Legacy public proxy pool (read-only)')}
+            </NativeSelectOption>
+          )}
           <NativeSelectOption value='user_pool'>
             {t('Rotate through my proxy pool')}
-          </NativeSelectOption>
-          <NativeSelectOption value='public_pool'>
-            {t('Public proxy pool')}
           </NativeSelectOption>
           <NativeSelectOption value='subscription'>
             {t('My subscription')}
@@ -72,13 +85,17 @@ export function ChannelProxySelector(props: {
           <NativeSelectOption value='endpoint'>
             {t('My proxy endpoint')}
           </NativeSelectOption>
-          <NativeSelectOption value='direct'>
-            {t('Direct connection')}
-          </NativeSelectOption>
           <NativeSelectOption value='fixed'>
             {t('Fixed proxy URL')}
           </NativeSelectOption>
         </NativeSelect>
+        {legacyMode && (
+          <p id={`${id}-legacy`} className='text-muted-foreground text-xs'>
+            {t(
+              'This legacy proxy setting is read-only. Select one of your own proxy strategies to change it. Other channel settings keep the current route.'
+            )}
+          </p>
+        )}
       </div>
       {props.policy.mode === 'subscription' && (
         <div className='space-y-1.5'>
@@ -201,13 +218,6 @@ export function ChannelProxySelector(props: {
             </p>
           )}
         </div>
-      )}
-      {props.policy.mode === 'public_pool' && (
-        <p className='text-muted-foreground text-xs'>
-          {t(
-            'Public proxies may be slow or unavailable. Remaining token quota is not measured.'
-          )}
-        </p>
       )}
     </div>
   )

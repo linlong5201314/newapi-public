@@ -549,7 +549,7 @@ export function transformChannelToFormDefaults(
         task_extend_plugin_keys: readTaskExtendPluginKeys(channel.type, parsed),
         force_format: parsed.force_format || false,
         thinking_to_content: parsed.thinking_to_content || false,
-        proxy: parsed.proxy || '',
+        proxy: parsed.proxy === 'direct' ? '' : parsed.proxy || '',
         proxy_policy: parsed.proxy_policy ?? { mode: legacyProxyMode },
         http_protocol: protocol,
         http2_connection_shards: protocol === HTTP_PROTOCOL_HTTP1 ? 1 : shards,
@@ -682,9 +682,17 @@ export function transformChannelToFormDefaults(
  * Build the setting JSON string from form extra settings
  */
 export function buildSettingJSON(formData: ChannelFormValues): string {
+  const originalSetting: Record<string, unknown> = JSON.parse(
+    formData.setting || '{}'
+  )
+  const keepLegacyProxy =
+    formData.proxy_policy?.mode === 'direct' ||
+    formData.proxy_policy?.mode === 'public_pool'
   const settingObj: Record<string, unknown> = {
-    ...JSON.parse(formData.setting || '{}'),
-    proxy_policy: formData.proxy_policy,
+    ...originalSetting,
+    proxy_policy: keepLegacyProxy
+      ? originalSetting.proxy_policy
+      : formData.proxy_policy,
     task_plugin_key:
       formData.type === CHANNEL_TYPE_TASK_PLUGIN
         ? formData.task_plugin_key?.trim() || ''
@@ -707,6 +715,8 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
     system_prompt: formData.system_prompt || '',
     system_prompt_override: formData.system_prompt_override || false,
   }
+
+  if (keepLegacyProxy) settingObj.proxy = originalSetting.proxy
 
   const protocol = normalizeHttpProtocol(formData.http_protocol)
   const shards =

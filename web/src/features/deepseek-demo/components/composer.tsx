@@ -16,15 +16,17 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { ArrowUp, Square } from 'lucide-react'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 
+import { IconSendOutline16, IconStopFill16 } from './official-icons'
+
 interface ComposerProps {
   value: string
+  controls?: ReactNode
   disabled?: boolean
   isStreaming?: boolean
   placeholder?: string
@@ -42,18 +44,18 @@ export function Composer(props: ComposerProps) {
     const el = textareaRef.current
     if (!el) return
     el.style.height = 'auto'
-    el.style.height = `${Math.max(48, Math.min(el.scrollHeight, 200))}px`
+    el.style.height = `${Math.min(el.scrollHeight, 336)}px`
   }, [props.value])
 
   const canSubmit =
     !props.disabled && !props.isStreaming && props.value.trim().length > 0
 
   return (
-    <div className='mx-auto w-full max-w-3xl shrink-0 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-5'>
-      <div className='border-border/70 bg-muted/40 focus-within:border-primary/60 rounded-3xl border px-4 pt-2 pb-3 transition-colors'>
+    <div className='ds-demo-composer-container'>
+      <div className='ds-demo-composer'>
         <Textarea
           ref={textareaRef}
-          rows={1}
+          rows={2}
           value={props.value}
           disabled={props.disabled && !props.isStreaming}
           aria-label={t('Message')}
@@ -78,29 +80,23 @@ export function Composer(props: ComposerProps) {
             event.preventDefault()
             if (canSubmit) props.onSubmit()
           }}
-          className='max-h-[200px] min-h-12 resize-none rounded-none border-0 bg-transparent px-0 text-base shadow-none focus-visible:ring-0 sm:text-sm dark:bg-transparent'
+          className='ds-demo-textarea'
         />
-        <div className='flex items-center justify-between gap-2'>
-          <span className='text-muted-foreground text-xs'>
-            {t('Shift + Enter for a new line')}
-          </span>
+        <div className='ds-demo-function-row'>
+          <div className='ds-demo-input-controls'>{props.controls}</div>
           <Button
             type='button'
             size='icon'
             aria-label={props.isStreaming ? t('Stop generating') : t('Send')}
             disabled={!props.isStreaming && !canSubmit}
             onClick={props.isStreaming ? props.onStop : props.onSubmit}
-            className='size-10 rounded-full bg-[#4d6bfe] text-white hover:bg-[#3f5bea] sm:size-9'
+            className='ds-demo-send'
           >
-            {props.isStreaming ? (
-              <Square className='size-3.5 fill-current' aria-hidden='true' />
-            ) : (
-              <ArrowUp className='size-5' aria-hidden='true' />
-            )}
+            {props.isStreaming ? <IconStopFill16 /> : <IconSendOutline16 />}
           </Button>
         </div>
       </div>
-      <p className='text-muted-foreground mt-2 text-center text-[11px]'>
+      <p className='ds-demo-caveat'>
         {t('AI-generated content may be inaccurate.')}
       </p>
     </div>

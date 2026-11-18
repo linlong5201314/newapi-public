@@ -36,10 +36,7 @@ interface ModelPickerProps {
 export function ModelPicker(props: ModelPickerProps) {
   const { t } = useTranslation()
   return (
-    <div
-      className='flex min-w-0 items-center gap-2'
-      aria-label={t('Model and group')}
-    >
+    <div className='ds-demo-model-controls' aria-label={t('Model and group')}>
       <ModelSelector
         selectedModel={props.value}
         models={props.models}

@@ -9,7 +9,6 @@ package controller
 
 import (
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -27,254 +26,34 @@ import (
 
 // SelfOAuthStart 发起账号渠道 OAuth 登录（目前支持 workbuddy 设备授权流）。
 // body: {"type":"workbuddy", "realm":"cn|global"}；返回 {sessionId, authUrl, expiresIn}。
-func SelfOAuthStart(c *gin.Context) {
-	var req struct {
-		Type  string `json:"type"`
-		Realm string `json:"realm"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		common.ApiErrorMsg(c, "invalid request body")
-		return
-	}
-	switch strings.ToLower(strings.TrimSpace(req.Type)) {
-	case "workbuddy":
-		realm := strings.ToLower(strings.TrimSpace(req.Realm))
-		// WORKBUDDY_BASE_URL env 为 dev/e2e 全局上游覆盖（生产留空）。
-		sess, err := workbuddy.OAuthStart(realm, os.Getenv("WORKBUDDY_BASE_URL"))
-		if err != nil {
-			common.ApiError(c, err)
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"data": gin.H{
-				"sessionId": sess.State,
-				"authUrl":   sess.AuthURL,
-				"realm":     sess.Realm,
-				"expiresIn": sess.ExpiresIn,
-			},
-		})
-	default:
-		common.ApiErrorMsg(c, "unsupported oauth type (expect workbuddy)")
-	}
-}
+func SelfOAuthStart(c *gin.Context) { selfWorkBuddyOAuthStart(c) }
 
 // SelfOAuthPoll 轮询 OAuth 登录态。
 // mode=preview（默认）：成功后返回脱敏凭据预览，由前端确认后走常规建渠道流程；
 // mode=create：成功后直接建渠道（name/group/models 可用 query 传入）。
-func SelfOAuthPoll(c *gin.Context) {
-	sessionId := strings.TrimSpace(c.Query("sessionId"))
-	if sessionId == "" {
-		common.ApiErrorMsg(c, "missing sessionId")
-		return
-	}
-	done, cred, err := workbuddy.OAuthPoll(sessionId)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	if !done {
-		c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"done": false}})
-		return
-	}
-	if c.DefaultQuery("mode", "preview") == "create" {
-		channel, cerr := createAccountChannel(c, constant.ChannelTypeWorkBuddy, cred.Nickname, cred.Marshal())
-		if cerr != nil {
-			common.ApiError(c, cerr)
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"done": true, "channel": channel}})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{
-		"done":       true,
-		"credential": cred.Masked(),
-		"key":        cred.Marshal(),
-	}})
-}
+func SelfOAuthPoll(c *gin.Context) { selfWorkBuddyOAuthPoll(c) }
 
 // SelfImportTrae 导入 Trae 凭据：callbackUrl 或 refreshToken(+uid) 二选一。
 // 返回脱敏凭据预览 + 可一键建渠道的 key（前端确认后走 POST /api/channel/self 建渠道，
 // 或 mode=create 直接建）。
-func SelfImportTrae(c *gin.Context) {
-	var req struct {
-		CallbackURL  string `json:"callbackUrl"`
-		RefreshToken string `json:"refreshToken"`
-		UID          string `json:"uid"`
-		MachineID    string `json:"machineId"`
-		DeviceID     string `json:"deviceId"`
-		Mode         string `json:"mode"` // preview（默认）| create
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		common.ApiErrorMsg(c, "invalid request body")
-		return
-	}
-	var cred *trae.Cred
-	var err error
-	if strings.TrimSpace(req.CallbackURL) != "" {
-		info, perr := trae.ParseCallback(req.CallbackURL)
-		if perr != nil {
-			common.ApiError(c, perr)
-			return
-		}
-		cred, err = trae.ImportCredential(info, req.MachineID, req.DeviceID, "")
-	} else if strings.TrimSpace(req.RefreshToken) != "" {
-		cred, err = trae.ImportFromRefreshToken(req.RefreshToken, req.UID, req.MachineID, req.DeviceID, "")
-	} else {
-		common.ApiErrorMsg(c, "callbackUrl or refreshToken is required")
-		return
-	}
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	if req.Mode == "create" {
-		channel, cerr := createAccountChannel(c, constant.ChannelTypeTrae, cred.Nickname, cred.Marshal())
-		if cerr != nil {
-			common.ApiError(c, cerr)
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"done": true, "channel": channel}})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{
-		"done":       true,
-		"credential": cred.Masked(),
-		"key":        cred.Marshal(),
-		// 刷新会踢同账号其他客户端下线（ExchangeToken 整族轮换）——前端必须明示。
-		"notice": "Trae 刷新令牌会轮换整族 token 并踢下同账号其他客户端；建议专号专用。",
-	}})
-}
+func SelfImportTrae(c *gin.Context) { selfTraeCredentialImport(c) }
 
-// SelfRaccoonOAuthStart 发起小浣熊浏览器授权。
-// 返回 {sessionId(=state), authUrl, callbackUrl, expiresIn}；用户打开 authUrl 登录后
-// 浏览器会跳回我们的回调路由，服务端自动换票，前端轮询 poll 即可拿到渠道。
-//
-// 会话落库（self_oauth_sessions）而不是放进程内：授权链路要经过 gw.ailong.love
-// 前置负载均衡，start 与 callback 可能落在不同节点。
+// The official desktop protocol only accepts http://127.0.0.1:<port>/auth/callback
+// with a 64-hex state. An HTTPS gateway callback is rejected before login. Do not
+// synthesize OAuth or accept legacy bearer/code callbacks without a real client.
 func SelfRaccoonOAuthStart(c *gin.Context) {
-	state, err := raccoon.NewState()
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	if err := model.CreateSelfOAuthSession(&model.SelfOAuthSession{
-		State:    state,
-		Provider: "raccoon",
-		Status:   "pending",
-	}); err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	model.PurgeExpiredSelfOAuthSessions(raccoon.SessionTTL * 2)
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"sessionId":   state,
-			"authUrl":     raccoon.AuthorizeURL(state),
-			"callbackUrl": raccoon.CallbackURL(),
-			"expiresIn":   int(raccoon.SessionTTL.Seconds()),
-		},
-	})
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "code": "RACCOON_AUTH_UNAVAILABLE", "message": common.NewMessage("Raccoon browser authorization only supports an official local client. Gateway callbacks are not supported"), "data": gin.H{"available": false, "flow": "unavailable", "reason": "loopback_only_protocol", "officialUrl": "https://xiaohuanxiong.com"}})
 }
 
-// SelfRaccoonOAuthCallback 浏览器授权回跳。
-// 这个端点由浏览器直接访问（没有 JWT），所以只做 state 校验 + 换票，
-// 然后回一段 HTML 让用户关掉标签页。
 func SelfRaccoonOAuthCallback(c *gin.Context) {
-	state := strings.TrimSpace(c.Query("state"))
-	code := strings.TrimSpace(c.Query("code"))
-	c.Header("Content-Type", "text/html; charset=utf-8")
-	if state == "" || code == "" {
-		c.String(http.StatusBadRequest, "<html><body style=\"font-family:system-ui;padding:32px\"><h3>授权回调缺少参数</h3><p>请回到平台页面重新点击「小浣熊授权」。</p></body></html>")
-		return
-	}
-	sess, err := model.GetSelfOAuthSession(state, raccoon.SessionTTL)
-	if err != nil || sess == nil {
-		c.String(http.StatusOK, "<html><body style=\"font-family:system-ui;padding:32px\"><h3>授权会话不存在或已过期</h3><p>请回到平台页面重新点击授权。</p></body></html>")
-		return
-	}
-	access, refresh, accountID, phone, xerr := raccoon.Exchange(code)
-	if xerr != nil {
-		common.SysLog("raccoon oauth callback failed: " + xerr.Error())
-		_ = model.UpdateSelfOAuthSession(state, map[string]interface{}{"status": "failed", "err": xerr.Error()})
-		c.String(http.StatusOK, "<html><body style=\"font-family:system-ui;padding:32px\"><h3>授权失败</h3><p>"+xerr.Error()+"</p><p>请回到平台页面重新点击授权。</p></body></html>")
-		return
-	}
-	if err := model.UpdateSelfOAuthSession(state, map[string]interface{}{
-		"status":     "done",
-		"access":     access,
-		"refresh":    refresh,
-		"account_id": accountID,
-		"phone":      phone,
-		"err":        "",
-	}); err != nil {
-		common.SysLog("raccoon oauth session save failed: " + err.Error())
-	}
-	shown := phone
-	if shown == "" {
-		shown = accountID
-	}
-	c.String(http.StatusOK, "<html><body style=\"font-family:system-ui;padding:32px\"><h3>授权成功</h3><p>账号："+shown+"</p><p>可以关闭此页面，回到平台即可看到已开通的渠道。</p></body></html>")
+	c.Header("Cache-Control", "no-store")
+	c.Header("Referrer-Policy", "no-referrer")
+	c.Header("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'")
+	c.String(http.StatusGone, "Raccoon gateway authorization is unavailable. Use the official local client; no account has been linked.")
 }
 
-// SelfRaccoonOAuthPoll 轮询小浣熊授权结果。
-// mode=create（默认）成功后直接建 type 68 渠道；mode=preview 只返回脱敏凭据。
-func SelfRaccoonOAuthPoll(c *gin.Context) {
-	state := strings.TrimSpace(c.Query("sessionId"))
-	if state == "" {
-		common.ApiErrorMsg(c, "missing sessionId")
-		return
-	}
-	sess, err := model.GetSelfOAuthSession(state, raccoon.SessionTTL)
-	if err != nil || sess == nil {
-		common.ApiErrorMsg(c, "授权会话不存在或已过期，请重新发起授权")
-		return
-	}
-	if sess.Status == "failed" {
-		common.ApiErrorMsg(c, sess.Err)
-		return
-	}
-	if sess.Status != "done" {
-		c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"done": false}})
-		return
-	}
-	keyJSON, _ := common.Marshal(map[string]string{
-		"access":  sess.Access,
-		"refresh": sess.Refresh,
-	})
-	if c.DefaultQuery("mode", "create") == "preview" {
-		c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{
-			"done": true,
-			"credential": gin.H{
-				"account": maskTail(sess.Phone),
-				"access":  maskTail(sess.Access),
-			},
-			"key": string(keyJSON),
-		}})
-		return
-	}
-	// 同一会话只允许开通一次：先原子地把 status 改成 consumed，抢到的那次才建渠道。
-	affected := model.DB.Model(&model.SelfOAuthSession{}).
-		Where("state = ? and status = ?", state, "done").
-		Update("status", "consumed").RowsAffected
-	if affected == 0 {
-		common.ApiErrorMsg(c, "该授权已开通渠道，如需再开请重新授权")
-		return
-	}
-	// 模型目录用真实 token 现拉，拉不到回退内置列表。
-	models := raccoon.ModelList
-	if got, ferr := raccoon.FetchUpstreamModels("", sess.Access); ferr == nil && len(got) > 0 {
-		models = got
-	}
-	channel, cerr := createAccountChannelWithModels(c, constant.ChannelTypeRaccoon, "小浣熊 "+maskTail(sess.Phone), string(keyJSON), models)
-	if cerr != nil {
-		_ = model.UpdateSelfOAuthSession(state, map[string]interface{}{"status": "done"})
-		common.ApiError(c, cerr)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"done": true, "channel": channel, "models": models}})
-}
+func SelfRaccoonOAuthPoll(c *gin.Context) { SelfRaccoonOAuthStart(c) }
 
 // maskTail 把手机号/token 脱敏成 前3****后4 形式。
 func maskTail(s string) string {

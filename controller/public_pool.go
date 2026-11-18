@@ -7,19 +7,9 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
-
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 )
-
-// ---------------------------------------------------------------------------
-// 公共池（公开出来的自建渠道）
-//
-// 蓝图：自建渠道默认私有；owner 勾选"公开到公共池"后，其他用户可路由，
-// 并且能看到公开者署名（昵称+头像）、实测延迟与评论。
-//   GET  /api/public_pool/models            按模型聚合的公共池清单
-//   GET  /api/public_pool/comments?model=   某模型的评论
-//   POST /api/public_pool/comments          发表评论（需登录）
-// ---------------------------------------------------------------------------
 
 type publicOwner struct {
 	UserId int    `json:"user_id"`
@@ -31,7 +21,7 @@ type publicModelAgg struct {
 	Model     string              `json:"model"`
 	Providers int                 `json:"providers"`
 	FreeCount int                 `json:"free_count"`
-	FastestMs int                 `json:"fastest_ms"`
+	FastestMs *int64              `json:"fastest_ms"`
 	Rating    float64             `json:"rating"`
 	Comments  int                 `json:"comments"`
 	Owners    []publicOwner       `json:"owners"`
@@ -39,122 +29,177 @@ type publicModelAgg struct {
 }
 
 type publicChannelView struct {
-	ChannelId    int    `json:"channel_id"`
-	ChannelName  string `json:"channel_name"`
-	OwnerName    string `json:"owner_name"`
-	OwnerAvatar  string `json:"owner_avatar"`
-	Tier         string `json:"tier"`
-	ResponseTime int    `json:"response_time"`
-	// 节点健康度：近 5 次成功率与降权状态，前端直接展示「可用/降权/不可用」。
-	HealthState  string  `json:"health_state"`
-	SuccessRate  float64 `json:"success_rate"`
-	AvgLatencyMs int64   `json:"avg_latency_ms"`
-	Samples      int     `json:"samples"`
+	ChannelId   int    `json:"channel_id"`
+	ChannelName string `json:"channel_name"`
+	OwnerName   string `json:"owner_name"`
+	OwnerAvatar string `json:"owner_avatar"`
+	Tier        string `json:"tier"`
+	SourceKind  string `json:"source_kind"`
+	Provider    string `json:"provider"`
+	Enabled     bool   `json:"enabled"`
+	Status      string `json:"status"`
+	HealthState string `json:"health_state"`
+	// Health remains channel-scoped over the last five outcomes. Observed relay
+	// metrics use an authorized channel/model's last 24h consume logs; TPS uses
+	// end-to-end seconds, not generation time. Missing measurements stay null.
+	MetricScope   string   `json:"metric_scope"`
+	MetricSource  *string  `json:"metric_source"`
+	WindowSeconds *int64   `json:"window_seconds"`
+	TPSBasis      *string  `json:"tps_basis"`
+	HealthScope   string   `json:"health_scope"`
+	HealthWindow  string   `json:"health_window"`
+	LatencySource *string  `json:"latency_source"`
+	LatencyWindow string   `json:"latency_window"`
+	Throughput    *float64 `json:"throughput"`
+	TPS           *float64 `json:"tps"`
+	LatencyMs     *int64   `json:"latency_ms"`
+	SampleCount   *int     `json:"sample_count"`
+	SampledAt     *int64   `json:"sampled_at"`
+	ResponseTime  *int64   `json:"response_time"`
+	SuccessRate   *float64 `json:"success_rate"`
+	AvgLatencyMs  *int64   `json:"avg_latency_ms"`
+	Samples       *int     `json:"samples"`
 }
 
-// GetPublicPoolModels GET /api/public_pool/models
+func publicPoolRequestGroups(c *gin.Context) ([]string, error) {
+	user, err := model.GetUserCache(c.GetInt("id"))
+	if err != nil {
+		return nil, err
+	}
+	usable := service.GetUserUsableGroups(user.Group)
+	groups := make([]string, 0, len(usable))
+	for group := range usable {
+		if group != "auto" {
+			groups = append(groups, group)
+		}
+	}
+	return groups, nil
+}
+
+// GetPublicPoolModels lists only models the current user's groups can relay.
 func GetPublicPoolModels(c *gin.Context) {
-	briefs, err := model.ListPublicChannels()
+	groups, err := publicPoolRequestGroups(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	briefs, err := model.ListPublicChannelsForGroups(groups)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	byModel := make(map[string]*publicModelAgg)
 	ownerSeen := make(map[string]map[int]bool)
-	for _, b := range briefs {
-		agg, ok := byModel[b.Model]
-		if !ok {
-			agg = &publicModelAgg{Model: b.Model, FastestMs: -1}
-			byModel[b.Model] = agg
-			ownerSeen[b.Model] = make(map[int]bool)
+	channelIDs := make([]int, 0, len(briefs))
+	channelSeen := make(map[int]bool)
+	for _, brief := range briefs {
+		// Health also contains private-era history without a public snapshot.
+		if brief.OwnerId != 0 || brief.SourceKind != "platform_free" || brief.Tier != "free" {
+			continue
+		}
+		if !channelSeen[brief.ChannelId] {
+			channelSeen[brief.ChannelId] = true
+			channelIDs = append(channelIDs, brief.ChannelId)
+		}
+	}
+	// Resolve metrics only after tenant/group/subset filtering. Private IDs never
+	// reach the health cache on this public endpoint.
+	health := model.ChannelHealthBatch(channelIDs)
+	logMetrics, metricsErr := model.GetPublicRelayLogMetrics(c.Request.Context(), briefs, groups)
+	if metricsErr != nil {
+		// Metrics are optional. Never expose driver SQL, DSNs, or private names.
+		common.SysError("public relay metrics unavailable")
+	}
+	for _, brief := range briefs {
+		agg := byModel[brief.Model]
+		if agg == nil {
+			agg = &publicModelAgg{Model: brief.Model, Owners: []publicOwner{}, Channels: []publicChannelView{}}
+			byModel[brief.Model] = agg
+			ownerSeen[brief.Model] = make(map[int]bool)
 		}
 		agg.Providers++
-		if strings.EqualFold(b.Tier, "free") {
+		if strings.EqualFold(brief.Tier, "free") {
 			agg.FreeCount++
 		}
-		if b.ResponseTime > 0 && (agg.FastestMs < 0 || b.ResponseTime < agg.FastestMs) {
-			agg.FastestMs = b.ResponseTime
+		agg.Rating, agg.Comments = brief.Rating, brief.Comments
+		if !ownerSeen[brief.Model][brief.OwnerId] {
+			ownerSeen[brief.Model][brief.OwnerId] = true
+			agg.Owners = append(agg.Owners, publicOwner{UserId: brief.OwnerId, Name: brief.OwnerName, Avatar: brief.OwnerAvatar})
 		}
-		agg.Rating = b.Rating
-		agg.Comments = b.Comments
-		if !ownerSeen[b.Model][b.OwnerId] {
-			ownerSeen[b.Model][b.OwnerId] = true
-			agg.Owners = append(agg.Owners, publicOwner{UserId: b.OwnerId, Name: b.OwnerName, Avatar: b.OwnerAvatar})
+		view := publicChannelView{ChannelId: brief.ChannelId, ChannelName: brief.ChannelName, OwnerName: brief.OwnerName, OwnerAvatar: brief.OwnerAvatar, Tier: brief.Tier, SourceKind: brief.SourceKind, Provider: channelOwnerName(brief.ChannelType), Enabled: brief.Enabled, Status: "unknown", HealthState: "unknown", MetricScope: "channel", HealthWindow: "last_5_results", LatencyWindow: "accumulated_successful_results"}
+		if h, ok := health[brief.ChannelId]; ok && h.Samples > 0 {
+			count, rate := h.Samples, h.SuccessRate
+			view.HealthState, view.Status = h.State, h.State
+			view.SampleCount, view.Samples, view.SuccessRate = &count, &count, &rate
+			if h.AvgLatencyMs > 0 {
+				latency := h.AvgLatencyMs
+				source := "accumulated_successful_results"
+				view.LatencySource = &source
+				view.LatencyMs, view.ResponseTime, view.AvgLatencyMs = &latency, &latency, &latency
+			}
 		}
-		agg.Channels = append(agg.Channels, publicChannelView{
-			ChannelId:    b.ChannelId,
-			ChannelName:  b.ChannelName,
-			OwnerName:    b.OwnerName,
-			OwnerAvatar:  b.OwnerAvatar,
-			Tier:         b.Tier,
-			ResponseTime: b.ResponseTime,
-			HealthState:  "unknown",
-		})
+		view.HealthScope = "channel"
+		if metric, ok := logMetrics[model.PublicChannelModelKey{ChannelID: brief.ChannelId, ModelName: brief.Model}]; ok && metric.RequestCount > 0 {
+			source, basis, window := "relay_logs_24h", "end_to_end", int64(86400)
+			count, sampledAt := int(metric.RequestCount), metric.SampledAt
+			rpm := float64(metric.RequestCount) / 1440.0
+			view.MetricScope, view.MetricSource, view.WindowSeconds = "channel_model", &source, &window
+			view.Throughput, view.SampleCount, view.SampledAt = &rpm, &count, &sampledAt
+			// A channel-wide health latency is not a model-specific fallback once
+			// the card switches scope to a channel/model log window.
+			view.LatencyMs, view.ResponseTime, view.AvgLatencyMs, view.LatencySource = nil, nil, nil, nil
+			view.LatencyWindow = "last_24_hours"
+			if metric.TimedCount > 0 {
+				latency := int64(metric.DurationSeconds / float64(metric.TimedCount) * 1000)
+				view.LatencyMs, view.ResponseTime, view.AvgLatencyMs, view.LatencySource = &latency, &latency, &latency, &source
+			}
+			if metric.TokenDurationSeconds > 0 {
+				tps := metric.OutputTokens / metric.TokenDurationSeconds
+				view.TPS, view.TPSBasis = &tps, &basis
+			}
+		}
+		if view.LatencyMs != nil && (agg.FastestMs == nil || *view.LatencyMs < *agg.FastestMs) {
+			agg.FastestMs = view.LatencyMs
+		}
+		agg.Channels = append(agg.Channels, view)
 	}
-	// 健康度一次批量取，避免逐渠道查 Redis。
-	channelIds := make([]int, 0, len(briefs))
-	for _, b := range briefs {
-		channelIds = append(channelIds, b.ChannelId)
-	}
-	healthMap := model.ChannelHealthBatch(channelIds)
 	items := make([]*publicModelAgg, 0, len(byModel))
 	for _, agg := range byModel {
-		for i := range agg.Channels {
-			view := &agg.Channels[i]
-			if h, ok := healthMap[view.ChannelId]; ok {
-				view.HealthState = h.State
-				view.SuccessRate = h.SuccessRate
-				view.AvgLatencyMs = h.AvgLatencyMs
-				view.Samples = h.Samples
-				// 实测平均延迟比历史测速更贴近当下，优先用它排序。
-				if h.AvgLatencyMs > 0 && (view.ResponseTime <= 0 || int(h.AvgLatencyMs) < view.ResponseTime) {
-					view.ResponseTime = int(h.AvgLatencyMs)
-					if agg.FastestMs < 0 || view.ResponseTime < agg.FastestMs {
-						agg.FastestMs = view.ResponseTime
-					}
-				}
-			}
-		}
-		// 多人公开同一模型时，健康且快的排前面；down 的排最后。
 		sort.SliceStable(agg.Channels, func(i, j int) bool {
-			ai, aj := agg.Channels[i], agg.Channels[j]
-			if (ai.HealthState == "down") != (aj.HealthState == "down") {
-				return aj.HealthState == "down"
+			a, b := agg.Channels[i], agg.Channels[j]
+			if (a.Status == "down") != (b.Status == "down") {
+				return b.Status == "down"
 			}
-			if ai.ResponseTime <= 0 && aj.ResponseTime <= 0 {
-				return false
+			if a.LatencyMs == nil || b.LatencyMs == nil {
+				return a.LatencyMs != nil && b.LatencyMs == nil
 			}
-			if ai.ResponseTime <= 0 {
-				return false
-			}
-			if aj.ResponseTime <= 0 {
-				return true
-			}
-			return ai.ResponseTime < aj.ResponseTime
+			return *a.LatencyMs < *b.LatencyMs
 		})
 		items = append(items, agg)
 	}
-	// 排序口径：多人公开时优先用响应快的模型；没有测速数据（<=0）排到最后；
-	// 速度相同再按公开人数降序，最后按模型名稳定排序。
 	sort.Slice(items, func(i, j int) bool {
-		fi, fj := items[i].FastestMs, items[j].FastestMs
-		if (fi > 0) != (fj > 0) {
-			return fi > 0
+		a, b := items[i], items[j]
+		if (a.FastestMs == nil) != (b.FastestMs == nil) {
+			return a.FastestMs != nil
 		}
-		if fi > 0 && fj > 0 && fi != fj {
-			return fi < fj
+		if a.FastestMs != nil && b.FastestMs != nil && *a.FastestMs != *b.FastestMs {
+			return *a.FastestMs < *b.FastestMs
 		}
-		if items[i].Providers != items[j].Providers {
-			return items[i].Providers > items[j].Providers
+		if a.Providers != b.Providers {
+			return a.Providers > b.Providers
 		}
-		return items[i].Model < items[j].Model
+		return a.Model < b.Model
 	})
 	common.ApiSuccess(c, gin.H{"items": items, "total": len(items)})
 }
 
-// GetPublicPoolComments GET /api/public_pool/comments?model=&limit=
 func GetPublicPoolComments(c *gin.Context) {
-	rows, err := model.ListPublicComments(c.Query("model"), parseLimitOrDefault(c.Query("limit"), 50))
+	groups, err := publicPoolRequestGroups(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	rows, err := model.ListPublicComments(c.Query("model"), parseLimitOrDefault(c.Query("limit"), 50), groups)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -162,10 +207,7 @@ func GetPublicPoolComments(c *gin.Context) {
 	common.ApiSuccess(c, gin.H{"items": rows, "total": len(rows)})
 }
 
-// AddPublicPoolComment POST /api/public_pool/comments
-// body: {"model":"gpt-4o","channel_id":12,"content":"…","rating":5}
 func AddPublicPoolComment(c *gin.Context) {
-	uid := c.GetInt("id")
 	req := struct {
 		Model     string `json:"model"`
 		ChannelId int    `json:"channel_id"`
@@ -176,8 +218,7 @@ func AddPublicPoolComment(c *gin.Context) {
 		common.ApiErrorMsg(c, "Invalid parameters")
 		return
 	}
-	req.Model = strings.TrimSpace(req.Model)
-	req.Content = strings.TrimSpace(req.Content)
+	req.Model, req.Content = strings.TrimSpace(req.Model), strings.TrimSpace(req.Content)
 	if req.Model == "" || req.Content == "" {
 		common.ApiErrorMsg(c, "model and content are required")
 		return
@@ -189,28 +230,35 @@ func AddPublicPoolComment(c *gin.Context) {
 	if req.Rating < 0 || req.Rating > 5 {
 		req.Rating = 0
 	}
-	// 评论必须挂在真实存在的公开渠道上，避免伪造 channel_id 蹭署名
-	channel, err := model.GetChannelById(req.ChannelId, true)
-	if err != nil || channel == nil || channel.Visibility != 1 {
+	groups, err := publicPoolRequestGroups(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	briefs, err := model.ListPublicChannelsForGroups(groups)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	channelName := ""
+	eligible := false
+	for _, brief := range briefs {
+		if brief.ChannelId == req.ChannelId && brief.Model == req.Model {
+			channelName, eligible = brief.ChannelName, true
+			break
+		}
+	}
+	if !eligible {
 		common.ApiErrorMsg(c, "channel is not public")
 		return
 	}
+	uid := c.GetInt("id")
 	user, err := model.GetUserById(uid, false)
 	if err != nil || user == nil {
 		common.ApiErrorMsg(c, "user not found")
 		return
 	}
-	row := &model.PublicPoolComment{
-		Model:       req.Model,
-		ChannelId:   req.ChannelId,
-		ChannelName: channel.Name,
-		UserId:      uid,
-		Username:    user.Username,
-		DisplayName: user.DisplayName,
-		Avatar:      user.Avatar,
-		Content:     req.Content,
-		Rating:      req.Rating,
-	}
+	row := &model.PublicPoolComment{Model: req.Model, ChannelId: req.ChannelId, ChannelName: channelName, UserId: uid, Username: user.Username, DisplayName: user.DisplayName, Avatar: user.Avatar, Content: req.Content, Rating: req.Rating}
 	if err := model.AddPublicComment(row); err != nil {
 		common.ApiError(c, err)
 		return
@@ -218,7 +266,6 @@ func AddPublicPoolComment(c *gin.Context) {
 	common.ApiSuccess(c, row)
 }
 
-// parseLimitOrDefault 评论分页参数：非法值一律回落到默认，不让前端把 limit 传成天文数字。
 func parseLimitOrDefault(raw string, def int) int {
 	if n, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil && n > 0 {
 		return n

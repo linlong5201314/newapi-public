@@ -109,6 +109,76 @@ it('selects owner subscription and endpoint IDs without requesting global runtim
   client.clear()
 })
 
+it('offers only owned outbound strategies when creating a channel', () => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  })
+  const view = render(
+    <QueryClientProvider client={client}>
+      <ChannelProxySelector
+        enabled={false}
+        policy={{ mode: 'user_pool' }}
+        proxy=''
+        onPolicyChange={vi.fn()}
+        onProxyChange={vi.fn()}
+      />
+    </QueryClientProvider>
+  )
+  expect(
+    screen.getAllByRole('option').map((option) => option.getAttribute('value'))
+  ).toEqual(['user_pool', 'subscription', 'endpoint', 'fixed'])
+  view.unmount()
+  client.clear()
+})
+
+it.each(['direct', 'public_pool'] as const)(
+  'keeps legacy %s read-only until the owner explicitly selects a replacement',
+  async (mode) => {
+    const change = vi.fn()
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    })
+    function Fixture() {
+      const [policy, setPolicy] = useState<ChannelProxyPolicy>({ mode })
+      return (
+        <ChannelProxySelector
+          enabled={false}
+          policy={policy}
+          proxy=''
+          onPolicyChange={(next) => {
+            change(next)
+            setPolicy(next)
+          }}
+          onProxyChange={vi.fn()}
+        />
+      )
+    }
+    const user = userEvent.setup()
+    const view = render(
+      <QueryClientProvider client={client}>
+        <Fixture />
+      </QueryClientProvider>
+    )
+    const select = screen.getByRole('combobox', { name: 'Outbound proxy mode' })
+    expect(select).toHaveValue(mode)
+    const legacy = screen
+      .getAllByRole('option')
+      .find((option) => option.getAttribute('value') === mode)
+    expect(legacy).toBeDisabled()
+    expect(select).toHaveAccessibleDescription(
+      'This legacy proxy setting is read-only. Select one of your own proxy strategies to change it. Other channel settings keep the current route.'
+    )
+    expect(change).not.toHaveBeenCalled()
+    await user.selectOptions(select, 'user_pool')
+    expect(change).toHaveBeenLastCalledWith({ mode: 'user_pool' })
+    expect(
+      screen.queryByRole('option', { name: /Legacy/ })
+    ).not.toBeInTheDocument()
+    view.unmount()
+    client.clear()
+  }
+)
+
 it('never pre-fills a masked proxy URL when preserving a configured fixed proxy', async () => {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },

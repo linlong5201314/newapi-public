@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -138,45 +139,55 @@ func channelOwnerName(channelType int) string {
 	return strings.ToLower(constant.GetChannelTypeName(channelType))
 }
 
-func getPreferredModelOwners(modelNames []string, groups []string) map[string]string {
-	channelTypes, err := model.GetPreferredModelOwnerChannelTypes(modelNames, groups)
-	if err != nil {
-		common.SysLog(common.LogText("GetPreferredModelOwnerChannelTypes error: %v", err))
-		return map[string]string{}
+// buildOpenAIModel builds static provider metadata for internal catalog callers.
+// User-facing listing and details must use buildVisibleOpenAIModel instead.
+func buildOpenAIModel(modelName string, ownerByModel map[string]string) dto.OpenAIModels {
+	aiModel, ok := openAIModelsMap[modelName]
+	if !ok {
+		aiModel = dto.OpenAIModels{Id: modelName, Object: "model", Created: 1626777600, OwnedBy: "custom"}
 	}
-
-	ownerByChannelType := make(map[int]string)
-	owners := make(map[string]string, len(channelTypes))
-	for modelName, channelType := range channelTypes {
-		owner, ok := ownerByChannelType[channelType]
-		if !ok {
-			owner = channelOwnerName(channelType)
-			ownerByChannelType[channelType] = owner
-		}
-		if owner != "" {
-			owners[modelName] = owner
-		}
+	if owner := ownerByModel[modelName]; owner != "" {
+		aiModel.OwnedBy = owner
 	}
-	return owners
+	aiModel.SupportedEndpointTypes = model.GetModelSupportEndpointTypes(modelName)
+	return aiModel
 }
 
-func buildOpenAIModel(modelName string, ownerByModel map[string]string) dto.OpenAIModels {
-	var oaiModel dto.OpenAIModels
-	if staticModel, ok := openAIModelsMap[modelName]; ok {
-		oaiModel = staticModel
-	} else {
-		oaiModel = dto.OpenAIModels{
-			Id:      modelName,
-			Object:  "model",
-			Created: 1626777600,
-			OwnedBy: "custom",
+// buildVisibleOpenAIModel deliberately does not consult the global pricing/endpoint
+// cache: another tenant's same-name private channel must not influence metadata.
+func buildVisibleOpenAIModel(modelName string, channels []*model.Channel, overrides map[string]common.EndpointInfo) dto.OpenAIModels {
+	aiModel := dto.OpenAIModels{Id: modelName, Object: "model", Created: 1626777600, OwnedBy: "custom"}
+	if len(channels) > 0 {
+		aiModel.OwnedBy = channelOwnerName(channels[0].Type)
+	}
+	aiModel.SupportedEndpointTypes = make([]constant.EndpointType, 0)
+	seen := make(map[constant.EndpointType]bool)
+	for _, channel := range channels {
+		endpoints := common.GetEndpointTypesByChannelType(channel.Type, modelName)
+		if channel.Type == constant.ChannelTypeAdvancedCustom {
+			if config := channel.GetOtherSettings().AdvancedCustom; config != nil {
+				endpoints = config.SupportedEndpointTypesForModel(modelName)
+			}
+		}
+		for _, endpoint := range endpoints {
+			if !seen[endpoint] {
+				seen[endpoint] = true
+				aiModel.SupportedEndpointTypes = append(aiModel.SupportedEndpointTypes, endpoint)
+			}
 		}
 	}
-	if owner, ok := ownerByModel[modelName]; ok && owner != "" {
-		oaiModel.OwnedBy = owner
+	keys := make([]string, 0, len(overrides))
+	for key := range overrides {
+		keys = append(keys, key)
 	}
-	oaiModel.SupportedEndpointTypes = model.GetModelSupportEndpointTypes(modelName)
-	return oaiModel
+	sort.Strings(keys)
+	for _, key := range keys {
+		endpoint := constant.EndpointType(key)
+		if !seen[endpoint] {
+			aiModel.SupportedEndpointTypes = append(aiModel.SupportedEndpointTypes, endpoint)
+		}
+	}
+	return aiModel
 }
 
 type modelListGroups struct {
@@ -248,11 +259,10 @@ func ListModels(c *gin.Context, modelType int) {
 			tokenModelLimit = map[string]bool{}
 		}
 	}
-	// 多租户可见性：普通用户只看到「自己渠道 + 已公开渠道」的模型，
-	// 管理员/root 保持全量（便于运维排查）。
 	viewerId := c.GetInt("id")
-	if c.GetInt("role") >= common.RoleAdminUser {
-		viewerId = 0
+	if viewerId <= 0 {
+		c.AbortWithStatus(http.StatusUnauthorized)
+		return
 	}
 	models := service.GetGroupsEnabledModelsForOwner(ownerGroups, viewerId)
 	for _, modelName := range models {
@@ -268,13 +278,21 @@ func ListModels(c *gin.Context, modelType int) {
 		userModelNames = append(userModelNames, modelName)
 	}
 
-	ownerByModel := map[string]string{}
-	if len(ownerGroups) > 0 {
-		ownerByModel = getPreferredModelOwners(userModelNames, ownerGroups)
+	channelsByModel, err := model.GetModelChannelsForOwner(userModelNames, ownerGroups, viewerId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	endpointOverrides, err := model.GetModelEndpointOverrides(userModelNames)
+	if err != nil {
+		common.ApiError(c, err)
+		return
 	}
 	userOpenAiModels := make([]dto.OpenAIModels, 0, len(userModelNames))
 	for _, modelName := range userModelNames {
-		userOpenAiModels = append(userOpenAiModels, buildOpenAIModel(modelName, ownerByModel))
+		if channels := channelsByModel[modelName]; len(channels) > 0 {
+			userOpenAiModels = append(userOpenAiModels, buildVisibleOpenAIModel(modelName, channels, endpointOverrides[modelName]))
+		}
 	}
 
 	switch modelType {
@@ -352,28 +370,38 @@ func EnabledListModels(c *gin.Context) {
 }
 
 func RetrieveModel(c *gin.Context, modelType int) {
-	modelId := c.Param("model")
-	if aiModel, ok := openAIModelsMap[modelId]; ok {
-		switch modelType {
-		case constant.ChannelTypeAnthropic:
-			c.JSON(200, dto.AnthropicModel{
-				ID:          aiModel.Id,
-				CreatedAt:   time.Unix(int64(aiModel.Created), 0).UTC().Format(time.RFC3339),
-				DisplayName: aiModel.Id,
-				Type:        "model",
-			})
-		default:
-			c.JSON(200, aiModel)
+	modelID := c.Param("model")
+	// Reuse the exact list policy, including group, token allowlist and billing
+	// availability. Merely appearing in an adaptor's static list is not authority.
+	viewerID := c.GetInt("id")
+	groups, err := getModelListGroups(c)
+	if err == nil && viewerID > 0 {
+		channels, lookupErr := model.GetModelChannelsForOwner([]string{modelID}, groups.ownerGroups, viewerID)
+		allowed := lookupErr == nil && len(channels[modelID]) > 0
+		if common.GetContextKeyBool(c, constant.ContextKeyTokenModelLimitEnabled) {
+			value, _ := common.GetContextKey(c, constant.ContextKeyTokenModelLimit)
+			limits, _ := value.(map[string]bool)
+			allowed = allowed && (limits[modelID] || limits[ratio_setting.RoutingMatchModelName(modelID)])
 		}
-	} else {
-		openAIError := types.OpenAIError{
-			Message: fmt.Sprintf("The model '%s' does not exist", modelId),
-			Type:    "invalid_request_error",
-			Param:   "model",
-			Code:    "model_not_found",
+		acceptUnset := operation_setting.SelfUseModeEnabled
+		if !acceptUnset {
+			settings, _ := model.GetUserSetting(viewerID, false)
+			acceptUnset = settings.AcceptUnsetRatioModel
 		}
-		c.JSON(200, gin.H{
-			"error": openAIError,
-		})
+		if allowed && (acceptUnset || helper.HasModelBillingConfig(modelID)) {
+			overrides, metadataErr := model.GetModelEndpointOverrides([]string{modelID})
+			if metadataErr != nil {
+				common.ApiError(c, metadataErr)
+				return
+			}
+			aiModel := buildVisibleOpenAIModel(modelID, channels[modelID], overrides[modelID])
+			if modelType == constant.ChannelTypeAnthropic {
+				c.JSON(http.StatusOK, dto.AnthropicModel{ID: aiModel.Id, CreatedAt: time.Unix(int64(aiModel.Created), 0).UTC().Format(time.RFC3339), DisplayName: aiModel.Id, Type: "model"})
+			} else {
+				c.JSON(http.StatusOK, aiModel)
+			}
+			return
+		}
 	}
+	c.JSON(http.StatusOK, gin.H{"error": types.OpenAIError{Message: fmt.Sprintf("The model '%s' does not exist", modelID), Type: "invalid_request_error", Param: "model", Code: "model_not_found"}})
 }

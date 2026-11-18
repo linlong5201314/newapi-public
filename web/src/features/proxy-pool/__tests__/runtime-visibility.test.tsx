@@ -14,7 +14,7 @@ afterEach(() => {
   vi.resetAllMocks()
 })
 
-function renderPool(role: number) {
+function renderPool(role: number, inventory = false) {
   useAuthStore.getState().auth.setUser({ id: 1, username: 'pool-user', role })
   vi.mocked(api.get).mockImplementation(async (url) => {
     if (String(url).endsWith('/runtime')) {
@@ -30,6 +30,15 @@ function renderPool(role: number) {
         data: {
           success: true,
           data: {
+            imported_total: inventory ? 7114 : 0,
+            enabled: inventory ? 7000 : 0,
+            loaded_this_process: inventory ? 300 : 0,
+            probed_healthy: inventory ? 12 : 0,
+            unknown: inventory ? 6980 : 0,
+            failed: inventory ? 8 : 0,
+            inventory_remaining: inventory ? 6814 : 0,
+            list_limit: 600,
+            runtime_preload_limit: 300,
             endpoint_total: 0,
             endpoint_enabled: 0,
             usable_url_count: 0,
@@ -52,6 +61,33 @@ function renderPool(role: number) {
 }
 
 describe('shared kernel visibility', () => {
+  it('keeps database inventory, enabled nodes and process-local load distinct', async () => {
+    renderPool(1, true)
+    await screen.findByText('7,114')
+    expect(
+      screen.getByText('Imported inventory (database, visible to you)')
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('Loaded in this process (visible to you)')
+    ).toBeInTheDocument()
+    expect(screen.getByText('300')).toBeInTheDocument()
+    expect(
+      screen.getByText('Probed healthy (database, enabled nodes)')
+    ).toBeInTheDocument()
+    expect(screen.getByText('12')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Enabled: 7,000. Enabled does not mean verified healthy.'
+      )
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Not summed across instances. Unloaded inventory: 6,814.'
+      )
+    ).toBeInTheDocument()
+    expect(screen.queryByText('可见可用节点总数')).not.toBeInTheDocument()
+  })
+
   it.each([1, 10])(
     'does not expose or request kernel controls for role %s',
     async (role) => {

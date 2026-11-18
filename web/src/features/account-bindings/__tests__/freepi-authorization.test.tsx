@@ -43,6 +43,48 @@ afterEach(() => {
 })
 
 describe('FreePi device authorization', () => {
+  it('uses an upstream complete verification link while keeping the manual code fallback', async () => {
+    const user = userEvent.setup()
+    const complete = 'https://github.com/login/device?user_code=ABCD-EFGH'
+    vi.mocked(api.post).mockResolvedValue({
+      data: {
+        success: true,
+        data: { ...session, verificationUriComplete: complete },
+      },
+    })
+    renderCard()
+    await user.click(
+      screen.getByRole('button', { name: 'Start GitHub device authorization' })
+    )
+    expect(await screen.findByText(session.userCode)).toBeVisible()
+    expect(
+      screen.getByRole('link', { name: 'Open GitHub to confirm authorization' })
+    ).toHaveAttribute('href', complete)
+  })
+
+  it('ignores an untrusted complete link and preserves the official manual device page', async () => {
+    const user = userEvent.setup()
+    vi.mocked(api.post).mockResolvedValue({
+      data: {
+        success: true,
+        data: {
+          ...session,
+          verificationUriComplete:
+            'https://attacker.invalid/?user_code=ABCD-EFGH',
+        },
+      },
+    })
+    renderCard()
+    await user.click(
+      screen.getByRole('button', { name: 'Start GitHub device authorization' })
+    )
+    expect(
+      await screen.findByRole('link', {
+        name: 'Open GitHub and enter this device code',
+      })
+    ).toHaveAttribute('href', session.verificationUri)
+  })
+
   it('starts private by default and shows an official GitHub code without reporting a ready channel', async () => {
     const user = userEvent.setup()
     vi.mocked(api.post).mockResolvedValue({
@@ -168,33 +210,72 @@ describe('FreePi device authorization', () => {
 
   it('cancels server state without reporting an authorized channel', async () => {
     const user = userEvent.setup()
-    vi.mocked(api.post).mockResolvedValueOnce({ data: { success: true, data: session } })
-      .mockResolvedValueOnce({ data: { success: true, data: { status: 'cancelled' } } })
+    vi.mocked(api.post)
+      .mockResolvedValueOnce({ data: { success: true, data: session } })
+      .mockResolvedValueOnce({
+        data: { success: true, data: { status: 'cancelled' } },
+      })
     renderCard()
-    await user.click(screen.getByRole('button', { name: 'Start GitHub device authorization' }))
+    await user.click(
+      screen.getByRole('button', { name: 'Start GitHub device authorization' })
+    )
     await screen.findByText(session.userCode)
-    await user.click(screen.getByRole('button', { name: 'Cancel authorization' }))
-    await waitFor(() => expect(screen.queryByText(session.userCode)).not.toBeInTheDocument())
-    expect(api.post).toHaveBeenCalledWith('/api/channel/self/oauth/freepi/cancel', { state: session.state }, expect.any(Object))
-    expect(screen.queryByText('FreePi authorization completed. Channel #{{id}} uses your account')).not.toBeInTheDocument()
+    await user.click(
+      screen.getByRole('button', { name: 'Cancel authorization' })
+    )
+    await waitFor(() =>
+      expect(screen.queryByText(session.userCode)).not.toBeInTheDocument()
+    )
+    expect(api.post).toHaveBeenCalledWith(
+      '/api/channel/self/oauth/freepi/cancel',
+      { state: session.state },
+      expect.any(Object)
+    )
+    expect(
+      screen.queryByText(
+        'FreePi authorization completed. Channel #{{id}} uses your account'
+      )
+    ).not.toBeInTheDocument()
   })
 
   it('expires while awaiting consent and asks the user to start again', async () => {
     const user = userEvent.setup()
-    vi.mocked(api.post).mockResolvedValueOnce({ data: { success: true, data: { ...session, expiresIn: 10 } } })
-      .mockResolvedValueOnce({ data: { success: true, data: { status: 'consent_required', consentVersion: '4' } } })
+    vi.mocked(api.post)
+      .mockResolvedValueOnce({
+        data: { success: true, data: { ...session, expiresIn: 10 } },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          success: true,
+          data: { status: 'consent_required', consentVersion: '4' },
+        },
+      })
     renderCard()
-    await user.click(screen.getByRole('button', { name: 'Start GitHub device authorization' }))
+    await user.click(
+      screen.getByRole('button', { name: 'Start GitHub device authorization' })
+    )
     await screen.findByText(session.userCode)
     vi.useFakeTimers()
-    await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000)
+    })
     vi.useRealTimers()
-    await screen.findByRole('button', { name: 'Accept FreePi consent and continue' })
+    await screen.findByRole('button', {
+      name: 'Accept FreePi consent and continue',
+    })
     vi.useFakeTimers()
-    await act(async () => { await vi.advanceTimersByTimeAsync(10000) })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10000)
+    })
     vi.useRealTimers()
-    expect(await screen.findByRole('alert')).toHaveTextContent('FreePi authorization expired. Start again')
-    expect(screen.queryByRole('button', { name: 'Accept FreePi consent and continue' })).not.toBeInTheDocument()
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'FreePi authorization expired. Start again'
+    )
+    expect(
+      screen.queryByRole('button', {
+        name: 'Accept FreePi consent and continue',
+      })
+    ).not.toBeInTheDocument()
   })
 
   it('rejects a non-GitHub verification URL instead of navigating or reporting success', async () => {

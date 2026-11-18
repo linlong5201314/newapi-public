@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -557,6 +558,9 @@ func liveFreeCatalogProvider(baseURL, templateID string) string {
 	if u != nil {
 		host = strings.ToLower(u.Hostname())
 	}
+	if templateID == "kilo-code" || host == "ai-gateway.kilo.ai" || host == "api.kilo.ai" {
+		return "kilo"
+	}
 	if templateID == "openrouter-free" || host == "openrouter.ai" {
 		return "openrouter"
 	}
@@ -612,9 +616,13 @@ func FetchLiveFreeModelsForUpstream(baseURL, templateID, key, proxyURL string) (
 	}
 	var payload struct {
 		Data []struct {
-			ID      string         `json:"id"`
-			Pricing map[string]any `json:"pricing"`
-			Cost    *struct {
+			ID           string         `json:"id"`
+			Pricing      map[string]any `json:"pricing"`
+			IsFree       *bool          `json:"isFree"`
+			Architecture struct {
+				OutputModalities []string `json:"output_modalities"`
+			} `json:"architecture"`
+			Cost *struct {
 				Text struct {
 					Input struct {
 						Price *float64 `json:"price"`
@@ -636,6 +644,21 @@ func FetchLiveFreeModelsForUpstream(baseURL, templateID, key, proxyURL string) (
 		id := strings.TrimSpace(item.ID)
 		if id == "" || strings.ContainsAny(id, ",\r\n") || seen[id] {
 			continue
+		}
+		if provider == "kilo" {
+			if item.IsFree == nil || !*item.IsFree || !slices.Contains(item.Architecture.OutputModalities, "text") || !zeroCatalogPrice(item.Pricing["prompt"]) || !zeroCatalogPrice(item.Pricing["completion"]) {
+				continue
+			}
+			free := true
+			for field, value := range item.Pricing {
+				if field != "discount" && !zeroCatalogPrice(value) {
+					free = false
+					break
+				}
+			}
+			if !free {
+				continue
+			}
 		}
 		if provider == "openrouter" {
 			if id == "openrouter/auto" || !zeroCatalogPrice(item.Pricing["prompt"]) || !zeroCatalogPrice(item.Pricing["completion"]) {

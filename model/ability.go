@@ -9,7 +9,6 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
-	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/samber/lo"
@@ -56,21 +55,30 @@ func GetEnabledModels() []string {
 	return models
 }
 
-// GetGroupEnabledModelsForOwner 按租户归属返回某分组下当前用户可见的模型。
-// ownerUserId>0 时只返回「自己建的渠道 + 任何 owner 但已公开(visibility=1)的渠道」；
-// ownerUserId<=0 保持旧行为（返回全部），供管理员/系统内部使用。
-//
-// 背景：abilities 表本身没有 owner_id，必须回连 channels 才能判断归属，
-// 否则操练场 / 模型列表会把别人私有渠道与管理员测试渠道的模型一并暴露。
+// GetGroupEnabledModelsForOwner applies the same eligibility as relay selection.
 func GetGroupEnabledModelsForOwner(group string, ownerUserId int) []string {
-	var models []string
-	query := DB.Table("abilities").Where(commonGroupCol+" = ? and enabled = ?", group, true)
-	if ownerUserId > 0 {
-		ownerChannelsSubQuery := DB.Model(&Channel{}).Select("id").
-			Where("(owner_id = ? AND owner_id <> 0) OR visibility = ?", ownerUserId, 1)
-		query = query.Where("channel_id in (?)", ownerChannelsSubQuery)
+	var rows []struct {
+		ModelName string
+		Channel
 	}
-	query.Distinct("model").Pluck("model", &models)
+	query := DB.Table("abilities").
+		Select("abilities.model AS model_name, channels.id, channels.owner_id, channels.visibility, channels.status, channels.models, channels.other_info").
+		Joins("JOIN channels ON channels.id = abilities.channel_id").
+		Where("abilities."+commonGroupCol+" = ? AND abilities.enabled = ? AND channels.status = ?", group, true, common.ChannelStatusEnabled).
+		Where("channels.owner_id = ? OR channels.owner_id = 0 OR channels.visibility = 1", ownerUserId).
+		Order("abilities.model ASC")
+	if err := query.Scan(&rows).Error; err != nil {
+		common.SysError("list visible models: " + err.Error())
+		return []string{}
+	}
+	models := make([]string, 0, len(rows))
+	seen := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		if !seen[row.ModelName] && ChannelModelVisibleToOwner(&row.Channel, row.ModelName, ownerUserId) {
+			seen[row.ModelName] = true
+			models = append(models, row.ModelName)
+		}
+	}
 	return models
 }
 
@@ -125,28 +133,9 @@ func getChannelQuery(group string, model string, retry int) (*gorm.DB, error) {
 	return channelQuery, nil
 }
 
-// GetChannel 按租户归属从 DB 直查可用渠道（内存缓存关闭时的回退路径）。
-// ownerUserId>0 时只查用户自建渠道；用户桶无结果且开启
-// SelfChannelUsePublicFallback 时回落平台公共渠道（owner_id=0）；
-// ownerUserId<=0 只查平台桶，保持旧行为。
-func GetChannel(
-	group string,
-	model string,
-	retry int,
-	filters []dto.ChannelFilter,
-	ownerUserId int,
-) (*Channel, error) {
-	if ownerUserId > 0 {
-		channel, err := getChannelByOwners(group, model, retry, filters, []int{ownerUserId})
-		if err != nil || channel != nil {
-			return channel, err
-		}
-		if operation_setting.SelfChannelUsePublicFallback {
-			return getChannelByOwners(group, model, retry, filters, []int{0})
-		}
-		return nil, nil
-	}
-	return getChannelByOwners(group, model, retry, filters, []int{0})
+// GetChannel selects enabled owner, shared or platform channels in the requested group.
+func GetChannel(group string, model string, retry int, filters []dto.ChannelFilter, ownerUserId int) (*Channel, error) {
+	return getChannelByOwners(group, model, retry, filters, []int{ownerUserId})
 }
 
 func getChannelByOwners(
@@ -156,15 +145,15 @@ func getChannelByOwners(
 	filters []dto.ChannelFilter,
 	ownerIds []int,
 ) (*Channel, error) {
-	// 平台渠道（owner_id=0）必须显式公开（visibility=1）才可被用户路由到；
-	// 用户自建渠道始终可用，他人的渠道只有公开才可见。
-	ownerChannelsSubQuery := DB.Model(&Channel{}).Select("id").Where("(owner_id IN ? AND owner_id <> 0) OR visibility = 1", ownerIds)
+	ownerChannelsSubQuery := DB.Model(&Channel{}).Select("id").
+		Where("status = ?", common.ChannelStatusEnabled).
+		Where("owner_id IN ? OR owner_id = 0 OR visibility = 1", ownerIds)
 	var abilities []Ability
 	err := DB.Where(commonGroupCol+" = ? and model = ? and enabled = ? and channel_id in (?)", group, model, true, ownerChannelsSubQuery).Order("priority DESC, weight DESC").Find(&abilities).Error
 	if err != nil {
 		return nil, err
 	}
-	abilities = filterAbilitiesByConstraints(abilities, model, filters)
+	abilities = filterAbilitiesByConstraints(abilities, model, filters, ownerIds[0])
 	// Like the memory cache, retry with the routing name (for example without
 	// @ modifiers) when no channel serves the exact name.
 	if normalized := ratio_setting.RoutingMatchModelName(model); len(abilities) == 0 && normalized != "" && normalized != model {
@@ -172,7 +161,7 @@ func getChannelByOwners(
 		if err != nil {
 			return nil, err
 		}
-		abilities = filterAbilitiesByConstraints(abilities, model, filters)
+		abilities = filterAbilitiesByConstraints(abilities, model, filters, ownerIds[0])
 	}
 	if len(abilities) > 0 {
 		priorities := make([]int64, 0)
@@ -233,7 +222,7 @@ func getChannelByOwners(
 // filterAbilitiesByConstraints applies the same ChannelSatisfiesFilters
 // predicate used by the memory-cache path. A failed channel lookup fails
 // closed when a task-plugin identity is required and fails open otherwise.
-func filterAbilitiesByConstraints(abilities []Ability, modelName string, filters []dto.ChannelFilter) []Ability {
+func filterAbilitiesByConstraints(abilities []Ability, modelName string, filters []dto.ChannelFilter, ownerIDs ...int) []Ability {
 	if len(abilities) == 0 {
 		return nil
 	}
@@ -250,7 +239,7 @@ func filterAbilitiesByConstraints(abilities []Ability, modelName string, filters
 
 	var channels []*Channel
 	if err := DB.Where("id IN ?", channelIds).Find(&channels).Error; err != nil {
-		if identityFilterRequiresKey(filters) {
+		if len(ownerIDs) > 0 || identityFilterRequiresKey(filters) {
 			return nil
 		}
 		return abilities
@@ -264,6 +253,9 @@ func filterAbilitiesByConstraints(abilities []Ability, modelName string, filters
 	filtered := make([]Ability, 0, len(abilities))
 	for _, ability := range abilities {
 		channel := channelsByID[ability.ChannelId]
+		if len(ownerIDs) > 0 && !ChannelModelVisibleToOwner(channel, modelName, ownerIDs[0]) {
+			continue
+		}
 		if ok, _ := ChannelSatisfiesFilters(channel, modelName, filters); ok {
 			filtered = append(filtered, ability)
 		}

@@ -82,16 +82,15 @@ export type OAuthSession = {
   upstream_oauth?: boolean
 }
 
-// 小浣熊（办公小浣熊 / Raccoon Work）走浏览器授权回跳：
-// 点「开始授权」→ 打开 xiaohuanxiong.com 授权页 → 登录后浏览器跳回我们的
-// /api/channel/self/oauth/raccoon/callback?code=… → 服务端自动换票建渠道。
+// Raccoon official desktop authorization is loopback-only. The server returns
+// RACCOON_AUTH_UNAVAILABLE instead of an invalid gateway authorization URL.
 export async function startRaccoonOAuth(): Promise<OAuthSession | null> {
   const res = await api.post<{
     success: boolean
     data?: OAuthSession
     message?: string
   }>('/api/channel/self/oauth/raccoon/start', {}, cfg())
-  return res.data?.success ? (res.data.data ?? null) : null
+  return requireServerSuccess(res.data).data ?? null
 }
 
 export async function pollRaccoonOAuth(
@@ -105,23 +104,40 @@ export async function pollRaccoonOAuth(
     `/api/channel/self/oauth/raccoon/poll?sessionId=${encodeURIComponent(sessionId)}&mode=create`,
     cfg()
   )
-  if (!res.data?.success) {
-    return { done: false, message: res.data?.message }
-  }
-  return res.data.data ?? { done: false }
+  return requireServerSuccess(res.data).data ?? { done: false }
 }
 
 // WorkBuddy 采用设备授权流：先拿 authUrl 让用户在自己浏览器里完成 Google/邮箱登录，
 // 再由前端轮询，登录成功后由后端直接建渠道（mode=create）。
 export async function startWorkbuddyOAuth(
-  realm: 'cn' | 'global'
+  realm: 'cn' | 'global',
+  options: {
+    proxy?: string
+    proxy_policy?: BindingProxyPolicy
+    displayName?: string
+    public?: boolean
+  } = {}
 ): Promise<OAuthSession | null> {
   const res = await api.post<{
     success: boolean
     data?: OAuthSession
     message?: string
-  }>('/api/channel/self/oauth/start', { type: 'workbuddy', realm }, cfg())
-  return res.data?.success ? (res.data.data ?? null) : null
+  }>(
+    '/api/channel/self/oauth/start',
+    {
+      type: 'workbuddy',
+      realm,
+      proxy: options.proxy,
+      proxyPolicy: options.proxy_policy,
+      displayName: options.displayName,
+      public: options.public,
+    },
+    cfg({
+      singleUseAuthorization: true,
+      headers: { 'X-Account-Action': 'authorize' },
+    })
+  )
+  return requireServerSuccess(res.data).data ?? null
 }
 
 export type OAuthPollResult = {
@@ -140,25 +156,47 @@ export async function pollWorkbuddyOAuth(
     message?: string
   }>(
     `/api/channel/self/oauth/poll?sessionId=${encodeURIComponent(sessionId)}&mode=create`,
-    cfg()
+    cfg({ headers: { 'X-Account-Action': 'authorize' } })
   )
-  if (!res.data?.success) {
-    return { done: false, message: res.data?.message }
-  }
-  return res.data.data ?? { done: false }
+  return requireServerSuccess(res.data).data ?? { done: false }
 }
 
-// Trae：粘贴登录后的回调链接（含 code）或 refreshToken，后端换取凭据并建渠道。
+export async function cancelWorkbuddyOAuth(sessionId: string): Promise<void> {
+  const response = await api.post<{ success: boolean }>(
+    '/api/channel/self/oauth/cancel',
+    { sessionId },
+    cfg({
+      singleUseAuthorization: true,
+      headers: { 'X-Account-Action': 'authorize' },
+    })
+  )
+  requireServerSuccess(response.data)
+}
+
+// Import an official local client callback or the owner's refresh token.
 export async function importTrae(payload: {
   callbackUrl?: string
   refreshToken?: string
   uid?: string
+  confirmRotation: boolean
+  proxy?: string
+  proxy_policy?: BindingProxyPolicy
+  displayName?: string
+  public?: boolean
 }): Promise<{ ok: boolean; message?: string; notice?: string }> {
+  const { proxy_policy, ...credentials } = payload
   const res = await api.post<{
     success: boolean
     data?: { notice?: string; channel?: { id?: number } }
     message?: string
-  }>('/api/channel/self/import_trae', { ...payload, mode: 'create' }, cfg())
+  }>(
+    '/api/channel/self/import_trae',
+    { ...credentials, proxyPolicy: proxy_policy, mode: 'create' },
+    cfg({
+      singleUseAuthorization: true,
+      headers: { 'X-Account-Action': 'authorize' },
+    })
+  )
   return {
     ok: Boolean(res.data?.success),
     message: res.data?.message,
@@ -182,8 +220,12 @@ export async function startDs2ApiOAuth(
     success: boolean
     data?: OAuthSession
     message?: string
-  }>('/api/channel/self/oauth/ds2api/start', payload, cfg())
-  return res.data?.success ? (res.data.data ?? null) : null
+  }>(
+    '/api/channel/self/oauth/ds2api/start',
+    payload,
+    cfg({ singleUseAuthorization: true })
+  )
+  return requireServerSuccess(res.data).data ?? null
 }
 
 export async function pollDs2ApiOAuth(
@@ -197,16 +239,23 @@ export async function pollDs2ApiOAuth(
     `/api/channel/self/oauth/ds2api/poll?sessionId=${encodeURIComponent(sessionId)}`,
     cfg()
   )
-  if (!res.data?.success) {
-    return { done: false, message: res.data?.message }
-  }
-  return res.data.data ?? { done: false }
+  return requireServerSuccess(res.data).data ?? { done: false }
+}
+
+export async function cancelDs2ApiOAuth(sessionId: string): Promise<void> {
+  const response = await api.post<{ success: boolean }>(
+    '/api/channel/self/oauth/ds2api/cancel',
+    { sessionId },
+    cfg({ singleUseAuthorization: true })
+  )
+  requireServerSuccess(response.data)
 }
 
 export type FreePiSession = {
   state: string
   userCode: string
   verificationUri: string
+  verificationUriComplete?: string
   interval: number
   expiresIn: number
   flow: 'device_authorization'
@@ -236,6 +285,8 @@ export async function startFreePiOAuth(payload: {
   displayName?: string
   public: boolean
   confirmPublic: boolean
+  proxy?: string
+  proxy_policy?: BindingProxyPolicy
 }): Promise<FreePiSession> {
   const response = await api.post<{ success: boolean; data: FreePiSession }>(
     '/api/channel/self/oauth/freepi/start',

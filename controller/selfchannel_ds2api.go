@@ -37,6 +37,7 @@ type ds2LoginOptions struct {
 	Models      []string                  `json:"models,omitempty"`
 	Public      bool                      `json:"public"`
 	Gateway     string                    `json:"gateway"`
+	EgressKey   string                    `json:"egress_key"`
 }
 
 // The compatibility route name contains oauth, but the protocol is password login,
@@ -60,7 +61,7 @@ func SelfDs2ApiOAuthStart(c *gin.Context) {
 		return
 	}
 	origin, err := url.Parse(strings.TrimRight(system_setting.ServerAddress, "/"))
-	if err != nil || origin.Host == "" || origin.User != nil || origin.RawQuery != "" || origin.Fragment != "" || (origin.Scheme != "https" && !(origin.Scheme == "http" && (origin.Hostname() == "localhost" || origin.Hostname() == "127.0.0.1"))) {
+	if err != nil || origin.Host == "" || origin.User != nil || origin.RawQuery != "" || (origin.Path != "" && origin.Path != "/") || origin.Fragment != "" || (origin.Scheme != "https" && !(origin.Scheme == "http" && (origin.Hostname() == "localhost" || origin.Hostname() == "127.0.0.1"))) {
 		common.ApiErrorMsg(c, "Configure an HTTPS server address before starting account login")
 		return
 	}
@@ -87,7 +88,7 @@ func SelfDs2ApiOAuthStart(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	req.CSRF, req.Gateway = csrf, gateway
+	req.CSRF, req.Gateway, req.EgressKey = csrf, gateway, "ds2api:"+ds2SessionKey(state)
 	raw, err := common.Marshal(req)
 	if err != nil {
 		common.ApiError(c, err)
@@ -105,7 +106,7 @@ func SelfDs2ApiOAuthStart(c *gin.Context) {
 	}
 	c.SetSameSite(http.SameSiteStrictMode)
 	c.SetCookie(ds2LoginCookie, state, int(ds2LoginTTL.Seconds()), "/api/user/auth/ds2api", "", origin.Scheme == "https", true)
-	common.ApiSuccess(c, gin.H{"sessionId": state, "authUrl": origin.String() + "/api/user/auth/ds2api/login?state=" + url.QueryEscape(state), "expiresIn": int(ds2LoginTTL.Seconds()), "flow": "account_login", "upstream_oauth": false})
+	common.ApiSuccess(c, gin.H{"sessionId": state, "authUrl": origin.Scheme + "://" + origin.Host + "/api/user/auth/ds2api/login?state=" + url.QueryEscape(state), "expiresIn": int(ds2LoginTTL.Seconds()), "flow": "account_login", "upstream_oauth": false})
 }
 
 func ds2SessionKey(state string) string {
@@ -123,7 +124,7 @@ func ds2BrowserSession(c *gin.Context) (*model.SelfOAuthSession, *ds2LoginOption
 		state = c.PostForm("state")
 	}
 	cookie, err := c.Cookie(ds2LoginCookie)
-	if err != nil || len(state) < 32 || subtle.ConstantTimeCompare([]byte(cookie), []byte(state)) != 1 {
+	if err != nil || len(state) != 64 || subtle.ConstantTimeCompare([]byte(cookie), []byte(state)) != 1 {
 		c.String(http.StatusForbidden, "Invalid login session. Start again from the account binding page.")
 		return nil, nil, false
 	}
@@ -138,13 +139,8 @@ func ds2BrowserSession(c *gin.Context) (*model.SelfOAuthSession, *ds2LoginOption
 		return nil, nil, false
 	}
 	refresh, cookieErr := c.Cookie(service.RefreshCookieName)
-	sid, validSID := service.RefreshTokenSID(refresh)
-	if cookieErr != nil || !validSID || sid != options.Identity.SessionID || strconv.Itoa(options.Identity.UserID) != session.Phone {
+	if cookieErr != nil || strconv.Itoa(options.Identity.UserID) != session.Phone || service.ValidateDS2BrowserSession(refresh, options.Identity) != nil {
 		c.String(http.StatusForbidden, "Account login requires the original dashboard session. Start again.")
-		return nil, nil, false
-	}
-	if err := model.DB.Transaction(func(tx *gorm.DB) error { return model.ValidateAuthSessionWithTx(tx, options.Identity) }); err != nil {
-		c.String(http.StatusForbidden, "Dashboard session expired or revoked. Start again.")
 		return nil, nil, false
 	}
 	return &session, &options, true
@@ -194,7 +190,7 @@ func SelfDs2ApiOAuthCallback(c *gin.Context) {
 		return
 	}
 	uid, _ := strconv.Atoi(session.Phone)
-	proxy, err := model.ResolveChannelProxyPolicy(uid, dto.ChannelSettings{Proxy: options.Proxy, ProxyPolicy: options.ProxyPolicy})
+	proxy, err := model.ResolveStableChannelProxy(uid, 0, options.EgressKey, dto.ChannelSettings{Proxy: options.Proxy, ProxyPolicy: options.ProxyPolicy})
 	if err != nil {
 		failDS2Session(c, session.State, "Configured proxy is unavailable")
 		return
@@ -228,14 +224,21 @@ func SelfDs2ApiOAuthCallback(c *gin.Context) {
 		failDS2Session(c, session.State, "Unable to securely store account credential")
 		return
 	}
-	// Complete in one transaction: a failed insert does not consume a session as done.
+	needsBinding := options.ProxyPolicy == nil && strings.TrimSpace(options.Proxy) == "" || options.Proxy == "userpool" || options.ProxyPolicy != nil && options.ProxyPolicy.Mode != "direct" && options.ProxyPolicy.Mode != "fixed"
+	// Pool channels remain disabled until the post-commit shared alias is ready.
 	channel := &model.Channel{Type: constant.ChannelTypeOpenAI, Name: "DS2API", Key: encrypted, BaseURL: &options.Gateway, OwnerId: uid, Status: common.ChannelStatusEnabled, Group: "default", Models: strings.Join(selected, ","), CreatedTime: common.GetTimestamp(), Visibility: 0}
 	if options.Public {
 		channel.Visibility = 1
 	}
+	if needsBinding {
+		channel.Status = common.ChannelStatusAutoDisabled
+	}
 	channel.SetSetting(dto.ChannelSettings{Proxy: options.Proxy, ProxyPolicy: options.ProxyPolicy})
 	channel.SetOtherInfo(map[string]any{"templateId": "ds2api", "poolKey": "ds2api", "allModels": catalog})
 	binding := &model.SelfAccountBinding{UserId: uid, Provider: "ds2api", Kind: "token", DisplayName: "DS2API", Status: "ready", Public: channel.Visibility, Proxy: options.Proxy, ProxyPolicy: options.ProxyPolicy}
+	if needsBinding {
+		binding.Status = "pending"
+	}
 	// OpenAI keys use the existing gateway key storage contract. The binding and
 	// transient login credential are encrypted; the password is never persisted.
 	if err := binding.EncodeAccounts([]model.SelfAccountCred{{Account: strings.TrimSpace(c.PostForm("account")), Password: token}}); err != nil {
@@ -267,7 +270,11 @@ func SelfDs2ApiOAuthCallback(c *gin.Context) {
 		if err := tx.Create(binding).Error; err != nil {
 			return err
 		}
-		result := tx.Model(&model.SelfOAuthSession{}).Where("state = ? AND status = ? AND provider = ?", session.State, "exchanging", "ds2api").Updates(map[string]any{"status": "done", "access": "", "account_id": strconv.Itoa(channel.Id), "refresh": "", "err": ""})
+		status, refresh := "done", ""
+		if needsBinding {
+			status, refresh = "binding", session.Refresh
+		}
+		result := tx.Model(&model.SelfOAuthSession{}).Where("state = ? AND status = ? AND provider = ?", session.State, "exchanging", "ds2api").Updates(map[string]any{"status": status, "access": "", "account_id": strconv.Itoa(channel.Id), "refresh": refresh, "err": ""})
 		if result.Error != nil {
 			return result.Error
 		}
@@ -280,14 +287,47 @@ func SelfDs2ApiOAuthCallback(c *gin.Context) {
 		failDS2Session(c, session.State, "Unable to create account channel. Start again")
 		return
 	}
+	if needsBinding {
+		err = model.BindChannelProxyAccount(uid, channel.Id, options.EgressKey)
+		if err == nil {
+			err = model.DB.Transaction(func(tx *gorm.DB) error {
+				if err := model.ValidateAuthSessionWithTx(tx, options.Identity); err != nil {
+					return err
+				}
+				result := tx.Model(&model.SelfOAuthSession{}).Where("state = ? AND provider = ? AND status = ? AND created_at > ?", session.State, "ds2api", "binding", time.Now().Add(-ds2LoginTTL)).Updates(map[string]any{"status": "done", "refresh": ""})
+				if result.Error != nil {
+					return result.Error
+				}
+				if result.RowsAffected != 1 {
+					return fmt.Errorf("login completion conflict")
+				}
+				activation := tx.Model(&model.Channel{}).Where("id = ? AND owner_id = ? AND status = ?", channel.Id, uid, common.ChannelStatusAutoDisabled).Update("status", common.ChannelStatusEnabled)
+				if activation.Error != nil {
+					return activation.Error
+				}
+				if activation.RowsAffected != 1 {
+					return fmt.Errorf("channel activation conflict")
+				}
+				if err := tx.Model(binding).Update("status", "ready").Error; err != nil {
+					return err
+				}
+				return tx.Model(&model.Ability{}).Where("channel_id = ?", channel.Id).Update("enabled", true).Error
+			})
+		}
+		if err != nil {
+			failDS2Session(c, session.State, "Configured proxy is unavailable. The channel is disabled")
+			model.InitChannelCache()
+			return
+		}
+	}
 	model.InitChannelCache()
 	c.SetCookie(ds2LoginCookie, "", -1, "/api/user/auth/ds2api", "", origin.Scheme == "https", true)
 	c.Header("Content-Type", "text/html; charset=utf-8")
-	c.String(http.StatusOK, "<h2>账号登录成功，渠道已连接。</h2><p>请返回原页面查看。会话凭据不会显示在浏览器中。</p>")
+	c.String(http.StatusOK, `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=/my-channels"></head><body><h2>账号登录成功，渠道已连接。</h2><p><a href="/my-channels">返回我的渠道</a>。会话凭据不会显示在浏览器中。</p></body></html>`)
 }
 
 func failDS2Session(c *gin.Context, state, message string) {
-	_ = model.DB.Model(&model.SelfOAuthSession{}).Where("state = ? AND provider = ? AND status = ?", state, "ds2api", "exchanging").Updates(map[string]any{"status": "failed", "err": message, "access": "", "refresh": ""}).Error
+	_ = model.DB.Model(&model.SelfOAuthSession{}).Where("state = ? AND provider = ? AND status IN ?", state, "ds2api", []string{"exchanging", "binding"}).Updates(map[string]any{"status": "failed", "err": message, "access": "", "refresh": ""}).Error
 	c.Header("Content-Type", "text/plain; charset=utf-8")
 	c.String(http.StatusBadGateway, message)
 }
@@ -295,13 +335,17 @@ func failDS2Session(c *gin.Context, state, message string) {
 func SelfDs2ApiOAuthPoll(c *gin.Context) {
 	c.Header("Cache-Control", "no-store")
 	state := c.Query("sessionId")
-	if len(state) < 32 || c.GetInt("id") <= 0 {
+	if len(state) != 64 || c.GetInt("id") <= 0 {
 		c.AbortWithStatus(http.StatusNotFound)
 		return
 	}
 	var session model.SelfOAuthSession
 	if err := model.DB.Where("state = ? AND provider = ? AND phone = ? AND created_at > ?", ds2SessionKey(state), "ds2api", strconv.Itoa(c.GetInt("id")), time.Now().Add(-ds2LoginTTL)).First(&session).Error; err != nil {
 		common.ApiErrorMsg(c, "Account login session not found or expired")
+		return
+	}
+	if session.Status == "cancelled" {
+		common.ApiErrorMsg(c, "Account login was cancelled. Start again")
 		return
 	}
 	if session.Status == "failed" {
@@ -320,4 +364,57 @@ func SelfDs2ApiOAuthPoll(c *gin.Context) {
 	// Completion polling is idempotent. It cannot create duplicate channels.
 	sanitizeSelfChannel(channel)
 	common.ApiSuccess(c, gin.H{"done": true, "channel": channel, "models": strings.Split(channel.Models, ","), "flow": "account_login"})
+}
+
+// SelfDs2ApiOAuthCancel invalidates pending/exchanging state across all nodes. A
+// racing completion must still match exchanging inside its channel transaction.
+func SelfDs2ApiOAuthCancel(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	identity, ok := middleware.GetSessionAuthIdentity(c)
+	_, pat := model.ParseAccessTokenSessionID(identity.SessionID)
+	if !ok || pat || c.GetBool("use_access_token") || identity.UserID != c.GetInt("id") {
+		c.AbortWithStatus(http.StatusUnauthorized)
+		return
+	}
+	if err := http.NewCrossOriginProtection().Check(c.Request); err != nil {
+		c.AbortWithStatus(http.StatusForbidden)
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 4096)
+	var req struct {
+		SessionID string `json:"sessionId"`
+	}
+	if c.ShouldBindJSON(&req) != nil || len(req.SessionID) != 64 {
+		common.ApiErrorT(c, "Invalid parameters")
+		return
+	}
+	err := model.DB.Transaction(func(tx *gorm.DB) error {
+		if err := model.ValidateAuthSessionWithTx(tx, identity); err != nil {
+			return err
+		}
+		var flow model.SelfOAuthSession
+		if err := tx.Where("state = ? AND provider = ? AND phone = ?", ds2SessionKey(req.SessionID), "ds2api", strconv.Itoa(identity.UserID)).First(&flow).Error; err != nil {
+			return err
+		}
+		if flow.Status == "cancelled" {
+			return nil
+		}
+		var options ds2LoginOptions
+		if common.UnmarshalJsonStr(common.DecryptSecretOrLegacy(flow.Refresh), &options) != nil || options.Identity != identity {
+			return fmt.Errorf("invalid session")
+		}
+		updated := tx.Model(&model.SelfOAuthSession{}).Where("state = ? AND status IN ?", flow.State, []string{"pending", "exchanging", "binding"}).Updates(map[string]any{"status": "cancelled", "access": "", "refresh": "", "err": ""})
+		if updated.Error != nil {
+			return updated.Error
+		}
+		if updated.RowsAffected != 1 {
+			return fmt.Errorf("invalid session")
+		}
+		return nil
+	})
+	if err != nil {
+		common.ApiErrorMsg(c, "Account login session not found or expired")
+		return
+	}
+	common.ApiSuccess(c, gin.H{"status": "cancelled"})
 }

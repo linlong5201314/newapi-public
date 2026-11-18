@@ -45,7 +45,12 @@ export function NodesTable() {
   const { t } = useTranslation()
   const { setOpen, setCurrentRow } = useNodes()
 
-  const { globalFilter, onGlobalFilterChange } = useTableUrlState({
+  const {
+    globalFilter,
+    onGlobalFilterChange,
+    columnFilters,
+    onColumnFiltersChange,
+  } = useTableUrlState({
     search: route.useSearch(),
     navigate: route.useNavigate(),
     globalFilter: { enabled: true, key: 'filter' },
@@ -63,6 +68,8 @@ export function NodesTable() {
     columnVisibilityStorageKey: NODES_COLUMN_VISIBILITY_STORAGE_KEY,
     globalFilter,
     onGlobalFilterChange,
+    columnFilters,
+    onColumnFiltersChange,
     globalFilterFn: (row, _columnId, filterValue) => {
       const keyword = String(filterValue || '')
         .trim()

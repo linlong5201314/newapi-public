@@ -10,5 +10,5 @@ export function isChannelProxySelectionComplete(
   if (policy.mode === 'fixed') {
     return fixedConfigured || /^(https?|socks5h?):\/\/\S+$/i.test(proxy.trim())
   }
-  return true
+  return policy.mode === 'user_pool'
 }

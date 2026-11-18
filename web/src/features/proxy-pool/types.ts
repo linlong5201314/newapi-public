@@ -21,8 +21,8 @@ For commercial licensing, please contact support@quantumnous.com
  * [M7-PROXY] 用户出口 IP 池类型。
  *
  * 免费层几乎都按「出口 IP」限流（30 RPM/IP、150K tokens/day/IP 之类）。
- * 把机场订阅 / 住宅 IP / vless 等解析成多条出口后，上游请求按节点轮换，
- * 同一账号就能用到 N 倍的额度——「加 IP = 额度变多」的实现。
+ * Imported nodes are inventory, not verified unique exit IPs.
+ * Each account retains its selected endpoint until it becomes unusable.
  *
  * 字段名与 `controller/proxy_pool.go` 的 `proxyEndpointView` /
  * `proxySubscriptionView` 一一对应，别改名字。
@@ -89,9 +89,21 @@ export interface ProxySubscription {
 }
 
 export interface ProxyPoolSummary {
+  imported_total?: number
+  enabled?: number
+  loaded_this_process?: number
+  probed_healthy?: number
+  unknown?: number
+  failed?: number
+  disabled?: number
+  inventory_scope?: 'database_visible_to_user'
+  loaded_scope?: 'this_process_visible_to_user'
+  inventory_remaining?: number
+  list_limit?: number
+  runtime_preload_limit?: number
   endpoint_total: number
   endpoint_enabled: number
-  /** 可直接用于上游请求的出口数 = 实际能放大的额度倍数。 */
+  /** Configured dialable URLs; not a probe result or unique exit-IP count. */
   usable_url_count: number
   subscription_total: number
   /** 客户端型节点数（vless/vmess/trojan/ss…）。 */

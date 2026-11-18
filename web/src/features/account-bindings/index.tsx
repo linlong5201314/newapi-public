@@ -1,20 +1,23 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
 import {
   getFreeTemplates,
   type FreeSourceTemplate,
 } from '@/features/my-channels/free-sources'
+import { handleServerError } from '@/lib/handle-server-error'
 
 import {
+  cancelWorkbuddyOAuth,
   createBinding,
   deleteBinding,
   importTrae,
   listBindings,
-  pollRaccoonOAuth,
   pollWorkbuddyOAuth,
   setBindingPublic,
-  startRaccoonOAuth,
   startWorkbuddyOAuth,
   type AccountBinding,
   type OAuthSession,
@@ -42,13 +45,25 @@ export function AccountBindingsCard() {
   const [oauthRealm, setOauthRealm] = useState<'cn' | 'global'>('cn')
   const [oauthSession, setOauthSession] = useState<OAuthSession | null>(null)
   const [oauthMsg, setOauthMsg] = useState('')
-  const [raccoonSession, setRaccoonSession] = useState<OAuthSession | null>(
-    null
-  )
-  const [raccoonMsg, setRaccoonMsg] = useState('')
   const [traeInput, setTraeInput] = useState('')
   const [traeUid, setTraeUid] = useState('')
   const [traeMsg, setTraeMsg] = useState('')
+  const [traeConfirmed, setTraeConfirmed] = useState(false)
+  const [traeSubmitting, setTraeSubmitting] = useState(false)
+  const [oauthStarting, setOauthStarting] = useState(false)
+  const oauthRequest = useRef(0)
+  const pendingOAuth = useRef<string | null>(null)
+  const oauthPopup = useRef<Window | null>(null)
+  useEffect(
+    () => () => {
+      oauthRequest.current++
+      oauthPopup.current?.close()
+      const sessionId = pendingOAuth.current
+      pendingOAuth.current = null
+      if (sessionId) void cancelWorkbuddyOAuth(sessionId).catch(() => undefined)
+    },
+    []
+  )
 
   const accountTemplates = useMemo(
     () =>
@@ -129,6 +144,10 @@ export function AccountBindingsCard() {
       )
       return
     }
+    if (provider === 'trae-cn' || provider === 'trae-intl') {
+      await submitTrae(accounts)
+      return
+    }
     setBusy(true)
     setMsg('')
     const res = await createBinding({
@@ -149,101 +168,187 @@ export function AccountBindingsCard() {
     }
   }
 
-  // WorkBuddy 设备授权：拿到 authUrl 后让用户在浏览器里登录，成功后后端直接建渠道。
+  // Keep a single owner-scoped ceremony and stop on expiry or terminal failure.
   useEffect(() => {
     if (!oauthSession) return
     let alive = true
-    const timer = window.setInterval(async () => {
-      const res = await pollWorkbuddyOAuth(oauthSession.sessionId)
-      if (!alive) return
-      if (res.done) {
-        window.clearInterval(timer)
+    let timer: ReturnType<typeof setTimeout>
+    const expiresAt = Date.now() + (oauthSession.expiresIn ?? 600) * 1000
+    const poll = async () => {
+      try {
+        if (Date.now() >= expiresAt) {
+          throw new Error(t('Authorization session expired'))
+        }
+        const res = await pollWorkbuddyOAuth(oauthSession.sessionId)
+        if (!alive) return
+        if (!res.done) {
+          timer = setTimeout(() => {
+            void poll()
+          }, 2000)
+          return
+        }
+        pendingOAuth.current = null
         setOauthSession(null)
-        setOauthMsg(
-          res.channel?.id
-            ? `授权成功，已为你开通渠道 #${res.channel.id}`
-            : '授权成功，渠道已开通'
-        )
+        oauthPopup.current?.close()
+        setOauthMsg(t('Account login completed; channel created'))
         await reload()
+      } catch (error) {
+        if (!alive) return
+        const sessionId = pendingOAuth.current
+        pendingOAuth.current = null
+        setOauthSession(null)
+        oauthPopup.current?.close()
+        setOauthMsg(
+          t(
+            'Authorization stopped. Start again after checking your login session'
+          )
+        )
+        if (sessionId) {
+          void cancelWorkbuddyOAuth(sessionId).catch(() => undefined)
+        }
+        handleServerError(error)
       }
-    }, 3000)
+    }
+    timer = setTimeout(() => {
+      void poll()
+    }, 2000)
     return () => {
       alive = false
-      window.clearInterval(timer)
+      clearTimeout(timer)
     }
-  }, [oauthSession, reload])
+  }, [oauthSession, reload, t])
 
   const startOAuth = async () => {
-    setOauthMsg('正在创建授权会话…')
-    const sess = await startWorkbuddyOAuth(oauthRealm)
-    if (!sess) {
-      setOauthMsg('发起授权失败，请稍后再试')
-      return
-    }
-    setOauthSession(sess)
-    setOauthMsg('请在新窗口完成登录，完成后本页会自动刷新')
-    window.open(sess.authUrl, '_blank', 'noopener,noreferrer')
-  }
-
-  // 小浣熊浏览器授权：授权页登录后浏览器直接回跳到本服务，前端只轮询结果。
-  useEffect(() => {
-    if (!raccoonSession) return
-    let alive = true
-    const timer = window.setInterval(async () => {
-      const res = await pollRaccoonOAuth(raccoonSession.sessionId)
-      if (!alive) return
-      if (res.done) {
-        window.clearInterval(timer)
-        setRaccoonSession(null)
-        setRaccoonMsg(
-          res.channel?.id
-            ? `授权成功，已为你开通渠道 #${res.channel.id}`
-            : '授权成功，渠道已开通'
+    if (oauthStarting) return
+    const request = ++oauthRequest.current
+    oauthPopup.current?.close()
+    const popup = window.open('about:blank', '_blank')
+    if (popup) popup.opener = null
+    oauthPopup.current = popup
+    setOauthStarting(true)
+    setOauthMsg(t('Creating authorization session...'))
+    try {
+      const previous = pendingOAuth.current
+      pendingOAuth.current = null
+      setOauthSession(null)
+      if (previous) await cancelWorkbuddyOAuth(previous)
+      if (request !== oauthRequest.current) return
+      if (!popup || popup.closed) {
+        throw new Error(
+          t(
+            'Your browser blocked the login window. Allow popups and try again.'
+          )
         )
-        await reload()
-      } else if (res.message) {
-        window.clearInterval(timer)
-        setRaccoonSession(null)
-        setRaccoonMsg(res.message)
       }
-    }, 3000)
-    return () => {
-      alive = false
-      window.clearInterval(timer)
+      const sess = await startWorkbuddyOAuth(oauthRealm, {
+        proxy: proxy.trim(),
+        proxy_policy: { mode: proxy.trim() ? 'fixed' : 'user_pool' },
+        displayName: displayName.trim() || undefined,
+        public: isPublic,
+      })
+      if (!sess) throw new Error(t('Failed to start authorization'))
+      if (request !== oauthRequest.current || popup.closed) {
+        popup.close()
+        await cancelWorkbuddyOAuth(sess.sessionId)
+        return
+      }
+      pendingOAuth.current = sess.sessionId
+      setOauthSession(sess)
+      popup.location.href = sess.authUrl
+      setOauthMsg(
+        t(
+          'Finish signing in in the authorization window. This page refreshes automatically.'
+        )
+      )
+    } catch (error) {
+      popup?.close()
+      if (request === oauthRequest.current) {
+        const sessionId = pendingOAuth.current
+        pendingOAuth.current = null
+        setOauthSession(null)
+        if (sessionId) {
+          void cancelWorkbuddyOAuth(sessionId).catch(() => undefined)
+        }
+        setOauthMsg(t('Failed to start authorization'))
+        handleServerError(error)
+      }
+    } finally {
+      if (request === oauthRequest.current) setOauthStarting(false)
     }
-  }, [raccoonSession, reload])
-
-  const startRaccoon = async () => {
-    setRaccoonMsg('正在创建授权会话…')
-    const sess = await startRaccoonOAuth()
-    if (!sess) {
-      setRaccoonMsg('发起授权失败，请稍后再试')
-      return
-    }
-    setRaccoonSession(sess)
-    setRaccoonMsg('请在新窗口登录小浣熊账号，授权后本页会自动开通渠道')
-    window.open(sess.authUrl, '_blank', 'noopener,noreferrer')
   }
 
-  const submitTrae = async () => {
-    const raw = traeInput.trim()
+  const cancelOAuth = async () => {
+    oauthRequest.current++
+    setOauthStarting(false)
+    const sessionId = pendingOAuth.current
+    pendingOAuth.current = null
+    setOauthSession(null)
+    oauthPopup.current?.close()
+    setOauthMsg(t('Account login was cancelled. Start again'))
+    if (sessionId) {
+      try {
+        await cancelWorkbuddyOAuth(sessionId)
+      } catch (error) {
+        handleServerError(error)
+      }
+    }
+  }
+
+  const submitTrae = async (input = traeInput) => {
+    if (!traeConfirmed || traeSubmitting) return
+    const raw = input.trim()
     if (!raw) {
       setTraeMsg('请粘贴 Trae 的回调链接或 refreshToken')
       return
     }
     setTraeMsg('正在导入…')
-    const looksUrl = raw.startsWith('http') || raw.includes('code=')
-    const res = await importTrae(
-      looksUrl
-        ? { callbackUrl: raw, uid: traeUid.trim() || undefined }
-        : { refreshToken: raw, uid: traeUid.trim() || undefined }
-    )
-    setTraeMsg(
-      res.ok ? res.notice || '导入成功，渠道已开通' : res.message || '导入失败'
-    )
-    if (res.ok) {
-      setTraeInput('')
-      await reload()
+    const looksUrl =
+      /^https?:/i.test(raw) || raw.includes('://') || raw.includes('code=')
+    try {
+      if (looksUrl) {
+        const url = new URL(raw)
+        if (
+          url.protocol !== 'http:' ||
+          url.hostname !== '127.0.0.1' ||
+          !url.port ||
+          url.pathname !== '/authorize' ||
+          url.username ||
+          url.password ||
+          url.hash
+        ) {
+          setTraeMsg(
+            t(
+              'Use your own refresh token or the official http://127.0.0.1:port/authorize callback.'
+            )
+          )
+          return
+        }
+      }
+      setTraeSubmitting(true)
+      const res = await importTrae({
+        ...(looksUrl ? { callbackUrl: raw } : { refreshToken: raw }),
+        uid: traeUid.trim() || undefined,
+        confirmRotation: traeConfirmed,
+        proxy: proxy.trim(),
+        proxy_policy: { mode: proxy.trim() ? 'fixed' : 'user_pool' },
+        displayName: displayName.trim() || undefined,
+        public: isPublic,
+      })
+      setTraeMsg(
+        res.ok
+          ? res.notice || '导入成功，渠道已开通'
+          : res.message || '导入失败'
+      )
+      if (res.ok) {
+        setTraeInput('')
+        setTraeConfirmed(false)
+        await reload()
+      }
+    } catch (error) {
+      setTraeMsg(t('Failed to import account credentials'))
+      handleServerError(error)
+    } finally {
+      setTraeSubmitting(false)
     }
   }
 
@@ -314,7 +419,11 @@ export function AccountBindingsCard() {
         </label>
         <button
           type='button'
-          disabled={busy}
+          disabled={
+            busy ||
+            ((provider === 'trae-cn' || provider === 'trae-intl') &&
+              !traeConfirmed)
+          }
           className='h-8 rounded-md border px-3 text-sm disabled:opacity-50'
           onClick={submit}
         >
@@ -344,32 +453,55 @@ export function AccountBindingsCard() {
             <button
               type='button'
               className='h-8 rounded-md border px-3 text-sm'
+              disabled={oauthStarting}
               onClick={startOAuth}
             >
-              {oauthSession ? '重新授权' : '开始授权'}
+              {t(
+                oauthStarting
+                  ? 'Creating authorization session...'
+                  : 'Start WorkBuddy authorization'
+              )}
             </button>
-            {oauthMsg ? <span className='text-xs'>{oauthMsg}</span> : null}
+            {(oauthSession || oauthStarting) && (
+              <Button
+                type='button'
+                size='sm'
+                variant='outline'
+                onClick={() => void cancelOAuth()}
+              >
+                {t('Cancel authorization')}
+              </Button>
+            )}
+            {oauthMsg ? (
+              <span role='status' className='text-xs'>
+                {oauthMsg}
+              </span>
+            ) : null}
           </div>
         </div>
 
         <div className='rounded border p-2'>
           <div className='mb-1 text-xs font-medium'>
-            小浣熊浏览器授权（办公小浣熊客户端）
+            {t('Raccoon client credentials')}
           </div>
-          <div className='text-muted-foreground mb-2 text-xs'>
-            点「开始授权」会打开小浣熊授权页，用你自己的账号登录后浏览器自动回跳，平台直接用返回的授权码换取凭据并开通渠道；不需要填
-            Key，也看不到任何部署地址。
-          </div>
-          <div className='flex flex-wrap items-center gap-2'>
-            <button
-              type='button'
-              className='h-8 rounded-md border px-3 text-sm'
-              onClick={startRaccoon}
-            >
-              {raccoonSession ? '重新授权' : '开始授权'}
-            </button>
-            {raccoonMsg ? <span className='text-xs'>{raccoonMsg}</span> : null}
-          </div>
+          <p role='status' className='text-muted-foreground text-xs'>
+            {t(
+              'Raccoon browser authorization only supports an official local client. Gateway callbacks are not supported'
+            )}
+          </p>
+          <p className='text-muted-foreground text-xs'>
+            {t(
+              'Use credentials exported by your own official Raccoon client below. A website login URL or authorization code is not a usable API credential.'
+            )}
+          </p>
+          <a
+            className='text-primary text-xs underline'
+            href='https://xiaohuanxiong.com'
+            target='_blank'
+            rel='noopener noreferrer'
+          >
+            {t('Open official Raccoon client')}
+          </a>
         </div>
 
         <div className='rounded border p-2'>
@@ -377,15 +509,29 @@ export function AccountBindingsCard() {
             Trae 授权导入（回调链接或 refreshToken）
           </div>
           <div className='text-muted-foreground mb-2 text-xs'>
-            把 Trae
-            登录后的回调链接整段粘贴进来即可；刷新令牌会轮换并踢下同账号其他客户端，建议专号专用。
+            {t(
+              'Trae import uses your own official client credentials, not one-click browser OAuth.'
+            )}
           </div>
           <textarea
             className='h-16 w-full rounded-md border bg-transparent p-2 font-mono text-xs'
-            placeholder='https://…?code=…  或  refreshToken'
+            aria-label={t('Trae callback URL or refresh token')}
+            placeholder={t(
+              'Use your own refresh token or the official http://127.0.0.1:port/authorize callback.'
+            )}
             value={traeInput}
             onChange={(e) => setTraeInput(e.target.value)}
           />
+          <Label className='my-2 flex items-start gap-2 text-xs'>
+            <Checkbox
+              disabled={traeSubmitting}
+              checked={traeConfirmed}
+              onCheckedChange={(checked) => setTraeConfirmed(checked === true)}
+            />
+            {t(
+              'I understand that importing Trae credentials rotates tokens and may sign out other clients.'
+            )}
+          </Label>
           <div className='mt-1 flex flex-wrap items-center gap-2'>
             <input
               className='h-8 w-32 rounded-md border bg-transparent px-2 text-sm'
@@ -396,7 +542,8 @@ export function AccountBindingsCard() {
             <button
               type='button'
               className='h-8 rounded-md border px-3 text-sm'
-              onClick={submitTrae}
+              disabled={traeSubmitting || !traeConfirmed || !traeInput.trim()}
+              onClick={() => void submitTrae()}
             >
               导入并开通
             </button>

@@ -4,11 +4,17 @@
 package model
 
 import (
+	"context"
+	"crypto/sha256"
+	"errors"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
+
+	"github.com/go-redis/redis/v8"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -145,6 +151,8 @@ type ProxyPoolStats struct {
 	HaizhuNodes  int `gorm:"column:haizhu_nodes"`
 	DirectNodes  int `gorm:"column:direct_nodes"`
 	HealthyNodes int `gorm:"column:healthy_nodes"`
+	UnknownNodes int `gorm:"column:unknown_nodes"`
+	FailedNodes  int `gorm:"column:failed_nodes"`
 }
 
 // GetProxyPoolStatsForUser 单次 SQL 聚合统计该用户可见的代理池规模（跨区库 ~220ms）。
@@ -160,7 +168,9 @@ func GetProxyPoolStatsForUser(userId int) (ProxyPoolStats, error) {
 			COALESCE(SUM(CASE WHEN public = true THEN 1 ELSE 0 END), 0) AS public_nodes,
 			COALESCE(SUM(CASE WHEN source = 'haizhu' THEN 1 ELSE 0 END), 0) AS haizhu_nodes,
  COALESCE(SUM(CASE WHEN url <> '' THEN 1 ELSE 0 END), 0) AS direct_nodes,
- COALESCE(SUM(CASE WHEN enabled = true AND fail_count = 0 AND last_ok_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS healthy_nodes`).
+ COALESCE(SUM(CASE WHEN enabled = true AND fail_count = 0 AND last_ok_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS healthy_nodes,
+ COALESCE(SUM(CASE WHEN enabled = true AND fail_count = 0 AND last_ok_at IS NULL THEN 1 ELSE 0 END), 0) AS unknown_nodes,
+ COALESCE(SUM(CASE WHEN enabled = true AND fail_count > 0 THEN 1 ELSE 0 END), 0) AS failed_nodes`).
 		Where("user_id = ? OR public = ?", userId, true).
 		Scan(&st).Error
 	return st, err
@@ -456,34 +466,136 @@ func ValidateSelfChannelProxyPolicy(userID int, policy *dto.ChannelProxyPolicy, 
 	}
 }
 
-var proxyPolicyCursor atomic.Uint64
+// ResolveChannelProxyPolicy preserves the legacy entry point; callers with a
+// channel/account identity should use ResolveStableChannelProxy instead.
+func ResolveChannelProxyPolicy(ownerID int, setting dto.ChannelSettings) (string, error) {
+	return ResolveStableChannelProxy(ownerID, 0, "legacy", setting)
+}
 
-// ResolveChannelProxyPolicy rechecks scope on every request. Explicit policies
-// never fall back to direct or a global selector that could expose private nodes.
-func ResolveChannelProxyPolicy(userID int, setting dto.ChannelSettings) (string, error) {
+const proxyStickyTTL = 30 * 24 * time.Hour
+
+type proxyStickyEntry struct {
+	value string
+	until time.Time
+}
+
+var proxyStickyState = struct {
+	sync.Mutex
+	entries map[string]proxyStickyEntry
+}{entries: make(map[string]proxyStickyEntry)}
+
+// proxyStickyValue atomically compares and replaces a binding. Redis errors
+// fail closed rather than creating divergent per-instance assignments. Values
+// contain only endpoint IDs or identity hashes, never credentials or proxy URLs.
+func proxyStickyValue(key string, expected *string, next string) (string, error) {
+	if common.RedisEnabled && common.RDB == nil && strings.TrimSpace(os.Getenv("REDIS_CONN_STRING")) != "" {
+		return "", fmt.Errorf("proxy account binding store unavailable")
+	}
+	if common.RedisEnabled && common.RDB != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		script := `local v=redis.call('GET',KEYS[1]) or '';
+if ARGV[1]=='1' and v==ARGV[2] then v=ARGV[3]; redis.call('SET',KEYS[1],v,'EX',ARGV[4])
+elseif v~='' then redis.call('EXPIRE',KEYS[1],ARGV[4]) end; return v`
+		write, old := "0", ""
+		if expected != nil {
+			write, old = "1", *expected
+		}
+		value, err := common.RDB.Eval(ctx, script, []string{key}, write, old, next, int64(proxyStickyTTL/time.Second)).Text()
+		if err != nil && !errors.Is(err, redis.Nil) {
+			return "", fmt.Errorf("proxy account binding store unavailable")
+		}
+		return value, nil
+	}
+	proxyStickyState.Lock()
+	defer proxyStickyState.Unlock()
+	now := time.Now()
+	entry := proxyStickyState.entries[key]
+	if !entry.until.After(now) {
+		entry.value = ""
+	}
+	if expected != nil && entry.value == *expected {
+		entry.value = next
+	}
+	if entry.value != "" {
+		entry.until = now.Add(proxyStickyTTL)
+		proxyStickyState.entries[key] = entry
+	}
+	// Bound local state and remove expired identities on the write path.
+	if len(proxyStickyState.entries) > 10000 {
+		for k, v := range proxyStickyState.entries {
+			if !v.until.After(now) {
+				delete(proxyStickyState.entries, k)
+			}
+		}
+	}
+	return entry.value, nil
+}
+
+func proxyAccountIdentity(accountKey string) string {
+	preference := "any:"
+	provider, _, _ := strings.Cut(strings.ToLower(accountKey), ":")
+	if provider == "workbuddy" || provider == "trae" {
+		preference = "hk-tw:"
+	}
+	return fmt.Sprintf("%s%x", preference, sha256.Sum256([]byte(accountKey)))
+}
+
+// BindChannelProxyAccount must be called by the authorized creator after saving
+// the channel, using the SAME opaque accountKey used before login. It preserves
+// the pool policy so an unusable endpoint can be replaced without direct fallback.
+func BindChannelProxyAccount(ownerID, channelID int, accountKey string) error {
+	if ownerID < 0 || channelID <= 0 || strings.TrimSpace(accountKey) == "" || len(accountKey) > 1024 {
+		return fmt.Errorf("invalid proxy account binding identity")
+	}
+	if DB == nil {
+		return fmt.Errorf("proxy channel owner unavailable")
+	}
+	var channel Channel
+	if err := DB.Select("id, owner_id").Where("id = ? AND owner_id = ?", channelID, ownerID).First(&channel).Error; err != nil {
+		return fmt.Errorf("proxy channel owner unavailable")
+	}
+	key := fmt.Sprintf("proxy-pool:sticky:v1:owner:%d:channel:%d", ownerID, channelID)
+	identity := proxyAccountIdentity(accountKey)
+	empty := ""
+	value, err := proxyStickyValue(key, &empty, identity)
+	if err != nil {
+		return err
+	}
+	if value != identity {
+		return fmt.Errorf("proxy channel already bound to another account")
+	}
+	return nil
+}
+
+// ResolveStableChannelProxy selects a fixed-node URL, never the shared selector.
+// ownerID is the channel OWNER (0 for an internal platform public pool), not
+// the requesting end user. accountKey is a stable provider:opaque identity for
+// pre-login flows; channel callers use channelID and the post-login binding.
+// Unknown nodes may be selected but are never represented as probed healthy.
+func ResolveStableChannelProxy(ownerID, channelID int, accountKey string, setting dto.ChannelSettings) (string, error) {
+	if ownerID < 0 || channelID < 0 || len(accountKey) > 1024 {
+		return "", fmt.Errorf("invalid proxy account identity")
+	}
 	policy := setting.ProxyPolicy
+	legacyScope := false
 	if policy == nil {
-		legacy := strings.TrimSpace(setting.Proxy)
-		switch legacy {
+		switch legacy := strings.TrimSpace(setting.Proxy); legacy {
 		case "direct":
 			return "", nil
 		case "", "userpool":
-			if userID <= 0 {
+			if legacy == "" && ownerID == 0 {
+				// Preserve unset legacy platform channels; an explicit pool
+				// policy is required to opt these into internal public egress.
 				return "", nil
 			}
-			urls, err := ListUsableProxyUrls(userID)
-			if err != nil {
-				return "", err
-			}
-			if len(urls) == 0 {
-				return "", nil
-			}
-			return urls[(proxyPolicyCursor.Add(1)-1)%uint64(len(urls))], nil
+			legacyScope = true
+			policy = &dto.ChannelProxyPolicy{Mode: "user_pool"}
 		default:
-			return legacy, nil
+			policy = &dto.ChannelProxyPolicy{Mode: "fixed"}
 		}
 	}
-	if err := ValidateSelfChannelProxyPolicy(userID, policy, setting.Proxy); err != nil {
+	if err := ValidateSelfChannelProxyPolicy(ownerID, policy, setting.Proxy); err != nil {
 		return "", err
 	}
 	switch policy.Mode {
@@ -492,48 +604,132 @@ func ResolveChannelProxyPolicy(userID int, setting dto.ChannelSettings) (string,
 	case "fixed":
 		return strings.TrimSpace(setting.Proxy), nil
 	}
-	if userID <= 0 {
+	if ownerID == 0 && policy.Mode != "public_pool" {
 		return "", fmt.Errorf("proxy policy requires an authenticated owner")
 	}
 	if err := EnsureProxyPoolSchema(); err != nil {
 		return "", err
 	}
-	query := DB.Model(&ProxyEndpoint{}).Where("enabled = ? AND fail_count < ?", true, ProxyEndpointMaxFailCount)
+	identity := proxyAccountIdentity(accountKey)
+	if channelID > 0 {
+		aliasKey := fmt.Sprintf("proxy-pool:sticky:v1:owner:%d:channel:%d", ownerID, channelID)
+		alias, err := proxyStickyValue(aliasKey, nil, "")
+		if err != nil {
+			return "", err
+		}
+		if alias != "" {
+			identity = alias
+		} else {
+			identity = proxyAccountIdentity(fmt.Sprintf("channel:%d", channelID))
+		}
+	} else if strings.TrimSpace(accountKey) == "" {
+		return "", fmt.Errorf("proxy account identity is required before login")
+	}
+	key := fmt.Sprintf("proxy-pool:sticky:v1:owner:%d:account:%s:scope:%s:%d:%d:%t", ownerID, identity, policy.Mode, policy.EndpointID, policy.SubscriptionID, legacyScope)
+	bound, err := proxyStickyValue(key, nil, "")
+	if err != nil {
+		return "", err
+	}
+	// A failed endpoint stays out until an explicit successful probe resets it.
+	query := DB.Model(&ProxyEndpoint{}).Where("enabled = ? AND fail_count = ?", true, 0)
 	switch policy.Mode {
 	case "user_pool":
-		query = query.Where("user_id = ?", userID)
+		if legacyScope {
+			query = query.Where("user_id = ? OR public = ?", ownerID, true)
+		} else {
+			query = query.Where("user_id = ?", ownerID)
+		}
 	case "public_pool":
 		query = query.Where("public = ?", true)
 	case "endpoint":
-		query = query.Where("id = ? AND (user_id = ? OR public = ?)", policy.EndpointID, userID, true)
+		query = query.Where("id = ? AND (user_id = ? OR public = ?)", policy.EndpointID, ownerID, true)
 	case "subscription":
-		query = query.Where("subscription_id = ? AND (user_id = ? OR public = ?)", policy.SubscriptionID, userID, true)
+		query = query.Where("subscription_id = ? AND (user_id = ? OR public = ?)", policy.SubscriptionID, ownerID, true)
 	}
 	var endpoints []ProxyEndpoint
-	if err := query.Order("fail_count ASC, CASE WHEN latency_ms > 0 THEN latency_ms ELSE 99999 END ASC, weight DESC, id ASC").Find(&endpoints).Error; err != nil {
+	if err := query.Order("id ASC").Find(&endpoints).Error; err != nil {
 		return "", fmt.Errorf("resolve proxy policy: %w", err)
 	}
-	var urls []string
-	var listenerErr error
+	urls := make(map[string]string)
+	best, bestRank := "", -1
+	var bestScore [32]byte
 	for _, endpoint := range endpoints {
-		if endpoint.Url != "" {
-			urls = append(urls, endpoint.Url)
-		} else if endpoint.RawUri != "" {
-			proxyURL, err := endpointProxyURLProvider(endpoint)
+		proxyURL := endpoint.Url
+		if proxyURL == "" && endpoint.RawUri != "" {
+			proxyURL, err = endpointProxyURLProvider(endpoint)
 			if err != nil {
-				listenerErr = err
-			} else {
-				urls = append(urls, proxyURL)
+				if strconv.Itoa(endpoint.Id) == bound {
+					return "", fmt.Errorf("account proxy is not loaded in this process; reload its bounded runtime")
+				}
+				continue
 			}
 		}
-	}
-	if len(urls) == 0 {
-		if listenerErr != nil {
-			return "", listenerErr
+		if proxyURL == "" {
+			continue
 		}
-		return "", fmt.Errorf("no usable proxy in selected scope")
+		if parsed, parseErr := common.ParseProxyURLStrict(proxyURL); parseErr != nil || parsed == nil {
+			continue
+		}
+		id := strconv.Itoa(endpoint.Id)
+		stableProxyEndpoints.Store(sha256.Sum256([]byte(proxyURL)), stableProxyEndpoint{id: endpoint.Id, fingerprint: sha256.Sum256([]byte(endpoint.Url + "\x00" + endpoint.RawUri))})
+		urls[id] = proxyURL
+		if id == bound {
+			return proxyURL, nil
+		}
+		rank := 0
+		region := strings.ToUpper(endpoint.Region + " " + endpoint.Name)
+		if strings.HasPrefix(identity, "hk-tw:") && (strings.Contains(region, "HK") || strings.Contains(region, "TW") || strings.Contains(region, "香港") || strings.Contains(region, "台湾") || strings.Contains(region, "台灣")) {
+			rank = 2
+		}
+		if endpoint.LastOkAt != nil {
+			rank++
+		}
+		score := sha256.Sum256([]byte(key + ":" + id))
+		if best == "" || rank > bestRank || rank == bestRank && strings.Compare(string(score[:]), string(bestScore[:])) > 0 {
+			best, bestRank, bestScore = id, rank, score
+		}
 	}
-	return urls[(proxyPolicyCursor.Add(1)-1)%uint64(len(urls))], nil
+	if best == "" {
+		return "", fmt.Errorf("no usable proxy in selected scope; direct fallback is disabled")
+	}
+	selected, err := proxyStickyValue(key, &bound, best)
+	if err != nil {
+		return "", err
+	}
+	if proxyURL := urls[selected]; proxyURL != "" {
+		return proxyURL, nil
+	}
+	return "", fmt.Errorf("proxy binding changed concurrently; retry the request")
+}
+
+type stableProxyEndpoint struct {
+	id          int
+	fingerprint [32]byte
+}
+
+var stableProxyEndpoints sync.Map
+
+// InvalidateStableProxyURL records failure of a URL issued by this resolver.
+// The caller already has the scoped, authenticated endpoint URL; no shared
+// selector is mutated. Returning true prevents the legacy outcome path from
+// attributing a channel owner's private endpoint to the requesting end user.
+func InvalidateStableProxyURL(proxyURL string) bool {
+	value, ok := stableProxyEndpoints.Load(sha256.Sum256([]byte(proxyURL)))
+	if !ok || DB == nil {
+		return false
+	}
+	selected := value.(stableProxyEndpoint)
+	var endpoint ProxyEndpoint
+	if err := DB.Where("id = ?", selected.id).First(&endpoint).Error; err != nil {
+		return true
+	}
+	if sha256.Sum256([]byte(endpoint.Url+"\x00"+endpoint.RawUri)) != selected.fingerprint {
+		return true
+	}
+	if err := MarkProxyEndpointResult(endpoint.Id, false, "upstream request failed through this exit"); err != nil {
+		common.SysError("proxy endpoint failure update failed")
+	}
+	return true
 }
 
 var endpointProxyURLProvider = func(ProxyEndpoint) (string, error) {
@@ -571,7 +767,13 @@ func SetKernelFailoverProvider(fn func(userId int, proxyURL string) bool) {
 	kernelFailoverProvider = fn
 }
 
-// ListAllEnabledProxyEndpoints 列出启用节点（内核配置编译用：优先用户自有订阅节点 + 低延迟公共节点，上限 300 条避免跨区大字段阻塞）。
+// ProxyRuntimePreloadLimit bounds per-process listeners, not database inventory.
+// Unloaded inventory is not claimed as usable or loaded on another instance.
+func ProxyRuntimePreloadLimit() int {
+	return min(max(common.GetEnvOrDefault("PROXY_POOL_PRELOAD_LIMIT", 300), 1), 1500)
+}
+
+// ListAllEnabledProxyEndpoints returns only the bounded preload inventory.
 func ListAllEnabledProxyEndpoints() ([]ProxyEndpoint, error) {
 	if err := EnsureProxyPoolSchema(); err != nil {
 		return nil, err
@@ -579,7 +781,7 @@ func ListAllEnabledProxyEndpoints() ([]ProxyEndpoint, error) {
 	var list []ProxyEndpoint
 	err := DB.Where("enabled = ? AND fail_count < ?", true, ProxyEndpointMaxFailCount).
 		Order("CASE WHEN source <> 'haizhu' THEN 0 ELSE 1 END ASC, fail_count ASC, CASE WHEN latency_ms > 0 THEN latency_ms ELSE 99999 END ASC, weight DESC, id ASC").
-		Limit(300).
+		Limit(ProxyRuntimePreloadLimit()).
 		Find(&list).Error
 	return list, err
 }

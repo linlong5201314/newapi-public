@@ -240,20 +240,20 @@
       "channelType": 1,
       "baseUrl": "https://api.llm7.io",
       "signupUrl": "https://token.llm7.io",
-      "keyRequired": false,
+      "keyRequired": true,
       "models": [
         "gpt-4o-mini-2024-07-18",
         "gpt-4.1-nano-2025-04-14",
         "deepseek-r1-0528",
         "qwen2.5-coder-32b-instruct"
       ],
-      "freeNote": "免注册免 key：匿名 2 req/s、20 RPM、100 req/hr（token.llm7.io 可领 key 提额）",
-      "monthlyTokens": 150000000,
-      "freeType": "recurring-daily",
+      "freeNote": "此上游当前标准模型目录不代表免费调用资格。请使用本人官方凭据与账户额度；未验证匿名免费资格，不列入平台 IP 免费模型。",
+      "monthlyTokens": 0,
+      "freeType": "account-dependent",
       "tos": "caution",
       "poolKey": "llm7-free",
       "authMode": "key",
-      "authType": "none"
+      "authType": "key"
     },
     {
       "id": "cohere",
@@ -323,7 +323,7 @@
       "channelType": 1,
       "baseUrl": "https://oai.endpoints.kepler.ai.cloud.ovh.net",
       "signupUrl": "https://www.ovhcloud.com/en/public-cloud/ai-endpoints/catalog/",
-      "keyRequired": false,
+      "keyRequired": true,
       "models": [
         "Qwen3.5-397B-A17B",
         "gpt-oss-120b",
@@ -335,34 +335,46 @@
         "Meta-Llama-3_3-70B-Instruct",
         "Qwen2.5-VL-72B-Instruct"
       ],
-      "freeNote": "完全匿名免费：无需注册无需 key，每 IP 每模型 2 RPM，20+ 开源模型（欧盟节点，含 VL 视觉模型）",
-      "monthlyTokens": 5000000,
-      "freeType": "recurring-uncapped",
+      "freeNote": "此上游当前标准模型目录不代表免费调用资格。请使用本人官方凭据与账户额度；未验证匿名免费资格，不列入平台 IP 免费模型。",
+      "monthlyTokens": 0,
+      "freeType": "account-dependent",
       "tos": "ok",
       "poolKey": "ovhcloud",
       "authMode": "key",
-      "authType": "none"
+      "authType": "key"
     },
     {
       "id": "kilo-code",
       "name": "Kilo Code 免费池",
       "channelType": 1,
-      "baseUrl": "https://api.kilo.ai/api/gateway",
+      "baseUrl": "https://ai-gateway.kilo.ai/api",
       "signupUrl": "https://app.kilo.ai/profile",
       "keyRequired": false,
       "models": [
         "kilo-auto/free",
-        "nvidia/nemotron-3-ultra-550b-a55b:free",
-        "cohere/north-mini-code:free",
+        "inclusionai/ling-3.2-flash:free",
+        "baidu/ernie-5.5-flash-preview:free",
+        "thinkingmachines/inkling-2-small:free",
+        "liquid/lfm-3-1.7b:free",
+        "particle-ai/particle-1:free",
+        "recursive/flint-v1.0:free",
+        "nvidia/nemotron-3.5-super-vl:free",
+        "dots-studio/dots-3-note-preview:free",
         "nvidia/nemotron-3.5-lightning:free",
-        "openrouter/free"
+        "cohere/north-mini-code:free",
+        "nvidia/nemotron-3-ultra-550b-a55b:free",
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+        "google/gemma-4-31b-it:free",
+        "openrouter/free",
+        "reflection/beam-free",
+        "stealth/glyph-cluster"
       ],
-      "freeNote": "免 key 免卡：200 req/hr per IP，kilo-auto/free 自动路由免费池",
-      "monthlyTokens": 10000000,
+      "freeNote": "平台统一提供匿名免费模型；模型目录按上游实时零价与免费资格筛选。匿名访问额度以上游官方每 IP 每小时 200 次等规则为准，不保证吞吐或可用性；不会通过轮换 IP 绕过额度。部分免费模型可能记录内容用于训练，请勿提交机密。",
+      "monthlyTokens": 0,
       "freeType": "recurring-daily",
       "tos": "caution",
       "poolKey": "kilo-code",
-      "authMode": "key",
+      "authMode": "ip",
       "authType": "none"
     },
     {
@@ -415,14 +427,10 @@
       "signupUrl": "https://pollinations.ai",
       "keyRequired": false,
       "models": [
-        "openai",
-        "openai-fast",
-        "openai-large",
-        "qwen-coder",
-        "mistral"
+        "openai-fast"
       ],
-      "freeNote": "完全免费免 key：匿名层约 1 req/45s/IP，注册可提额（平台公共渠道 id=1 即此源）",
-      "monthlyTokens": 5000000,
+      "freeNote": "当前匿名目录提供 openai-fast；平台公共免费模型直接可用，仍受上游匿名访问频率和可用性限制。模型别名不重复计数，不保证无限 token。",
+      "monthlyTokens": 0,
       "freeType": "recurring-uncapped",
       "tos": "ok",
       "poolKey": "pollinations",
@@ -521,31 +529,6 @@
       "authMode": "account",
       "hiddenEndpoint": true,
       "authType": "none"
-    },
-    {
-      "id": "opencode-zen",
-      "name": "OpenCode Zen 免费模型（受限）",
-      "channelType": 1,
-      "baseUrl": "https://opencode.ai/inference/openai/v1",
-      "signupUrl": "https://opencode.ai/auth",
-      "keyRequired": true,
-      "models": [
-        "big-pickle",
-        "deepseek-v4.1-flash-free",
-        "glm-5.3-flash-free",
-        "longcat-2.5-free",
-        "minimax-m3.1-flash-free",
-        "mimo-v2.6-flash-free",
-        "nemotron-3.5-lightning-free"
-      ],
-      "freeNote": "OpenCode 免费模型目录可公开查询，但官方免费额度限受支持的 OpenCode 客户端使用。目录可见不代表本平台可调用；本平台不通过更换 IP、伪造设备或共享凭据绕过限制。当前禁止直接创建此免费来源渠道，请使用官方支持的客户端或自行配置允许第三方调用的服务。",
-      "monthlyTokens": 0,
-      "freeType": "restricted",
-      "tos": "restricted",
-      "poolKey": "opencode",
-      "authMode": "key",
-      "hiddenEndpoint": false,
-      "authType": "key"
     },
     {
       "id": "sensenova",
@@ -711,31 +694,6 @@
       "freeType": "reverse-proxy",
       "tos": "own-account",
       "poolKey": "workbuddy",
-      "authType": "none"
-    },
-    {
-      "id": "opencode-free",
-      "name": "OpenCode 免费模型（官方客户端使用限制）",
-      "baseUrl": "https://opencode.ai/inference/openai/v1",
-      "signupUrl": "https://opencode.ai",
-      "channelType": 1,
-      "authMode": "ip",
-      "hiddenEndpoint": false,
-      "keyRequired": false,
-      "models": [
-        "big-pickle",
-        "deepseek-v4.1-flash-free",
-        "glm-5.3-flash-free",
-        "longcat-2.5-free",
-        "minimax-m3.1-flash-free",
-        "mimo-v2.6-flash-free",
-        "nemotron-3.5-lightning-free"
-      ],
-      "freeNote": "OpenCode 免费模型目录可公开查询，但官方免费额度限受支持的 OpenCode 客户端使用。目录可见不代表本平台可调用；本平台不通过更换 IP、伪造设备或共享凭据绕过限制。当前禁止直接创建此免费来源渠道，请使用官方支持的客户端或自行配置允许第三方调用的服务。",
-      "monthlyTokens": 0,
-      "freeType": "restricted",
-      "tos": "restricted",
-      "poolKey": "opencode-free",
       "authType": "none"
     },
     {

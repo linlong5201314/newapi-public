@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
 	"errors"
 	"io"
 	"net/http"
@@ -10,8 +11,35 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"gorm.io/gorm"
 )
+
+// ValidateDS2BrowserSession authenticates the original dashboard browser without
+// rotating its refresh cookie. A SID is an identifier, not an authentication proof.
+func ValidateDS2BrowserSession(raw string, identity model.AuthSessionIdentity) error {
+	sid, secret, ok := splitRefreshToken(raw)
+	if !ok || sid != identity.SessionID {
+		return ErrLoginSessionInvalid
+	}
+	return model.DB.Transaction(func(tx *gorm.DB) error {
+		if err := model.ValidateAuthSessionWithTx(tx, identity); err != nil {
+			return err
+		}
+		var session model.UserSession
+		if err := tx.Where("sid = ? AND user_id = ?", sid, identity.UserID).First(&session).Error; err != nil {
+			return ErrLoginSessionInvalid
+		}
+		presented := []byte(hashRefreshSecret(secret))
+		current := hmac.Equal([]byte(session.RefreshHash), presented)
+		previous := session.PreviousRefreshHash != "" && time.Now().Unix() <= session.PreviousValidUntil && hmac.Equal([]byte(session.PreviousRefreshHash), presented)
+		if !current && !previous {
+			return ErrLoginSessionInvalid
+		}
+		return nil
+	})
+}
 
 // LoginDS2Account implements CJackHwang/ds2api's DeepSeek account login contract.
 // DeepSeek does not offer an OAuth consent/redirect flow in that integration.

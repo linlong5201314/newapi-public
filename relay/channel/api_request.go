@@ -467,7 +467,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		common2.SetContextKey(c, appconstant.ContextKeyUpstreamRequestOrigin, req.URL.Scheme+"://"+req.URL.Host)
 	}
 
-	// 代理池无感熔断重试：当渠道跟随出口 IP 池且请求报错或遭遇 429/403/502/503/504 时，
+	// 代理池无感熔断重试：当渠道跟随出口 IP 池且请求报错或遭遇 502/503/504 时，
 	// 自动标记当前出口失败（或触发 mihomo 切下一个节点）并换下一个出口重试，用户全程无感。
 	canReplay := req == nil || req.Body == nil || req.GetBody != nil
 	usingPool := info != nil && strings.TrimSpace(info.ChannelSetting.Proxy) == ""
@@ -525,7 +525,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 			return nil, types.NewError(egressProxyTransportError{cause: err, address: egressProxyLogAddress(proxyURL)}, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))
 		}
 
-		// 上游返回 IP 级限流或网关错误时，同样触发代理池熔断换 IP 重试
+		// 仅网关故障可触发出口重试；403/429保留上游准入与额度决定，不通过换IP绕过
 		if resp != nil && shouldFailoverProxyStatus(resp.StatusCode) && attempt+1 < maxAttempts && proxyURL != "" {
 			model.RecordProxyOutcome(info.UserId, proxyURL, false)
 			if resp.Body != nil {
@@ -579,8 +579,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 
 func shouldFailoverProxyStatus(code int) bool {
 	switch code {
-	case http.StatusTooManyRequests, http.StatusForbidden,
-		http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
 		return true
 	default:
 		return false
@@ -632,7 +631,18 @@ func resolveEgressProxyURL(info *common.RelayInfo) (string, error) {
 	if info == nil {
 		return "", nil
 	}
-	return model.ResolveChannelProxyPolicy(info.UserId, info.ChannelSetting)
+	ownerID := info.UserId
+	if info.ChannelId > 0 {
+		var channel model.Channel
+		if model.DB == nil {
+			return "", fmt.Errorf("proxy channel database is unavailable")
+		}
+		if err := model.DB.Select("id, owner_id").Where("id = ?", info.ChannelId).First(&channel).Error; err != nil {
+			return "", fmt.Errorf("proxy channel owner is unavailable")
+		}
+		ownerID = channel.OwnerId
+	}
+	return model.ResolveStableChannelProxy(ownerID, info.ChannelId, "legacy", info.ChannelSetting)
 }
 
 // egressProxyLogAddress intentionally excludes all userinfo, path, query and fragment.

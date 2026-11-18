@@ -37,9 +37,11 @@ const channel = channelSchema.parse({
 })
 let client: QueryClient
 let fixedProxy = false
+let legacyProxy: 'direct' | 'public_pool' | undefined
 beforeEach(() => {
   vi.resetAllMocks()
   fixedProxy = false
+  legacyProxy = undefined
   vi.mocked(api.put).mockResolvedValue({ data: { success: true } })
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
@@ -55,9 +57,9 @@ beforeEach(() => {
               setting: JSON.stringify({ proxy: '', extra_setting: true }),
             },
             proxy_configured: fixedProxy,
-            proxy_policy: fixedProxy
-              ? { mode: 'fixed' }
-              : { mode: 'user_pool' },
+            proxy_policy: {
+              mode: legacyProxy ?? (fixedProxy ? 'fixed' : 'user_pool'),
+            },
             models: ['deepseek-chat'],
             all_models: ['deepseek-chat', 'qwen-coder'],
             public_models: [],
@@ -147,6 +149,31 @@ it('asks before deleting a channel from the detail drawer', async () => {
   expect(api.delete).not.toHaveBeenCalled()
   expect(await screen.findByRole('alertdialog')).toBeVisible()
 })
+
+it.each(['direct', 'public_pool'] as const)(
+  'requires an explicit owned replacement before saving legacy %s proxy',
+  async (mode) => {
+    legacyProxy = mode
+    const user = userEvent.setup()
+    await renderDrawer()
+    await screen.findByText('qwen-coder')
+    const save = screen.getByRole('button', { name: 'Save proxy settings' })
+    expect(save).toBeDisabled()
+    expect(api.put).not.toHaveBeenCalled()
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Outbound proxy mode' }),
+      'user_pool'
+    )
+    expect(save).toBeEnabled()
+    await user.click(save)
+    await waitFor(() => expect(api.put).toHaveBeenCalled())
+    const payload = vi.mocked(api.put).mock.calls[0][1] as { setting: string }
+    expect(JSON.parse(payload.setting)).toMatchObject({
+      proxy_policy: { mode: 'user_pool' },
+      extra_setting: true,
+    })
+  }
+)
 
 it('keeps a fixed proxy secret on the server and preserves unrelated settings when saving', async () => {
   fixedProxy = true

@@ -12,6 +12,18 @@ vi.mock('@/lib/api', () => ({ api: { get: vi.fn(), post: vi.fn() } }))
 let client: QueryClient
 const templates = [
   {
+    id: 'xiaohuanxiong',
+    name: 'Raccoon auth fixture',
+    models: [],
+    authMode: 'bridge',
+  },
+  {
+    id: 'ds2api',
+    name: 'DeepSeek auth fixture',
+    models: [],
+    authMode: 'account',
+  },
+  {
     id: 'search-fixture',
     name: 'Search fixture',
     models: ['deepseek-chat', 'qwen-coder'],
@@ -169,28 +181,48 @@ it('ignores a pending automatic model response after switching to another templa
   expect(screen.getByText('qwen-coder')).toBeVisible()
 })
 
-it('disables channel creation when the catalog is restricted to the OpenCode client', async () => {
-  vi.mocked(api.post).mockResolvedValueOnce({
-    data: {
-      success: true,
-      data: {
-        models: ['opencode-free-model'],
-        callable: false,
-        call_contract: 'opencode_client_only',
-      },
-    },
-  })
+it('hides OpenCode client-only sources from new channel creation without deleting legacy data', async () => {
+  renderDialog()
+  expect(
+    await screen.findByRole('button', { name: /Search fixture/ })
+  ).toBeVisible()
+  expect(
+    screen.queryByRole('button', { name: /OpenCode fixture/ })
+  ).not.toBeInTheDocument()
+  expect(api.post).not.toHaveBeenCalled()
+})
+
+it('creates an IP free source privately using an owned outbound strategy', async () => {
   const user = userEvent.setup()
   renderDialog()
   await user.click(
-    await screen.findByRole('button', { name: /OpenCode fixture/ })
-  )
-  expect(await screen.findByRole('alert')).toHaveTextContent(
-    'OpenCode free models are only callable from the OpenCode client, not through this gateway.'
+    await screen.findByRole('button', { name: /Search fixture/ })
   )
   expect(
+    screen.getAllByRole('option').map((option) => option.getAttribute('value'))
+  ).not.toContain('public_pool')
+  expect(
+    screen.getAllByRole('option').map((option) => option.getAttribute('value'))
+  ).not.toContain('direct')
+  expect(
+    screen.getByText(
+      'Platform IP-based free models are available to everyone through Public models. Your sources stay private unless you choose to share them.'
+    )
+  ).toBeVisible()
+  await user.click(
     screen.getByRole('button', { name: /Create channel|创建渠道/ })
-  ).toBeDisabled()
+  )
+  await waitFor(() =>
+    expect(api.post).toHaveBeenCalledWith(
+      '/api/channel/self/from_template',
+      expect.objectContaining({
+        proxy_policy: { mode: 'user_pool' },
+        visibility: 0,
+        public_models: [],
+      }),
+      expect.any(Object)
+    )
+  )
 })
 
 it('keeps manual model choices when the interface language changes', async () => {
@@ -214,4 +246,49 @@ it('keeps manual model choices when the interface language changes', async () =>
       await i18next.changeLanguage('en')
     })
   }
+})
+
+it('does not offer unavailable Raccoon browser authorization and explains official client credentials', async () => {
+  const user = userEvent.setup()
+  renderDialog()
+  await user.click(
+    await screen.findByRole('button', { name: /Raccoon auth fixture/ })
+  )
+  expect(
+    screen.queryByRole('button', { name: /浏览器 OAuth 授权/ })
+  ).not.toBeInTheDocument()
+  expect(
+    screen.getByText(
+      'Raccoon browser authorization only supports an official local client. Gateway callbacks are not supported'
+    )
+  ).toBeVisible()
+  expect(api.post).not.toHaveBeenCalledWith(
+    '/api/channel/self/oauth/raccoon/start',
+    expect.anything(),
+    expect.anything()
+  )
+})
+
+it('opens the DS2 account login popup on the user gesture and closes it when start fails', async () => {
+  const user = userEvent.setup()
+  const popup = {
+    opener: undefined,
+    location: { href: '' },
+    close: vi.fn(),
+    closed: false,
+  }
+  const open = vi
+    .spyOn(window, 'open')
+    .mockReturnValue(popup as unknown as Window)
+  vi.mocked(api.post).mockRejectedValueOnce(new Error('upstream unavailable'))
+  renderDialog()
+  await user.click(
+    await screen.findByRole('button', { name: /DeepSeek auth fixture/ })
+  )
+  await user.click(
+    screen.getByRole('button', { name: 'Create account login link' })
+  )
+  await waitFor(() => expect(open).toHaveBeenCalled())
+  await waitFor(() => expect(popup.close).toHaveBeenCalled())
+  open.mockRestore()
 })

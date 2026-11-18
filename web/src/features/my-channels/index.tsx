@@ -16,11 +16,18 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Info } from 'lucide-react'
+import { ChevronDown, Info } from 'lucide-react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
 import { MagpiePluginsCard } from '@/features/account-bindings/magpie-plugins'
 
 import { ChannelsDialogs } from './components/channels-dialogs'
@@ -31,6 +38,7 @@ import { FreeUsageCards } from './components/free-usage-cards'
 
 export function MyChannels() {
   const { t } = useTranslation()
+  const [magpieOpen, setMagpieOpen] = useState(false)
 
   return (
     <ChannelsProvider>
@@ -51,15 +59,48 @@ export function MyChannels() {
                 )}
                 {' · '}
                 <span>
-                  点击渠道名称可打开二级详情页（支持上下滑动查看实时额度、选择代理 IP / 订阅节点、编辑名称、一键全选/全不选模型与公开设置）。
+                  {t(
+                    'Open a channel name to view details, manage your proxy, and select models.'
+                  )}
                 </span>
               </AlertDescription>
             </Alert>
-            <FreeUsageCards />
-            <MagpiePluginsCard />
             <div className='min-h-[540px]'>
               <ChannelsTable />
             </div>
+            <FreeUsageCards />
+            <Collapsible
+              open={magpieOpen}
+              onOpenChange={setMagpieOpen}
+              className='rounded-lg border'
+            >
+              <CollapsibleTrigger
+                aria-label={t('Magpie plugins (optional)')}
+                render={
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    className='text-muted-foreground h-auto w-full justify-between gap-3 px-4 py-3 text-left whitespace-normal'
+                  />
+                }
+              >
+                <span className='min-w-0'>
+                  <span className='block text-sm font-medium'>
+                    {t('Magpie plugins (optional)')}
+                  </span>
+                  <span className='block text-xs font-normal'>
+                    {t('Optional setup for your own Magpie gateway')}
+                  </span>
+                </span>
+                <ChevronDown
+                  aria-hidden='true'
+                  className={`size-4 shrink-0 transition-transform ${magpieOpen ? 'rotate-180' : ''}`}
+                />
+              </CollapsibleTrigger>
+              <CollapsibleContent className='border-t p-3'>
+                <MagpiePluginsCard />
+              </CollapsibleContent>
+            </Collapsible>
           </div>
         </SectionPageLayout.Content>
       </SectionPageLayout>

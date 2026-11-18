@@ -17,8 +17,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
-import { Link } from '@tanstack/react-router'
-import { Boxes, FlaskConical, Menu, SquarePen } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -37,7 +35,14 @@ import { Composer } from './components/composer'
 import { DemoSidebar } from './components/demo-sidebar'
 import { DemoMessageList } from './components/message-list'
 import { ModelPicker } from './components/model-picker'
+import {
+  IconMenuOutline20,
+  IconNewChatOutline20,
+} from './components/official-icons'
 import { useDemoChat } from './use-demo-chat'
+
+import './official-theme.css'
+import './deepseek-demo.css'
 
 /** Never persist an old account's state under the next account's storage key. */
 export function DeepSeekDemo() {
@@ -116,7 +121,10 @@ function DemoSession(props: { userId: number }) {
   }
 
   return (
-    <div className='bg-background flex h-full min-h-0 w-full overflow-hidden'>
+    <div
+      className='ds-demo'
+      data-empty={!chat.activeConversation?.messages.length}
+    >
       <div className='hidden h-full shrink-0 md:block'>
         <DemoSidebar
           {...sidebarProps}
@@ -128,7 +136,7 @@ function DemoSession(props: { userId: number }) {
         <SheetContent
           side='left'
           showCloseButton={false}
-          className='w-72 max-w-[85vw] gap-0 p-0'
+          className='ds-demo ds-demo-mobile-sheet'
         >
           <SheetTitle className='sr-only'>{t('Chat history')}</SheetTitle>
           <SheetDescription className='sr-only'>
@@ -140,63 +148,35 @@ function DemoSession(props: { userId: number }) {
           />
         </SheetContent>
       </Sheet>
-      <div className='flex min-w-0 flex-1 flex-col'>
-        <header className='flex shrink-0 items-center justify-between gap-2 px-3 py-3 sm:px-5'>
-          <div className='flex min-w-0 items-center gap-2'>
+      <div className='ds-demo-main'>
+        <header className='ds-demo-header'>
+          <Button
+            variant='ghost'
+            size='icon'
+            className='ds-demo-mobile-menu'
+            aria-label={t('Open chat history')}
+            aria-expanded={mobileOpen}
+            onClick={() => setMobileOpen(true)}
+          >
+            <IconMenuOutline20 />
+          </Button>
+          <span
+            className='ds-demo-chat-title'
+            title={chat.activeConversation?.title}
+          >
+            {chat.activeConversation?.title}
+          </span>
+          {chat.activeConversation && (
             <Button
               variant='ghost'
               size='icon'
-              className='md:hidden'
-              aria-label={t('Open chat history')}
-              aria-expanded={mobileOpen}
-              onClick={() => setMobileOpen(true)}
-            >
-              <Menu aria-hidden='true' />
-            </Button>
-            <ModelPicker
-              groups={groupsQuery.data ?? []}
-              models={models}
-              value={selectedModel}
-              group={effectiveGroup}
-              isLoading={groupsQuery.isPending || modelsQuery.isPending}
-              disabled={chat.pending}
-              onGroupChange={(next) => {
-                setGroup(next)
-                setModel('')
-              }}
-              onChange={setModel}
-            />
-          </div>
-          <div className='flex shrink-0 items-center gap-1'>
-            <Button
-              variant='ghost'
-              size='icon'
-              className='hidden sm:inline-flex'
-              nativeButton={false}
-              render={<Link to='/my-models' />}
-              aria-label={t('My models')}
-            >
-              <Boxes aria-hidden='true' />
-            </Button>
-            <Button
-              variant='ghost'
-              size='icon'
-              className='hidden sm:inline-flex'
-              nativeButton={false}
-              render={<Link to='/playground' />}
-              aria-label={t('Playground')}
-            >
-              <FlaskConical aria-hidden='true' />
-            </Button>
-            <Button
-              variant='ghost'
-              size='icon'
+              className='ds-demo-header-new'
               aria-label={t('New chat')}
               onClick={handleNew}
             >
-              <SquarePen aria-hidden='true' />
+              <IconNewChatOutline20 />
             </Button>
-          </div>
+          )}
         </header>
         {unavailable && (
           <ErrorState
@@ -215,32 +195,49 @@ function DemoSession(props: { userId: number }) {
             }}
           />
         )}
-        <DemoMessageList
-          key={chat.activeId}
-          messages={chat.activeConversation?.messages ?? []}
-          isStreaming={chat.pending}
-          onSuggestion={setInput}
-          onRegenerate={() => {
-            if (canSend) chat.regenerate(selectedModel, effectiveGroup)
-          }}
-        />
-        <Composer
-          value={input}
-          isStreaming={chat.pending}
-          disabled={!canSend}
-          placeholder={
-            selectedModel
-              ? t('Message {{model}}', { model: selectedModel })
-              : t('Loading models...')
-          }
-          onChange={setInput}
-          onSubmit={() => {
-            if (canSend && chat.send(input, selectedModel, effectiveGroup)) {
-              setInput('')
+        <div className='ds-demo-content'>
+          <DemoMessageList
+            key={chat.activeId}
+            messages={chat.activeConversation?.messages ?? []}
+            isStreaming={chat.pending}
+            onSuggestion={setInput}
+            onRegenerate={() => {
+              if (canSend) chat.regenerate(selectedModel, effectiveGroup)
+            }}
+          />
+          <Composer
+            controls={
+              <ModelPicker
+                groups={groupsQuery.data ?? []}
+                models={models}
+                value={selectedModel}
+                group={effectiveGroup}
+                isLoading={groupsQuery.isPending || modelsQuery.isPending}
+                disabled={chat.pending}
+                onGroupChange={(next) => {
+                  setGroup(next)
+                  setModel('')
+                }}
+                onChange={setModel}
+              />
             }
-          }}
-          onStop={chat.stop}
-        />
+            value={input}
+            isStreaming={chat.pending}
+            disabled={!canSend}
+            placeholder={
+              selectedModel
+                ? t('Message {{model}}', { model: selectedModel })
+                : t('Message DeepSeek')
+            }
+            onChange={setInput}
+            onSubmit={() => {
+              if (canSend && chat.send(input, selectedModel, effectiveGroup)) {
+                setInput('')
+              }
+            }}
+            onStop={chat.stop}
+          />
+        </div>
       </div>
     </div>
   )

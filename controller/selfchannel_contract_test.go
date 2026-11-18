@@ -2,6 +2,8 @@ package controller
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,6 +25,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 type selfContractTransport func(*http.Request) (*http.Response, error)
@@ -106,6 +109,17 @@ func TestSelfChannelModelCaseBypass(t *testing.T) {
 }
 
 func TestSelfChannelFreeCatalogContracts(t *testing.T) {
+	t.Run("Kilo requires explicit free zero price and text output", func(t *testing.T) {
+		setSelfContractTransport(t, func(r *http.Request) (*http.Response, error) {
+			assert.Equal(t, "/api/v1/models", r.URL.Path)
+			assert.Empty(t, r.Header.Get("Authorization"))
+			return selfContractResponse(200, `{"data":[{"id":"valid-free","isFree":true,"pricing":{"prompt":"0","completion":"0","discount":0.5},"architecture":{"output_modalities":["text"]}},{"id":"paid-free","isFree":true,"pricing":{"prompt":"0.001","completion":"0"},"architecture":{"output_modalities":["text"]}},{"id":"unmarked","pricing":{"prompt":"0","completion":"0"},"architecture":{"output_modalities":["text"]}},{"id":"image-free","isFree":true,"pricing":{"prompt":"0","completion":"0"},"architecture":{"output_modalities":["image"]}}]}`)
+		})
+		ids, verified, _ := FetchLiveFreeModelsForUpstream("https://ai-gateway.kilo.ai/api", "kilo-code", "not-for-public-catalog", "")
+		assert.True(t, verified)
+		assert.Equal(t, []string{"valid-free"}, ids)
+	})
+
 	t.Run("OpenRouter rejects paid auto and contradictory free labels", func(t *testing.T) {
 		setSelfContractTransport(t, func(r *http.Request) (*http.Response, error) {
 			assert.Equal(t, "/api/v1/models", r.URL.Path)
@@ -149,7 +163,7 @@ func TestSelfChannelDedicatedSourceGuards(t *testing.T) {
 	}{
 		{"freepi template", "/from_template", `{"templateId":"freepi","key":"arbitrary-token"}`, AddSelfChannelFromTemplate, "GitHub device authorization"},
 		{"freepi binding", "/bindings", `{"provider":"freepi","accounts":"arbitrary-token"}`, CreateSelfBinding, "GitHub device authorization"},
-		{"opencode template", "/from_template", `{"templateId":"opencode-free"}`, AddSelfChannelFromTemplate, "official OpenCode client"},
+		{"opencode template", "/from_template", `{"templateId":"opencode-free"}`, AddSelfChannelFromTemplate, "Unknown templateId"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := selfContractRequest(9, http.MethodPost, tc.path, tc.body, tc.handler)
@@ -233,7 +247,11 @@ func selfContractDS2Session(t *testing.T, uid int) *model.UserSession {
 	t.Helper()
 	require.NoError(t, model.DB.AutoMigrate(&model.UserSession{}))
 	require.NoError(t, model.DB.Model(&model.User{}).Where("id = ?", uid).Update("auth_version", 1).Error)
-	session := &model.UserSession{SID: "e5d45474-96bf-4ae0-9364-8d70dcfe5e34", UserID: uid, Version: 1, UserAuthVersion: 1, Status: model.UserSessionStatusActive, RefreshHash: "fixture-only", LoginMethod: "password", ExpiresAt: time.Now().Add(time.Hour).Unix()}
+	session := &model.UserSession{SID: "e5d45474-96bf-4ae0-9364-8d70dcfe5e34", UserID: uid, Version: 1, UserAuthVersion: 1, Status: model.UserSessionStatusActive, RefreshHash: common.GenerateHMACWithKey(func() []byte {
+		mac := hmac.New(sha256.New, []byte(common.SessionSecret))
+		_, _ = mac.Write([]byte("new-api/auth/refresh/v1"))
+		return mac.Sum(nil)
+	}(), "fixture-refresh"), LoginMethod: "password", ExpiresAt: time.Now().Add(time.Hour).Unix()}
 	require.NoError(t, model.DB.Create(session).Error)
 	return session
 }
@@ -248,7 +266,7 @@ func selfContractDS2Start(session *model.UserSession, body string) *httptest.Res
 }
 
 func TestDS2PlatformSessionBindingFailures(t *testing.T) {
-	for _, mutation := range []string{"revoked", "expired", "session_version", "auth_version", "different_sid", "missing_refresh"} {
+	for _, mutation := range []string{"revoked", "expired", "session_version", "auth_version", "different_sid", "missing_refresh", "forged_refresh"} {
 		t.Run(mutation, func(t *testing.T) {
 			uid := setupChannelCreateTest(t)
 			require.NoError(t, model.DB.AutoMigrate(&model.SelfOAuthSession{}))
@@ -299,7 +317,11 @@ func TestDS2PlatformSessionBindingFailures(t *testing.T) {
 				c.Request.Header.Set("Origin", "https://newapi.example")
 				c.Request.AddCookie(cookie)
 				if mutation != "missing_refresh" {
-					c.Request.AddCookie(&http.Cookie{Name: service.RefreshCookieName, Value: refreshSID + ".fixture-refresh"})
+					secret := "fixture-refresh"
+					if mutation == "forged_refresh" {
+						secret = "forged-secret"
+					}
+					c.Request.AddCookie(&http.Cookie{Name: service.RefreshCookieName, Value: refreshSID + "." + secret})
 				}
 				if method == http.MethodGet {
 					SelfDs2ApiOAuthAuthorizePage(c)
@@ -545,4 +567,138 @@ func TestSelfBindingOwnershipAndCredentialRedaction(t *testing.T) {
 	assert.NotContains(t, err.Error(), "fixture-secret-value")
 	_ = bytes.MinRead
 	_ = fmt.Sprintf
+}
+
+func TestRaccoonUnavailableNeverExchangesCodeOrReflectsInput(t *testing.T) {
+	for _, tc := range []struct {
+		handler gin.HandlerFunc
+		method  string
+		code    int
+	}{
+		{SelfRaccoonOAuthStart, http.MethodPost, http.StatusServiceUnavailable},
+		{SelfRaccoonOAuthPoll, http.MethodGet, http.StatusServiceUnavailable},
+		{SelfRaccoonOAuthCallback, http.MethodGet, http.StatusGone},
+	} {
+		w := selfContractRequest(7, tc.method, "/auth?state=attacker&code=%3Cscript%3E", "{}", tc.handler)
+		assert.Equal(t, tc.code, w.Code)
+		assert.Equal(t, "no-store", w.Header().Get("Cache-Control"))
+		assert.NotContains(t, w.Body.String(), "<script>")
+		assert.NotContains(t, w.Body.String(), "authUrl")
+	}
+}
+
+func TestDS2CancellationBlocksBrowserRedemption(t *testing.T) {
+	uid := setupChannelCreateTest(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.SelfOAuthSession{}))
+	platform := selfContractDS2Session(t, uid)
+	oldAddress, oldSecret, oldConfigured := system_setting.ServerAddress, common.CryptoSecret, common.CryptoSecretConfigured
+	system_setting.ServerAddress, common.CryptoSecret, common.CryptoSecretConfigured = "https://newapi.example", "ds2-cancel-fixture", true
+	t.Cleanup(func() {
+		system_setting.ServerAddress, common.CryptoSecret, common.CryptoSecretConfigured = oldAddress, oldSecret, oldConfigured
+	})
+	t.Setenv("DS2API_BASE_URL", "https://ds2.example/v1")
+	start := selfContractDS2Start(platform, `{"proxy":"direct"}`)
+	require.Contains(t, start.Body.String(), `"success":true`)
+	var response struct {
+		Data struct {
+			State string `json:"sessionId"`
+			URL   string `json:"authUrl"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(start.Body.Bytes(), &response))
+	cancel := selfContractRequest(uid, http.MethodPost, "/cancel", fmt.Sprintf(`{"sessionId":%q}`, response.Data.State), func(c *gin.Context) {
+		c.Set("session_id", platform.SID)
+		c.Set("auth_version", platform.UserAuthVersion)
+		c.Set("session_version", platform.Version)
+		c.Request.Header.Set("Sec-Fetch-Site", "same-origin")
+		SelfDs2ApiOAuthCancel(c)
+	})
+	require.Contains(t, cancel.Body.String(), `"status":"cancelled"`)
+	var flow model.SelfOAuthSession
+	require.NoError(t, model.DB.Where("state = ?", ds2SessionKey(response.Data.State)).First(&flow).Error)
+	assert.Empty(t, flow.Refresh)
+	assert.Empty(t, flow.Access)
+	page := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(page)
+	c.Request = httptest.NewRequest(http.MethodGet, response.Data.URL, nil)
+	c.Request.AddCookie(start.Result().Cookies()[0])
+	c.Request.AddCookie(&http.Cookie{Name: service.RefreshCookieName, Value: platform.SID + ".fixture-refresh"})
+	SelfDs2ApiOAuthAuthorizePage(c)
+	assert.Equal(t, http.StatusGone, page.Code)
+}
+
+func TestDS2PoolActivationPreservesOwnerManualDisable(t *testing.T) {
+	uid := setupChannelCreateTest(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.SelfOAuthSession{}, &model.SelfAccountBinding{}))
+	platform := selfContractDS2Session(t, uid)
+	oldAddress, oldSecret, oldConfigured := system_setting.ServerAddress, common.CryptoSecret, common.CryptoSecretConfigured
+	system_setting.ServerAddress, common.CryptoSecret, common.CryptoSecretConfigured = "https://newapi.example", "ds2-owner-disable-test", true
+	t.Cleanup(func() {
+		system_setting.ServerAddress, common.CryptoSecret, common.CryptoSecretConfigured = oldAddress, oldSecret, oldConfigured
+	})
+	t.Setenv("DS2API_BASE_URL", "https://ds2.example/v1")
+	start := selfContractDS2Start(platform, `{"proxy":"direct"}`)
+	require.Contains(t, start.Body.String(), `"success":true`)
+	var response struct {
+		Data struct {
+			State string `json:"sessionId"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(start.Body.Bytes(), &response))
+	var flow model.SelfOAuthSession
+	require.NoError(t, model.DB.Where("state = ?", ds2SessionKey(response.Data.State)).First(&flow).Error)
+	var options ds2LoginOptions
+	require.NoError(t, common.UnmarshalJsonStr(common.DecryptSecretOrLegacy(flow.Refresh), &options))
+	require.NoError(t, model.EnsureProxyPoolSchema())
+	endpoint := model.ProxyEndpoint{UserId: uid, Name: "ds2-owner-disable", Kind: "http", Url: "http://127.0.0.1:1", Enabled: true, Public: true}
+	require.NoError(t, model.DB.Create(&endpoint).Error)
+	options.Proxy, options.ProxyPolicy = "", &dto.ChannelProxyPolicy{Mode: "public_pool"}
+	raw, err := common.Marshal(options)
+	require.NoError(t, err)
+	encrypted, err := common.EncryptSecret(string(raw))
+	require.NoError(t, err)
+	require.NoError(t, model.DB.Model(&flow).Update("refresh", encrypted).Error)
+	proxy, err := model.ResolveStableChannelProxy(uid, 0, options.EgressKey, dto.ChannelSettings{Proxy: options.Proxy, ProxyPolicy: options.ProxyPolicy})
+	require.NoError(t, err)
+	client, err := service.GetHttpClientWithProxy(proxy)
+	require.NoError(t, err)
+	oldTransport := client.Transport
+	client.Transport = selfContractTransport(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host == "chat.deepseek.com" {
+			return selfContractResponse(200, `{"code":0,"data":{"biz_code":0,"biz_data":{"user":{"token":"owner-disable-token"}}}}`)
+		}
+		return selfContractResponse(200, `{"data":[{"id":"deepseek-chat"}]}`)
+	})
+	t.Cleanup(func() { client.Transport = oldTransport })
+	intercepted := false
+	const hook = "test:ds2-owner-disable-at-bind"
+	require.NoError(t, model.DB.Callback().Query().After("gorm:query").Register(hook, func(tx *gorm.DB) {
+		if intercepted || tx.Statement.Table != "channels" || strings.Join(tx.Statement.Selects, ",") != "id, owner_id" {
+			return
+		}
+		channel, ok := tx.Statement.Dest.(*model.Channel)
+		if !ok || channel.OwnerId != uid {
+			return
+		}
+		intercepted = true
+		require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", channel.Id).Update("status", common.ChannelStatusManuallyDisabled).Error)
+	}))
+	t.Cleanup(func() { require.NoError(t, model.DB.Callback().Query().Remove(hook)) })
+	form := url.Values{"state": {response.Data.State}, "csrf": {options.CSRF}, "account": {"owner@example.com"}, "password": {"fixture-password"}}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "https://newapi.example/api/user/auth/ds2api/credentials", strings.NewReader(form.Encode()))
+	c.Request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	c.Request.Header.Set("Origin", "https://newapi.example")
+	c.Request.AddCookie(start.Result().Cookies()[0])
+	c.Request.AddCookie(&http.Cookie{Name: service.RefreshCookieName, Value: platform.SID + ".fixture-refresh"})
+	SelfDs2ApiOAuthCallback(c)
+	require.True(t, intercepted)
+	assert.NotEqual(t, http.StatusOK, recorder.Code)
+	var channel model.Channel
+	require.NoError(t, model.DB.Where("owner_id = ?", uid).Last(&channel).Error)
+	assert.Equal(t, common.ChannelStatusManuallyDisabled, channel.Status)
+	var enabled int64
+	require.NoError(t, model.DB.Model(&model.Ability{}).Where("channel_id = ? AND enabled = ?", channel.Id, true).Count(&enabled).Error)
+	assert.Zero(t, enabled)
 }

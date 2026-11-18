@@ -67,6 +67,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { toIntlLocale } from '@/i18n/languages'
+import { formatNumber } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
@@ -93,7 +95,8 @@ import { kindLabel, type ProxyEndpoint, type ProxySubscription } from './types'
 const QUERY_KEY = ['proxy-pool'] as const
 
 export function ProxyPoolPage() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const isSuperAdmin = useAuthStore(
     (state) => (state.auth.user?.role ?? 0) >= ROLE.SUPER_ADMIN
   )
@@ -329,7 +332,9 @@ export function ProxyPoolPage() {
     endpointsContent = (
       <EmptyState
         title={t('No egress nodes yet')}
-        description='点击右上角「导入 Haizhu 7114 公共节点」或「导入订阅」即可立即填充代理池。'
+        description={t(
+          'Import a subscription to add inventory. Imported nodes still require probing.'
+        )}
       />
     )
   } else {
@@ -438,48 +443,71 @@ export function ProxyPoolPage() {
         </div>
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
+        {summaryQuery.isError && (
+          <ErrorState
+            title={t('Failed to load proxy inventory')}
+            onRetry={() => void summaryQuery.refetch()}
+          />
+        )}
         <div className='grid gap-4 sm:grid-cols-2 xl:grid-cols-4'>
           <StatCard
             icon={<Zap className='h-4 w-4' />}
-            label='可见可用节点总数'
-            value={String(summary?.endpoint_total ?? endpoints.length)}
-            hint={`公共池公开: ${summary?.public_node_count ?? endpoints.filter((e) => e.public).length} · 启用中: ${summary?.endpoint_enabled ?? endpoints.filter((e) => e.enabled).length}`}
-          />
-          {isSuperAdmin ? (
-            <StatCard
-              icon={<Globe className='h-4 w-4' />}
-              label={t('Shared mihomo kernel (super administrator only)')}
-              value={
-                runtime?.running
-                  ? `运行中 (:${runtime.port || 23456})`
-                  : '待启动'
+            label={t('Imported inventory (database, visible to you)')}
+            value={formatNumber(
+              summary?.imported_total ?? summary?.endpoint_total,
+              locale
+            )}
+            hint={t(
+              'Enabled: {{enabled}}. Enabled does not mean verified healthy.',
+              {
+                enabled: formatNumber(
+                  summary?.enabled ?? summary?.endpoint_enabled,
+                  locale
+                ),
               }
-              hint={`已装载 ${runtime?.proxies ?? 0} 个代理节点，自动优选最快节点`}
-            />
-          ) : (
-            <StatCard
-              icon={<Globe className='h-4 w-4' />}
-              label='公共池共享节点'
-              value={String(
-                summary?.public_node_count ??
-                  endpoints.filter((e) => e.public).length
-              )}
-              hint='自动按延迟优选最快出口，遇错自动熔断切换'
-            />
-          )}
+            )}
+          />
+          <StatCard
+            icon={<Globe className='h-4 w-4' />}
+            label={t('Loaded in this process (visible to you)')}
+            value={formatNumber(summary?.loaded_this_process, locale)}
+            hint={t(
+              'Not summed across instances. Unloaded inventory: {{remaining}}.',
+              { remaining: formatNumber(summary?.inventory_remaining, locale) }
+            )}
+          />
           <StatCard
             icon={<Rss className='h-4 w-4' />}
-            label={t('Subscriptions')}
-            value={String(summary?.subscription_total ?? subscriptions.length)}
-            hint='未公开订阅仅自己可见可调，公开订阅进公共池'
+            label={t('Probed healthy (database, enabled nodes)')}
+            value={formatNumber(summary?.probed_healthy, locale)}
+            hint={t('Unknown: {{unknown}} · Failed: {{failed}}', {
+              unknown: formatNumber(summary?.unknown, locale),
+              failed: formatNumber(summary?.failed, locale),
+            })}
           />
           <StatCard
             icon={<Copy className='h-4 w-4' />}
-            label='故障熔断与调度'
-            value='低延迟优先 + 自动熔断'
-            hint='遇 429/403/5xx 或超时无感切换下一个节点'
+            label={t('Stable account egress')}
+            value={t('One account, one selected endpoint')}
+            hint={t('Changes only when unusable. No implicit direct fallback.')}
           />
         </div>
+        <p className='text-muted-foreground text-xs'>
+          {t(
+            'Node records are not unique exit IPs. Probe results are historical, not a current availability guarantee.'
+          )}{' '}
+          {t(
+            'This list contains {{shown}} of {{total}} visible records (limit {{limit}}).',
+            {
+              shown: formatNumber(endpoints.length, locale),
+              total: formatNumber(
+                summary?.imported_total ?? summary?.endpoint_total,
+                locale
+              ),
+              limit: formatNumber(summary?.list_limit, locale),
+            }
+          )}
+        </p>
 
         {/* 共享 mihomo 内核控制卡：仅超级管理员可见 */}
         {isSuperAdmin && (
@@ -492,8 +520,18 @@ export function ProxyPoolPage() {
                     {t('Shared mihomo runtime (super administrator only)')}
                   </CardTitle>
                   <CardDescription>
-                    全站共用一套 mihomo 内核。公开节点（含 Haizhu 7114
-                    节点与管理员公开节点）全员可用；未勾选公开的私有节点/订阅只对添加者本人可见和可调用。
+                    {t(
+                      'This process has its own bounded mihomo runtime. Database inventory is shared; listeners are not. Private listeners remain owner-only.'
+                    )}{' '}
+                    {t(
+                      'Preload limit: {{limit}}. Remaining inventory is not loaded; an administrator must adjust the bounded preload and reload before use.',
+                      {
+                        limit: formatNumber(
+                          summary?.runtime_preload_limit,
+                          locale
+                        ),
+                      }
+                    )}
                   </CardDescription>
                 </div>
                 <Button
@@ -524,7 +562,7 @@ export function ProxyPoolPage() {
                 {runtime?.running ? '内核在线' : '内核未运行'}
               </Badge>
               <span className='text-muted-foreground'>
-                当前出站策略：
+                {t('Legacy shared selector (not used by account egress):')}
                 <strong className='text-foreground ms-1 font-mono'>
                   {runtime?.selected_node || 'PUBLIC_FAST (自动测速最快)'}
                 </strong>
@@ -532,7 +570,7 @@ export function ProxyPoolPage() {
               {runtime?.nodes && runtime.nodes.length > 0 && (
                 <div className='ms-auto flex items-center gap-2'>
                   <span className='text-muted-foreground'>
-                    手动指定出站节点：
+                    {t('Legacy shared selector:')}
                   </span>
                   <select
                     className='border-input bg-background h-8 max-w-[280px] rounded-md border px-2 text-xs'
@@ -586,7 +624,9 @@ export function ProxyPoolPage() {
               <div>
                 <CardTitle className='text-base'>{t('Nodes')}</CardTitle>
                 <CardDescription>
-                  按延迟从快到慢排序；调用出错自动熔断切换到下一个健康节点。
+                  {t(
+                    'The same account keeps its endpoint until it is unusable. Enabled and imported nodes are not verified healthy.'
+                  )}
                 </CardDescription>
               </div>
               <div className='flex flex-wrap items-center gap-2'>

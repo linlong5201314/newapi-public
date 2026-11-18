@@ -14,11 +14,40 @@ import {
   consentFreePiOAuth,
   pollFreePiOAuth,
   startFreePiOAuth,
+  type BindingProxyPolicy,
   type FreePiPollResult,
   type FreePiSession,
 } from './api'
 
-type FreePiAuthorizationProps = { onComplete?: (channelId: number) => void }
+type FreePiAuthorizationProps = {
+  onComplete?: (channelId: number) => void
+  proxy?: string
+  proxyPolicy?: BindingProxyPolicy
+}
+
+// Only trust a complete URL actually supplied by the device issuer. Never
+// synthesize user_code links: providers may require the manual device step.
+function completeVerificationUri(session: FreePiSession): string | undefined {
+  if (!session.verificationUriComplete) return undefined
+  try {
+    const uri = new URL(session.verificationUriComplete)
+    if (
+      uri.origin !== 'https://github.com' ||
+      uri.pathname !== '/login/device' ||
+      uri.username ||
+      uri.password ||
+      uri.hash ||
+      uri.searchParams.getAll('user_code').length !== 1 ||
+      uri.searchParams.get('user_code') !== session.userCode ||
+      [...uri.searchParams.keys()].some((key) => key !== 'user_code')
+    ) {
+      return undefined
+    }
+    return uri.href
+  } catch {
+    return undefined
+  }
+}
 
 export function FreePiAuthorizationCard(props: FreePiAuthorizationProps) {
   const { t } = useTranslation()
@@ -33,6 +62,7 @@ export function FreePiAuthorizationCard(props: FreePiAuthorizationProps) {
   const [problem, setProblem] = useState('')
   const completedID = result?.status === 'done' ? result.channel?.id : undefined
   const onComplete = props.onComplete
+  const completeUri = session ? completeVerificationUri(session) : undefined
 
   useEffect(() => {
     if (!completedID) return
@@ -59,6 +89,8 @@ export function FreePiAuthorizationCard(props: FreePiAuthorizationProps) {
         displayName,
         public: isPublic,
         confirmPublic: isPublic,
+        ...(props.proxy !== undefined ? { proxy: props.proxy } : {}),
+        ...(props.proxyPolicy ? { proxy_policy: props.proxyPolicy } : {}),
       }),
     retry: false,
     onSuccess: (data) => {
@@ -261,13 +293,22 @@ export function FreePiAuthorizationCard(props: FreePiAuthorizationProps) {
             />
           </div>
           <a
-            href={session.verificationUri}
+            href={completeUri ?? session.verificationUri}
             target='_blank'
             rel='noopener noreferrer'
             className='text-primary text-sm underline'
           >
-            {t('Open GitHub and enter this device code')}
+            {completeUri
+              ? t('Open GitHub to confirm authorization')
+              : t('Open GitHub and enter this device code')}
           </a>
+          {!completeUri && (
+            <p className='text-muted-foreground text-sm'>
+              {t(
+                'GitHub requires you to enter this code once. After confirmation, this page finishes binding automatically.'
+              )}
+            </p>
+          )}
           <p role='status' className='text-muted-foreground text-sm'>
             {t(
               'Waiting for your GitHub confirmation. No channel is created until authorization finishes.'
@@ -298,7 +339,7 @@ export function FreePiAuthorizationCard(props: FreePiAuthorizationProps) {
                 </Label>
               </div>
               <Button
-                disabled={!accepted || consent.isPending}
+                disabled={!accepted || consent.isPending || cancel.isPending}
                 onClick={() => {
                   setProblem('')
                   consent.mutate()

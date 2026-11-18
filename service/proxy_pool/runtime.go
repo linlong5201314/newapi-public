@@ -61,7 +61,7 @@ func init() {
 	})
 	// 当通过本地 mihomo 端口请求失败时，自动切换到下一个可用节点（无感熔断）。
 	model.SetKernelFailoverProvider(func(userId int, proxyURL string) bool {
-		return defaultManager.FailoverOnError(userId, proxyURL)
+		return model.InvalidateStableProxyURL(proxyURL)
 	})
 }
 
@@ -128,6 +128,21 @@ func (m *Manager) EndpointProxyURL(endpoint model.ProxyEndpoint) (string, error)
 		return "", fmt.Errorf("proxy endpoint is not loaded or changed; reload the kernel")
 	}
 	return m.plan.EndpointURLs[endpoint.Id], nil
+}
+
+// LoadedEndpointIDs returns listeners in THIS process only, never another node's
+// plan or an exited kernel's last configuration. Callers must apply visibility.
+func (m *Manager) LoadedEndpointIDs() []int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.runningLocked() || !m.ready || m.plan == nil {
+		return nil
+	}
+	ids := make([]int, 0, len(m.plan.EndpointURLs))
+	for id := range m.plan.EndpointURLs {
+		ids = append(ids, id)
+	}
+	return ids
 }
 
 // ProxyURLs authorizes every endpoint against the current database before use.
@@ -441,13 +456,11 @@ func (m *Manager) statusLocked(binary string) Status {
 		Ports:        map[int]int{},
 		Groups:       map[int]string{},
 	}
-	if m.plan != nil {
+	if m.runningLocked() && m.ready && m.plan != nil {
 		status.Proxies = m.plan.Proxies
 		status.PublicCount = len(m.plan.PublicNodes)
 		status.Ports = m.plan.Ports
 		status.Groups = m.plan.Groups
-	}
-	if m.runningLocked() && m.ready {
 		status.Running = true
 		status.StartedAt = m.startedAt.Unix()
 	}
