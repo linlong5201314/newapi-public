@@ -226,7 +226,7 @@ it.each([false, true])(
           confirmRotation: true,
           mode: 'create',
           public: false,
-          proxyPolicy: { mode: 'user_pool' },
+          proxyPolicy: undefined,
         }),
         expect.anything()
       )
@@ -306,8 +306,8 @@ it.each([false, true])(
     expect(api.post).toHaveBeenCalledWith(
       '/api/channel/self/oauth/start',
       expect.objectContaining({
-        proxy: '',
-        proxyPolicy: { mode: 'user_pool' },
+        proxy: undefined,
+        proxyPolicy: undefined,
         public: false,
       }),
       expect.anything()

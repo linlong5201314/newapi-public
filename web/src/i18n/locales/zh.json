@@ -8270,6 +8270,8 @@
     "Use your own refresh token or the official http://127.0.0.1:port/authorize callback.": "请使用您自己的刷新令牌，或官方本地客户端的 http://127.0.0.1:port/authorize 回调链接。",
     "I understand that importing Trae credentials rotates tokens and may sign out other clients.": "我已知晓：导入 Trae 凭据会轮换令牌，并可能使同账号的其他客户端退出登录。",
     "Trae import uses your own official client credentials, not one-click browser OAuth.": "Trae 仅导入您自己的官方客户端凭据，不提供一键浏览器 OAuth 授权。",
-    "Back to console": "返回控制台"
+    "Back to console": "返回控制台",
+    "Your proxy endpoints: {{count}}. Token quota is not measured.": "本人代理节点：{{count}} 个；未计量 Token 额度。",
+    "Domestic account login uses the server default when no proxy is selected. Choosing your own proxy applies it strictly.": "国内账号未手动选择代理时使用服务端默认直连；明确选择本人代理后严格按该策略执行。"
   }
 }

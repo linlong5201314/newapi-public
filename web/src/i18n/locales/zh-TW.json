@@ -7754,6 +7754,8 @@
     "Use your own refresh token or the official http://127.0.0.1:port/authorize callback.": "Use your own refresh token or the official http://127.0.0.1:port/authorize callback.",
     "I understand that importing Trae credentials rotates tokens and may sign out other clients.": "I understand that importing Trae credentials rotates tokens and may sign out other clients.",
     "Trae import uses your own official client credentials, not one-click browser OAuth.": "Trae import uses your own official client credentials, not one-click browser OAuth.",
-    "Back to console": "Back to console"
+    "Back to console": "Back to console",
+    "Your proxy endpoints: {{count}}. Token quota is not measured.": "Your proxy endpoints: {{count}}. Token quota is not measured.",
+    "Domestic account login uses the server default when no proxy is selected. Choosing your own proxy applies it strictly.": "Domestic account login uses the server default when no proxy is selected. Choosing your own proxy applies it strictly."
   }
 }

@@ -126,12 +126,6 @@ function classifyTemplate(
   return 'api'
 }
 
-function formatTokenCount(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`
-  return String(n)
-}
-
 export function FromTemplateDialog({
   open,
   onOpenChange,
@@ -150,6 +144,7 @@ export function FromTemplateDialog({
   const [proxyPolicy, setProxyPolicy] = useState<ChannelProxyPolicy>({
     mode: 'user_pool',
   })
+  const [proxySelectionTouched, setProxySelectionTouched] = useState(false)
   const [proxyUrl, setProxyUrl] = useState('')
   const [allowIps, setAllowIps] = useState('')
   const [subscriptionUrl, setSubscriptionUrl] = useState('')
@@ -265,14 +260,6 @@ export function FromTemplateDialog({
       endpoints.filter((e) => e.is_owner && e.source !== 'haizhu' && e.enabled),
     [endpoints]
   )
-  // 自有 IP 每个节点粗估可扩充约 50 万免费层 token；免费公共池不显示剩余 token
-  const ownEstimatedTokens = useMemo(() => {
-    const perNode =
-      selected?.monthlyTokens && selected.monthlyTokens > 0
-        ? selected.monthlyTokens
-        : 500_000
-    return ownNodes.length * perNode
-  }, [ownNodes.length, selected?.monthlyTokens])
 
   useEffect(() => {
     if (!open) return
@@ -280,6 +267,7 @@ export function FromTemplateDialog({
     setApiKey('')
     setCustomName('')
     setExtraValues({})
+    setProxySelectionTouched(false)
     setProxyPolicy({ mode: 'user_pool' })
     setProxyUrl('')
     setVisibility(false)
@@ -310,6 +298,7 @@ export function FromTemplateDialog({
     setProbedCount(null)
     setProbeError(null)
     setCallable(!selected.id.startsWith('opencode-'))
+    setProxySelectionTouched(false)
     setProxyPolicy({ mode: 'user_pool' })
     let active = true
     if (
@@ -592,6 +581,7 @@ export function FromTemplateDialog({
       )
       setInlineSubUrl('')
       setInlineSubName('')
+      setProxySelectionTouched(false)
       setProxyPolicy({ mode: 'user_pool' })
       await endpointsQuery.refetch()
       void queryClient.invalidateQueries({
@@ -661,8 +651,11 @@ export function FromTemplateDialog({
         )
       }
       const sess = await startWorkbuddyOAuth(oauthRealm, {
-        proxy: resolveOutboundProxy(),
-        proxy_policy: proxyPolicy,
+        proxy: proxySelectionTouched ? resolveOutboundProxy() : undefined,
+        proxy_policy:
+          proxySelectionTouched || oauthRealm !== 'cn'
+            ? proxyPolicy
+            : undefined,
         displayName: customName.trim() || undefined,
         public: visibility,
       })
@@ -817,8 +810,11 @@ export function FromTemplateDialog({
             ...(looksUrl ? { callbackUrl: raw } : { refreshToken: raw }),
             uid: traeUid.trim() || undefined,
             confirmRotation: traeConfirmed,
-            proxy: resolveOutboundProxy(),
-            proxy_policy: proxyPolicy,
+            proxy: proxySelectionTouched ? resolveOutboundProxy() : undefined,
+            proxy_policy:
+              proxySelectionTouched || selected.id !== 'trae-cn'
+                ? proxyPolicy
+                : undefined,
             displayName: customName.trim() || undefined,
             public: visibility,
           })
@@ -1480,8 +1476,10 @@ export function FromTemplateDialog({
                         variant='secondary'
                         className='font-mono text-[11px]'
                       >
-                        自有订阅/IP: {ownNodes.length} 个 · 预估总额度 ≈{' '}
-                        {formatTokenCount(ownEstimatedTokens)} tokens
+                        {t(
+                          'Your proxy endpoints: {{count}}. Token quota is not measured.',
+                          { count: ownNodes.length }
+                        )}
                       </Badge>
                     )}
                 </div>
@@ -1491,13 +1489,28 @@ export function FromTemplateDialog({
                     'Platform IP-based free models are available to everyone through Public models. Your sources stay private unless you choose to share them.'
                   )}
                 </p>
+                {!proxySelectionTouched &&
+                  (selected?.id === 'workbuddy' ||
+                    selected?.id === 'trae-cn') && (
+                    <p className='text-muted-foreground text-xs'>
+                      {t(
+                        'Domestic account login uses the server default when no proxy is selected. Choosing your own proxy applies it strictly.'
+                      )}
+                    </p>
+                  )}
                 <ChannelProxySelector
                   enabled={open}
                   policy={proxyPolicy}
                   proxy={proxyUrl}
                   disabled={isSubmitting}
-                  onPolicyChange={setProxyPolicy}
-                  onProxyChange={setProxyUrl}
+                  onPolicyChange={(policy) => {
+                    setProxySelectionTouched(true)
+                    setProxyPolicy(policy)
+                  }}
+                  onProxyChange={(proxy) => {
+                    setProxySelectionTouched(true)
+                    setProxyUrl(proxy)
+                  }}
                 />
 
                 {/* 在创建渠道弹窗内直接添加机场订阅（Item 2.3 & 2.5） */}

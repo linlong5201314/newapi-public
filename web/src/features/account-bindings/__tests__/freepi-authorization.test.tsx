@@ -1,7 +1,13 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { act } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { api } from '@/lib/api'
@@ -183,7 +189,7 @@ describe('FreePi device authorization', () => {
         'FreePi authorization completed. Channel #{{id}} uses your account'
       )
     ).toBeVisible()
-    expect(onComplete).toHaveBeenCalledWith(42)
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(42))
   })
 
   it('keeps public sharing off unless the user selects it and sends explicit confirmation', async () => {
@@ -239,7 +245,7 @@ describe('FreePi device authorization', () => {
   })
 
   it('expires while awaiting consent and asks the user to start again', async () => {
-    const user = userEvent.setup()
+    vi.useFakeTimers()
     vi.mocked(api.post)
       .mockResolvedValueOnce({
         data: { success: true, data: { ...session, expiresIn: 10 } },
@@ -251,24 +257,31 @@ describe('FreePi device authorization', () => {
         },
       })
     renderCard()
-    await user.click(
-      screen.getByRole('button', { name: 'Start GitHub device authorization' })
-    )
-    await screen.findByText(session.userCode)
-    vi.useFakeTimers()
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('button', {
+          name: 'Start GitHub device authorization',
+        })
+      )
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50)
+    })
+    expect(screen.getByText(session.userCode)).toBeVisible()
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5000)
     })
-    vi.useRealTimers()
-    await screen.findByRole('button', {
-      name: 'Accept FreePi consent and continue',
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50)
     })
-    vi.useFakeTimers()
+    expect(
+      screen.getByRole('button', { name: 'Accept FreePi consent and continue' })
+    ).toBeDisabled()
     await act(async () => {
       await vi.advanceTimersByTimeAsync(10000)
     })
-    vi.useRealTimers()
-    expect(await screen.findByRole('alert')).toHaveTextContent(
+    expect(screen.getByRole('alert')).toHaveTextContent(
       'FreePi authorization expired. Start again'
     )
     expect(
@@ -276,6 +289,7 @@ describe('FreePi device authorization', () => {
         name: 'Accept FreePi consent and continue',
       })
     ).not.toBeInTheDocument()
+    vi.useRealTimers()
   })
 
   it('rejects a non-GitHub verification URL instead of navigating or reporting success', async () => {

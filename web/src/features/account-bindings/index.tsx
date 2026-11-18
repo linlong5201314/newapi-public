@@ -241,8 +241,8 @@ export function AccountBindingsCard() {
         )
       }
       const sess = await startWorkbuddyOAuth(oauthRealm, {
-        proxy: proxy.trim(),
-        proxy_policy: { mode: proxy.trim() ? 'fixed' : 'user_pool' },
+        proxy: proxy.trim() || undefined,
+        proxy_policy: proxy.trim() ? { mode: 'fixed' } : undefined,
         displayName: displayName.trim() || undefined,
         public: isPublic,
       })
@@ -329,8 +329,8 @@ export function AccountBindingsCard() {
         ...(looksUrl ? { callbackUrl: raw } : { refreshToken: raw }),
         uid: traeUid.trim() || undefined,
         confirmRotation: traeConfirmed,
-        proxy: proxy.trim(),
-        proxy_policy: { mode: proxy.trim() ? 'fixed' : 'user_pool' },
+        proxy: proxy.trim() || undefined,
+        proxy_policy: proxy.trim() ? { mode: 'fixed' } : undefined,
         displayName: displayName.trim() || undefined,
         public: isPublic,
       })

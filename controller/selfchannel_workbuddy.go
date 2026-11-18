@@ -126,14 +126,8 @@ func selfWorkBuddyOAuthStart(c *gin.Context) {
 		accountAuthorizationError(c, model.ErrAuthFlowInvalid)
 		return
 	}
-	policy := req.ProxyPolicy
-	if policy == nil {
-		policy = &dto.ChannelProxyPolicy{Mode: "user_pool"}
-		if req.Proxy != "" {
-			policy.Mode = "fixed"
-		}
-	}
-	token, authURL, err := StartWorkBuddyAuthorization(c.Request.Context(), identity, realm, strings.TrimSpace(req.DisplayName), req.Public, dto.ChannelSettings{Proxy: req.Proxy, ProxyPolicy: policy})
+	settings := accountLoginProxySettings(realm, req.Proxy, req.ProxyPolicy)
+	token, authURL, err := StartWorkBuddyAuthorization(c.Request.Context(), identity, realm, strings.TrimSpace(req.DisplayName), req.Public, settings)
 	if err != nil {
 		accountAuthorizationError(c, err)
 		return
@@ -210,14 +204,8 @@ func selfTraeCredentialImport(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "code": "TRAE_ROTATION_CONFIRMATION_REQUIRED", "message": common.NewMessage("Trae token rotation may sign out other clients; confirm before importing")})
 		return
 	}
-	policy := req.ProxyPolicy
-	if policy == nil {
-		policy = &dto.ChannelProxyPolicy{Mode: "user_pool"}
-		if req.Proxy != "" {
-			policy.Mode = "fixed"
-		}
-	}
-	token, err := ImportTraeAuthorization(c.Request.Context(), identity, strings.TrimSpace(req.CallbackURL), strings.TrimSpace(req.RefreshToken), strings.TrimSpace(req.UID), req.MachineID, req.DeviceID, strings.TrimSpace(req.DisplayName), req.Public, req.ConfirmRotation, dto.ChannelSettings{Proxy: req.Proxy, ProxyPolicy: policy})
+	settings := accountLoginProxySettings("cn", req.Proxy, req.ProxyPolicy)
+	token, err := ImportTraeAuthorization(c.Request.Context(), identity, strings.TrimSpace(req.CallbackURL), strings.TrimSpace(req.RefreshToken), strings.TrimSpace(req.UID), req.MachineID, req.DeviceID, strings.TrimSpace(req.DisplayName), req.Public, req.ConfirmRotation, settings)
 	if err != nil {
 		accountAuthorizationError(c, err)
 		return
@@ -626,4 +614,24 @@ func ImportTraeAuthorization(ctx context.Context, identity model.AuthSessionIden
 		return "", upstreamErr
 	}
 	return token, nil
+}
+
+// accountLoginProxySettings preserves explicit choices; domestic accounts permit
+// an untouched direct login default without exposing a direct option in the UI.
+func accountLoginProxySettings(realm, proxy string, policy *dto.ChannelProxyPolicy) dto.ChannelSettings {
+	if policy != nil {
+		return dto.ChannelSettings{Proxy: proxy, ProxyPolicy: policy}
+	}
+	mode := "user_pool"
+	switch strings.TrimSpace(proxy) {
+	case "direct":
+		mode = "direct"
+	case "":
+		if realm == "cn" {
+			mode = "direct"
+		}
+	default:
+		mode = "fixed"
+	}
+	return dto.ChannelSettings{Proxy: proxy, ProxyPolicy: &dto.ChannelProxyPolicy{Mode: mode}}
 }

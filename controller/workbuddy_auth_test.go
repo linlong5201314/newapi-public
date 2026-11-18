@@ -267,3 +267,27 @@ func TestWorkBuddyDurableAuthorization(t *testing.T) {
 	_, err = ImportTraeAuthorization(context.Background(), identity, "", "source-token", "trae-owner", "", "", "Trae", false, true, settings)
 	assert.ErrorIs(t, err, model.ErrAuthFlowConsumed)
 }
+
+func TestAccountLoginProxyDefaultsPreserveExplicitChoice(t *testing.T) {
+	for _, tc := range []struct {
+		name, realm, proxy string
+		policy             *dto.ChannelProxyPolicy
+		mode               string
+	}{
+		{name: "domestic untouched permits direct", realm: "cn", mode: "direct"},
+		{name: "global untouched remains personal pool", realm: "global", mode: "user_pool"},
+		{name: "fixed URL remains fixed", realm: "cn", proxy: "http://127.0.0.1:7890", mode: "fixed"},
+		{name: "explicit personal pool never falls back", realm: "cn", policy: &dto.ChannelProxyPolicy{Mode: "user_pool"}, mode: "user_pool"},
+		{name: "explicit subscription stays selected", realm: "cn", policy: &dto.ChannelProxyPolicy{Mode: "subscription", SubscriptionID: 7}, mode: "subscription"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := accountLoginProxySettings(tc.realm, tc.proxy, tc.policy)
+			require.NotNil(t, got.ProxyPolicy)
+			assert.Equal(t, tc.mode, got.ProxyPolicy.Mode)
+			assert.Equal(t, tc.proxy, got.Proxy)
+			if tc.policy != nil {
+				assert.Equal(t, tc.policy, got.ProxyPolicy)
+			}
+		})
+	}
+}
