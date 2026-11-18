@@ -15,7 +15,7 @@ import (
 // IsEncryptedChannelType 判断渠道类型是否使用加密凭据存储。
 func IsEncryptedChannelType(channelType int) bool {
 	switch channelType {
-	case constant.ChannelTypeWorkBuddy, constant.ChannelTypeTrae, constant.ChannelTypeCline, constant.ChannelTypeRaccoon:
+	case constant.ChannelTypeWorkBuddy, constant.ChannelTypeTrae, constant.ChannelTypeCline, constant.ChannelTypeRaccoon, constant.ChannelTypeFreePi:
 		return true
 	default:
 		return false
@@ -33,12 +33,19 @@ func EncryptChannelKey(channelType int, key string) string {
 	return common.EncryptSecretBestEffort(key)
 }
 
-// DecryptChannelKey 透明解密账号型渠道凭据；历史明文/其他类型原样返回。
+// DecryptChannelKey also recognizes explicitly encrypted keys on ordinary API
+// channels (for example a server-owned account login gateway). Decryption errors
+// fail closed: neither ciphertext nor a diagnostic containing it may be relayed.
 func DecryptChannelKey(channelType int, key string) string {
-	if key == "" || !IsEncryptedChannelType(channelType) {
+	if key == "" || (!IsEncryptedChannelType(channelType) && !common.IsEncryptedSecret(key)) {
 		return key
 	}
-	return common.DecryptSecretOrLegacy(key)
+	plain, err := common.DecryptSecret(key)
+	if err != nil {
+		common.SysError("Channel credential decryption failed; refusing to relay encrypted key")
+		return ""
+	}
+	return plain
 }
 
 // EncryptCheckinCred 加密签到账号独立凭据（CheckinAccount.CredJson）。

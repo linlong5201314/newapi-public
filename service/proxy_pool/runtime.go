@@ -1,10 +1,10 @@
-﻿package proxy_pool
+package proxy_pool
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -37,6 +37,8 @@ const HaizhuDefaultExtractDir = `C:\Users\林龙\Desktop\逆向测试\haizhu测�
 type Manager struct {
 	mu             sync.Mutex
 	cmd            *exec.Cmd
+	processDone    chan error
+	ready          bool
 	plan           *RuntimePlan
 	cfgPath        string
 	dir            string
@@ -52,6 +54,7 @@ var defaultManager = &Manager{}
 func ManagerInstance() *Manager { return defaultManager }
 
 func init() {
+	model.SetEndpointProxyURLProvider(defaultManager.EndpointProxyURL)
 	// 让出口轮换能用上内核端口：节点全是客户端协议时，URL 列表本来为空。
 	model.SetExtraProxyURLProvider(func(userId int) []string {
 		return defaultManager.ProxyURLs(userId)
@@ -73,7 +76,7 @@ func (m *Manager) BinaryPath() string {
 		filepath.Join("bin", "mihomo.exe"),
 		filepath.Join("bin", "mihomo"),
 		`C:\Users\林龙\Desktop\GitHub仓库修改\公共版本连接newapi\new-api\bin\mihomo.exe`,
-		 filepath.Join(HaizhuDefaultExtractDir, "mihomo.exe"),
+		filepath.Join(HaizhuDefaultExtractDir, "mihomo.exe"),
 	}
 	for _, p := range candidates {
 		if abs, err := filepath.Abs(p); err == nil {
@@ -113,21 +116,36 @@ func (m *Manager) Status() Status {
 	return m.statusLocked(m.BinaryPath())
 }
 
-// ProxyURLs 该用户可用内核出口；只要内核在跑且该用户有可见节点（自己的或公开的），就返回共享端口。
-func (m *Manager) ProxyURLs(userId int) []string {
+// EndpointProxyURL returns only a ready listener whose node data still matches DB.
+func (m *Manager) EndpointProxyURL(endpoint model.ProxyEndpoint) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.cmd == nil || m.plan == nil || m.plan.Proxies == 0 {
+	if !m.runningLocked() || !m.ready || m.plan == nil {
+		return "", fmt.Errorf("mihomo is not ready; reload the kernel")
+	}
+	key := stableHash(endpoint.Url + "\x00" + endpoint.RawUri)
+	if m.plan.EndpointKeys[endpoint.Id] != key || m.plan.EndpointURLs[endpoint.Id] == "" {
+		return "", fmt.Errorf("proxy endpoint is not loaded or changed; reload the kernel")
+	}
+	return m.plan.EndpointURLs[endpoint.Id], nil
+}
+
+// ProxyURLs authorizes every endpoint against the current database before use.
+func (m *Manager) ProxyURLs(userID int) []string {
+	if model.DB == nil {
 		return nil
 	}
-	if len(m.visibleNodesLocked(userId)) == 0 {
+	var endpoints []model.ProxyEndpoint
+	if err := model.DB.Where("(user_id = ? OR public = ?) AND enabled = ? AND url = '' AND fail_count < ?", userID, true, true, model.ProxyEndpointMaxFailCount).Find(&endpoints).Error; err != nil {
 		return nil
 	}
-	port := m.plan.SharedPort
-	if port <= 0 {
-		port = mihomoBasePort
+	var urls []string
+	for _, endpoint := range endpoints {
+		if proxyURL, err := m.EndpointProxyURL(endpoint); err == nil {
+			urls = append(urls, proxyURL)
+		}
 	}
-	return []string{fmt.Sprintf("http://127.0.0.1:%d", port)}
+	return urls
 }
 
 // NodeNames 该用户可见的内核节点名（自己的私有节点 + 公共池公开节点；绝不包含他人私有节点）。
@@ -189,11 +207,25 @@ func (m *Manager) Reload(users []RuntimeUser) (Status, error) {
 	m.selectedNode = PublicFastGroupName
 
 	if plan.Proxies == 0 {
-		m.lastErr = "no client-type nodes enabled; kernel not started"
+		m.lastErr = "no supported nodes enabled; kernel not started"
 		return m.statusLocked(binary), nil
 	}
 
+	// Reject occupied controller/listener ports instead of accepting a foreign kernel.
+	ports := []int{mihomoCtrlPort, mihomoBasePort}
+	for _, port := range plan.EndpointPorts {
+		ports = append(ports, port)
+	}
+	for _, port := range ports {
+		listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		if err != nil {
+			m.lastErr = fmt.Sprintf("mihomo port %d unavailable", port)
+			return m.statusLocked(binary), fmt.Errorf("%s", m.lastErr)
+		}
+		_ = listener.Close()
+	}
 	cmd := exec.Command(binary, "-f", cfgPath, "-d", dir)
+	cmd.WaitDelay = time.Second
 	cmd.Stdout = &logWriter{}
 	cmd.Stderr = &logWriter{}
 	if err := cmd.Start(); err != nil {
@@ -201,6 +233,9 @@ func (m *Manager) Reload(users []RuntimeUser) (Status, error) {
 		return m.statusLocked(binary), err
 	}
 	m.cmd = cmd
+	done := make(chan error, 1)
+	m.processDone = done
+	go func() { done <- cmd.Wait() }()
 	m.startedAt = time.Now()
 	m.lastErr = ""
 	if cmd.Process != nil {
@@ -209,18 +244,27 @@ func (m *Manager) Reload(users []RuntimeUser) (Status, error) {
 
 	deadline := time.Now().Add(mihomoWaitTime)
 	for time.Now().Before(deadline) {
+		if !m.runningLocked() {
+			return m.statusLocked(binary), fmt.Errorf("%s", m.lastErr)
+		}
 		if m.controllerReady() {
-			break
+			m.ready = true
+			return m.statusLocked(binary), nil
 		}
 		time.Sleep(120 * time.Millisecond)
 	}
-	return m.statusLocked(binary), nil
+	m.stopLocked()
+	m.lastErr = "mihomo controller did not become healthy before startup timeout"
+	return m.statusLocked(binary), fmt.Errorf("%s", m.lastErr)
 }
 
 // Select 切换出站节点（校验用户只能选择自己的私有节点或公共池公开节点，禁止切他人私有节点）。
 func (m *Manager) Select(userId int, nodeName string) error {
 	m.mu.Lock()
-	valid := m.visibleNodesLocked(userId)
+	valid := []string(nil)
+	if m.plan != nil {
+		valid = append(valid, m.plan.PublicNodes...)
+	}
 	m.mu.Unlock()
 	if len(valid) == 0 {
 		return fmt.Errorf("no visible kernel nodes for user %d", userId)
@@ -238,7 +282,10 @@ func (m *Manager) Select(userId int, nodeName string) error {
 }
 
 func (m *Manager) putGroupSelection(group, nodeName string) error {
-	body, _ := json.Marshal(map[string]string{"name": nodeName})
+	body, err := common.Marshal(map[string]string{"name": nodeName})
+	if err != nil {
+		return err
+	}
 	req, err := http.NewRequest(http.MethodPut,
 		fmt.Sprintf("http://127.0.0.1:%d/proxies/%s", mihomoCtrlPort, url.PathEscape(group)),
 		bytes.NewReader(body))
@@ -268,7 +315,10 @@ func (m *Manager) FailoverOnError(userId int, proxyURL string) bool {
 		return false
 	}
 	m.mu.Lock()
-	candidates := m.visibleNodesLocked(userId)
+	candidates := []string(nil)
+	if m.plan != nil {
+		candidates = append(candidates, m.plan.PublicNodes...)
+	}
 	m.mu.Unlock()
 	if len(candidates) == 0 {
 		return false
@@ -291,23 +341,12 @@ func (m *Manager) ProbeEndpointDelay(endpointID int) (int, error) {
 	if m.plan != nil {
 		nodeName = m.plan.EndpointNodeName[endpointID]
 	}
-	running := m.cmd != nil && m.cmd.Process != nil
+	running := m.runningLocked() && m.ready
 	m.mu.Unlock()
 
 	if !running || nodeName == "" {
-		if _, err := ReloadAll(); err != nil {
-			return 0, err
-		}
-		m.mu.Lock()
-		if m.plan != nil {
-			nodeName = m.plan.EndpointNodeName[endpointID]
-		}
-		m.mu.Unlock()
+		return 0, fmt.Errorf("mihomo endpoint is unavailable; ask a root administrator to reload the kernel")
 	}
-	if nodeName == "" {
-		return 0, fmt.Errorf("node #%d is not loaded in mihomo kernel", endpointID)
-	}
-
 	probeURL := fmt.Sprintf(
 		"http://127.0.0.1:%d/proxies/%s/delay?timeout=6000&url=%s",
 		mihomoCtrlPort,
@@ -327,12 +366,17 @@ func (m *Manager) ProbeEndpointDelay(endpointID int) (int, error) {
 		return 0, err
 	}
 	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<10))
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 16<<10))
+	if err != nil {
+		return 0, fmt.Errorf("read mihomo delay: %w", err)
+	}
 	var payload struct {
 		Delay   int    `json:"delay"`
 		Message string `json:"message"`
 	}
-	_ = json.Unmarshal(raw, &payload)
+	if err := common.Unmarshal(raw, &payload); err != nil {
+		return 0, fmt.Errorf("decode mihomo delay: %w", err)
+	}
 	if resp.StatusCode >= 300 || payload.Delay <= 0 {
 		msg := strings.TrimSpace(payload.Message)
 		if msg == "" {
@@ -350,21 +394,39 @@ func (m *Manager) Stop() {
 	m.stopLocked()
 }
 
+// runningLocked reaps an exited process; the buffered waiter never needs m.mu.
+func (m *Manager) runningLocked() bool {
+	if m.cmd == nil {
+		return false
+	}
+	select {
+	case err := <-m.processDone:
+		m.cmd = nil
+		m.ready = false
+		m.lastErr = "mihomo process exited"
+		if err != nil {
+			m.lastErr += ": " + err.Error()
+		}
+		return false
+	default:
+		return m.cmd.Process != nil
+	}
+}
+
 func (m *Manager) stopLocked() {
 	if m.cmd != nil && m.cmd.Process != nil {
 		_ = m.cmd.Process.Kill()
-		_, _ = m.cmd.Process.Wait()
+		if m.processDone != nil {
+			<-m.processDone
+		}
 	}
 	m.cmd = nil
-	// 清理可能残留的旧 PID 进程，防止端口 23456/23459 被占
+	m.processDone = nil
+	m.ready = false
+	m.startedAt = time.Time{}
+	// Never kill a persisted PID: it may have been reused by an unrelated process.
 	if m.dir != "" {
-		if raw, err := os.ReadFile(filepath.Join(m.dir, "mihomo.pid")); err == nil {
-			if pid, perr := strconv.Atoi(strings.TrimSpace(string(raw))); perr == nil && pid > 0 {
-				if proc, ferr := os.FindProcess(pid); ferr == nil && proc != nil {
-					_ = proc.Kill()
-				}
-			}
-		}
+		_ = os.Remove(filepath.Join(m.dir, "mihomo.pid"))
 	}
 }
 
@@ -385,10 +447,11 @@ func (m *Manager) statusLocked(binary string) Status {
 		status.Ports = m.plan.Ports
 		status.Groups = m.plan.Groups
 	}
-	if m.cmd != nil && m.cmd.Process != nil {
+	if m.runningLocked() && m.ready {
 		status.Running = true
 		status.StartedAt = m.startedAt.Unix()
 	}
+	status.LastError = m.lastErr
 	return status
 }
 
@@ -407,7 +470,13 @@ func (m *Manager) controllerReady() bool {
 		return false
 	}
 	defer resp.Body.Close()
-	return resp.StatusCode < 400
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+	var payload struct {
+		Version string `json:"version"`
+	}
+	return common.DecodeJson(io.LimitReader(resp.Body, 16<<10), &payload) == nil && payload.Version != ""
 }
 
 func (m *Manager) workDir() string {
@@ -510,7 +579,12 @@ func UsersWithClientNodes() ([]RuntimeUser, error) {
 func ReloadAll() (Status, error) {
 	users, err := UsersWithClientNodes()
 	if err != nil {
-		return ManagerInstance().Status(), err
+		manager := ManagerInstance()
+		manager.mu.Lock()
+		manager.lastErr = "load proxy pool database: " + err.Error()
+		status := manager.statusLocked(manager.BinaryPath())
+		manager.mu.Unlock()
+		return status, fmt.Errorf("load proxy pool database: %w", err)
 	}
 	return ManagerInstance().Reload(users)
 }
@@ -577,10 +651,14 @@ func ImportHaizhuNodes(ownerUid int, mode string) (int, error) {
 func BootstrapBuiltinPool() {
 	go func() {
 		time.Sleep(2 * time.Second)
-		if count, err := model.CountHaizhuEndpoints(); err == nil && count == 0 {
+		if count, err := model.CountHaizhuEndpoints(); err != nil {
+			common.SysError("[proxy-pool] count builtin nodes: " + err.Error())
+		} else if count == 0 {
 			if _, statErr := os.Stat(HaizhuDefaultExtractDir); statErr == nil {
 				if n, ierr := ImportHaizhuNodes(1, "full"); ierr == nil {
 					common.SysLog(fmt.Sprintf("[proxy-pool] auto-imported %d Haizhu public nodes", n))
+				} else {
+					common.SysError("[proxy-pool] import builtin nodes: " + ierr.Error())
 				}
 			}
 		}

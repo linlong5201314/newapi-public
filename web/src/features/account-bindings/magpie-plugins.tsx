@@ -1,107 +1,161 @@
-import { useCallback, useEffect, useState } from 'react'
-import { listMagpiePlugins, type MagpiePlugin } from './api'
+import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
-const AUTH_TEXT: Record<string, string> = {
-  account: '账号密码授权',
-  oauth: '浏览器 OAuth',
-  key: 'API Key / 网关密钥',
-}
+import { CopyButton } from '@/components/copy-button'
+import { EmptyState } from '@/components/empty-state'
+import { ErrorState } from '@/components/error-state'
+import { LoadingState } from '@/components/loading-state'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+
+import { listMagpiePlugins } from './api'
 
 export function MagpiePluginsCard() {
-  const [items, setItems] = useState<MagpiePlugin[]>([])
+  const { t } = useTranslation()
   const [keyword, setKeyword] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [copied, setCopied] = useState('')
-
-  const load = useCallback(async (q: string) => {
-    setLoading(true)
-    try {
-      const res = await listMagpiePlugins(q)
-      setItems(res.items)
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    void load('')
-  }, [load])
-
-  const copy = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text)
-      setCopied(text)
-      window.setTimeout(() => setCopied(''), 1500)
-    } catch {
-      setCopied('')
-    }
+  const [search, setSearch] = useState('')
+  const catalog = useQuery({
+    queryKey: ['magpie-plugins', search],
+    queryFn: () => listMagpiePlugins(search),
+    retry: false,
+    meta: { errorToast: false },
+  })
+  const authText: Record<string, string> = {
+    account: t('Provider account sign-in required'),
+    oauth: t('Browser authorization required'),
+    key: t('Your own API key required'),
+    ip: t('Read provider requirements'),
   }
 
   return (
-    <section className="mb-4 rounded-xl border border-neutral-200 bg-white p-5">
-      <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-base font-semibold">Magpie 插件（22 个精选 provider）</h2>
+    <section
+      className='bg-card mb-4 rounded-xl border p-5'
+      aria-label={t('Magpie plugins')}
+    >
+      <div className='mb-2 flex flex-wrap items-center justify-between gap-2'>
+        <h2 className='text-base font-semibold'>{t('Magpie plugins')}</h2>
         <a
-          className="text-xs text-blue-600 hover:underline"
-          href="https://github.com/topics/magpie-plugin"
-          rel="noreferrer"
-          target="_blank"
+          className='text-primary text-sm underline'
+          href='https://github.com/yetone/magpie'
+          rel='noopener noreferrer'
+          target='_blank'
         >
-          查看 GitHub 全部 469 个插件
+          {t('Magpie setup guide')}
         </a>
       </div>
-      <p className="mb-3 text-xs text-neutral-500">
-        Magpie 是「一个网关接所有账号」的本地网关。装插件 → <code className="rounded bg-neutral-100 px-1">magpie provider add</code> 加自己的账号 →
-        把网关地址和 gateway key 填进上面的「Magpie 聚合网关」渠道。账号风险自担，建议用小号。
+      <p className='text-muted-foreground mb-3 text-sm'>
+        {t(
+          'Copying does not install or authorize a plugin. Run commands on the machine hosting your own Magpie gateway, not in this website.'
+        )}
       </p>
-      <div className="mb-3 flex gap-2">
-        <input
-          className="w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm"
-          onChange={(e) => setKeyword(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') void load(keyword)
-          }}
-          placeholder="搜索插件名称 / 仓库 / 用途，回车搜索"
+      <ol className='text-muted-foreground mb-4 list-inside list-decimal space-y-1 text-sm'>
+        <li>
+          {t(
+            'Install and start Magpie on a machine you control. Hosted instances require administrator access to install plugins.'
+          )}
+        </li>
+        <li>
+          {t(
+            'In Magpie, open Plugins, choose Add, and paste the import source. Alternatively run the CLI command below on that gateway host.'
+          )}
+        </li>
+        <li>
+          {t(
+            'Complete the plugin sign-in in Magpie using your own account. Installing alone does not grant model access.'
+          )}
+        </li>
+        <li>
+          {t(
+            'Add an OpenAI-compatible channel here using your reachable Magpie /v1 endpoint and your own gateway key, then fetch models. Do not paste an install command into the key field.'
+          )}
+        </li>
+      </ol>
+      <form
+        className='mb-3 flex gap-2'
+        onSubmit={(event) => {
+          event.preventDefault()
+          setSearch(keyword.trim())
+        }}
+      >
+        <Input
+          aria-label={t('Search Magpie plugins')}
+          placeholder={t('Search plugin name, repository or purpose')}
           value={keyword}
+          onChange={(event) => setKeyword(event.target.value)}
         />
-        <button
-          className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-50"
-          onClick={() => void load(keyword)}
-          type="button"
-        >
-          搜索
-        </button>
-      </div>
-      {loading ? (
-        <div className="py-6 text-center text-sm text-neutral-400">加载中…</div>
-      ) : items.length === 0 ? (
-        <div className="py-6 text-center text-sm text-neutral-400">没有匹配的插件</div>
-      ) : (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {items.map((p) => (
-            <div className="rounded-lg border border-neutral-200 p-3" key={p.id}>
-              <div className="flex items-start justify-between gap-2">
-                <a className="text-sm font-medium text-neutral-900 hover:underline" href={p.url} rel="noreferrer" target="_blank">
-                  {p.name}
+        <Button type='submit' variant='outline'>
+          {t('Search')}
+        </Button>
+      </form>
+      {catalog.isPending && (
+        <LoadingState message={t('Loading Magpie plugins')} />
+      )}
+      {catalog.isError && (
+        <ErrorState
+          title={t('Could not load Magpie plugins')}
+          onRetry={() => {
+            void catalog.refetch()
+          }}
+        />
+      )}
+      {catalog.isSuccess && catalog.data.items.length === 0 && (
+        <EmptyState title={t('No matching plugins')} />
+      )}
+      {catalog.isSuccess && catalog.data.items.length > 0 && (
+        <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-3'>
+          {catalog.data.items.map((plugin) => (
+            <article
+              className='min-w-0 space-y-2 rounded-lg border p-3'
+              key={plugin.id}
+            >
+              <h3 className='text-sm font-medium'>{plugin.name}</h3>
+              <p className='text-muted-foreground text-xs'>{plugin.desc}</p>
+              <p className='text-muted-foreground text-xs'>
+                {authText[plugin.authMode] ?? t('Read provider requirements')}
+              </p>
+              <p className='text-muted-foreground font-mono text-xs break-all'>
+                {plugin.repo}
+              </p>
+              {plugin.url && (
+                <a
+                  className='text-primary block text-xs underline'
+                  href={plugin.url}
+                  rel='noopener noreferrer'
+                  target='_blank'
+                >
+                  {t('Open plugin documentation')}
                 </a>
-                <span className="shrink-0 rounded bg-neutral-100 px-1.5 py-0.5 text-[11px] text-neutral-600">★ {p.stars}</span>
-              </div>
-              <div className="mt-1 text-xs text-neutral-500">{p.desc}</div>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[11px] text-blue-700">
-                  {AUTH_TEXT[p.authMode] ?? p.authMode}
-                </span>
-                <span className="truncate text-[11px] text-neutral-400">{p.repo}</span>
-              </div>
-              <button
-                className="mt-2 w-full truncate rounded border border-neutral-300 px-2 py-1 text-left text-[11px] text-neutral-700 hover:bg-neutral-50"
-                onClick={() => void copy(p.install)}
-                title={p.install}
-                type="button"
-              >
-                {copied === p.install ? '已复制 ✓' : p.install}
-              </button>
-            </div>
+              )}
+              {plugin.install && plugin.importSource ? (
+                <>
+                  <div className='flex items-center gap-2'>
+                    <code className='min-w-0 flex-1 text-xs break-all'>
+                      {plugin.importSource}
+                    </code>
+                    <CopyButton
+                      value={plugin.importSource}
+                      aria-label={t('Copy import source')}
+                    />
+                  </div>
+                  <div className='flex items-center gap-2'>
+                    <code className='min-w-0 flex-1 text-xs break-all'>
+                      {plugin.install}
+                    </code>
+                    <CopyButton
+                      value={plugin.install}
+                      aria-label={t('Copy CLI command')}
+                    />
+                  </div>
+                </>
+              ) : (
+                <p className='text-muted-foreground text-xs'>
+                  {t(
+                    'Installation source is unverified. No install command is offered.'
+                  )}
+                </p>
+              )}
+            </article>
           ))}
         </div>
       )}

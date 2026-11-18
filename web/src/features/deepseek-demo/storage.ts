@@ -16,29 +16,29 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { DemoConversation } from './types'
+import type { DemoConversation, DemoMessage } from './types'
 
-/**
- * DeepSeek 风格对话页的本地会话存储。
- *
- * 按用户分桶（dsdemo:<uid>），换账号不会互相看到历史；容量上限 50 条，
- * 写入失败（隐私模式 / 配额满）时静默降级为纯内存会话，不阻断对话。
- */
-const STORAGE_PREFIX = 'dsdemo'
 const MAX_CONVERSATIONS = 50
 
-function storageKey(userId: number | undefined): string {
-  return `${STORAGE_PREFIX}:${userId ?? 'anon'}`
-}
-
 export function loadConversations(userId?: number): DemoConversation[] {
-  if (typeof window === 'undefined') return []
+  if (typeof window === 'undefined' || userId === undefined) return []
   try {
-    const raw = window.localStorage.getItem(storageKey(userId))
+    const raw = window.localStorage.getItem(`dsdemo:${userId}`)
     if (!raw) return []
-    const parsed = JSON.parse(raw) as unknown
+    const parsed: unknown = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
-    return parsed.filter(isConversation).slice(0, MAX_CONVERSATIONS)
+    return parsed
+      .filter(isConversation)
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, MAX_CONVERSATIONS)
+      .map((conversation) => ({
+        ...conversation,
+        messages: conversation.messages.map((message) =>
+          message.status === 'streaming'
+            ? { ...message, status: 'stopped' }
+            : message
+        ),
+      }))
   } catch {
     return []
   }
@@ -48,18 +48,32 @@ export function saveConversations(
   userId: number | undefined,
   conversations: DemoConversation[]
 ): void {
-  if (typeof window === 'undefined') return
+  if (typeof window === 'undefined' || userId === undefined) return
   try {
     const trimmed = [...conversations]
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, MAX_CONVERSATIONS)
-    window.localStorage.setItem(
-      storageKey(userId),
-      JSON.stringify(trimmed)
-    )
+    window.localStorage.setItem(`dsdemo:${userId}`, JSON.stringify(trimmed))
   } catch {
-    // 配额满 / 隐私模式：保留内存态即可。
+    // Storage denied or full: retain the in-memory conversation.
   }
+}
+
+function isMessage(value: unknown): value is DemoMessage {
+  if (!value || typeof value !== 'object') return false
+  const record = value as Partial<DemoMessage>
+  return (
+    typeof record.id === 'string' &&
+    (record.role === 'user' || record.role === 'assistant') &&
+    typeof record.content === 'string' &&
+    typeof record.createdAt === 'number' &&
+    Number.isFinite(record.createdAt) &&
+    ['streaming', 'complete', 'error', 'stopped'].includes(
+      record.status ?? ''
+    ) &&
+    (record.reasoning === undefined || typeof record.reasoning === 'string') &&
+    (record.error === undefined || typeof record.error === 'string')
+  )
 }
 
 function isConversation(value: unknown): value is DemoConversation {
@@ -68,6 +82,13 @@ function isConversation(value: unknown): value is DemoConversation {
   return (
     typeof record.id === 'string' &&
     typeof record.title === 'string' &&
-    Array.isArray(record.messages)
+    typeof record.model === 'string' &&
+    typeof record.group === 'string' &&
+    typeof record.createdAt === 'number' &&
+    Number.isFinite(record.createdAt) &&
+    typeof record.updatedAt === 'number' &&
+    Number.isFinite(record.updatedAt) &&
+    Array.isArray(record.messages) &&
+    record.messages.every(isMessage)
   )
 }

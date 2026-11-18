@@ -524,9 +524,9 @@
     },
     {
       "id": "opencode-zen",
-      "name": "OpenCode Zen 免费模型",
+      "name": "OpenCode Zen 免费模型（受限）",
       "channelType": 1,
-      "baseUrl": "https://opencode.ai/zen/v1",
+      "baseUrl": "https://opencode.ai/inference/openai/v1",
       "signupUrl": "https://opencode.ai/auth",
       "keyRequired": true,
       "models": [
@@ -538,10 +538,10 @@
         "mimo-v2.6-flash-free",
         "nemotron-3.5-lightning-free"
       ],
-      "freeNote": "OpenCode Zen 免费模型清单公开可读，但调用必须用 OpenCode 账号登录后签发的 key（匿名/换 IP 实测 429 FreeUsageLimitError）。在 OpenCode 里 `opencode auth login` 后复制 key 填这里。⚠️ 小号风险自担。",
+      "freeNote": "OpenCode 免费模型目录可公开查询，但官方免费额度限受支持的 OpenCode 客户端使用。目录可见不代表本平台可调用；本平台不通过更换 IP、伪造设备或共享凭据绕过限制。当前禁止直接创建此免费来源渠道，请使用官方支持的客户端或自行配置允许第三方调用的服务。",
       "monthlyTokens": 0,
-      "freeType": "reverse-proxy",
-      "tos": "own-account",
+      "freeType": "restricted",
+      "tos": "restricted",
       "poolKey": "opencode",
       "authMode": "key",
       "hiddenEndpoint": false,
@@ -596,9 +596,9 @@
       "channelType": 1,
       "baseUrl": "{base}",
       "signupUrl": "https://github.com/yetone/magpie",
-      "keyRequired": false,
+      "keyRequired": true,
       "models": [],
-      "freeNote": "magpie 是「一个网关接所有账号」的本地网关。平台为你单独部署一台，地址只对管理员可见。用法：先在 magpie 里装插件（插件目录见「Magpie 插件」卡片），再 magpie provider add 加你自己的账号，然后用你自己的 gateway key 连本渠道，点「获取模型」同步模型。⚠️ 账号风险自担，建议小号。",
+      "freeNote": "Magpie 插件复制只提供导入来源或本机 CLI 命令，不会在本平台安装或自动授权。需要在你自己可管理的 Magpie 实例中安装插件并完成账号登录，再填写服务器可访问的 /v1 地址与你自己的 gateway key，获取模型后使用。无法管理托管实例时，请联系该实例管理员，不能把安装命令当作 API key。",
       "monthlyTokens": 0,
       "freeType": "reverse-proxy",
       "tos": "own-account",
@@ -606,12 +606,10 @@
       "extraFields": [
         "base"
       ],
-      "defaultExtra": {
-        "base": "https://magpie-production-557f97bd.up.railway.app/v1"
-      },
-      "authMode": "gateway",
-      "hiddenEndpoint": true,
-      "authType": "none"
+      "defaultExtra": {},
+      "authMode": "key",
+      "hiddenEndpoint": false,
+      "authType": "key"
     },
     {
       "id": "internlm",
@@ -717,8 +715,8 @@
     },
     {
       "id": "opencode-free",
-      "name": "OpenCode Free（IP 免费层 · 自动换 IP 扩容）",
-      "baseUrl": "https://opencode.ai/zen/v1",
+      "name": "OpenCode 免费模型（官方客户端使用限制）",
+      "baseUrl": "https://opencode.ai/inference/openai/v1",
       "signupUrl": "https://opencode.ai",
       "channelType": 1,
       "authMode": "ip",
@@ -733,10 +731,10 @@
         "mimo-v2.6-flash-free",
         "nemotron-3.5-lightning-free"
       ],
-      "freeNote": "参考 magpie-opencode-2-free-plug-in：无需 API Key，按 IP 免费层绑定出口池（默认联动 Haizhu 7114 公共节点池 + 虚拟设备标识），逐请求自动轮换 IP 刷新免费 Token 额度，遇错自动熔断切下一个 IP。",
+      "freeNote": "OpenCode 免费模型目录可公开查询，但官方免费额度限受支持的 OpenCode 客户端使用。目录可见不代表本平台可调用；本平台不通过更换 IP、伪造设备或共享凭据绕过限制。当前禁止直接创建此免费来源渠道，请使用官方支持的客户端或自行配置允许第三方调用的服务。",
       "monthlyTokens": 0,
-      "freeType": "recurring-uncapped",
-      "tos": "ok",
+      "freeType": "restricted",
+      "tos": "restricted",
       "poolKey": "opencode-free",
       "authType": "none"
     },
@@ -798,6 +796,23 @@
       "authMode": "subscription",
       "authType": "subscription",
       "hiddenEndpoint": true
+    },
+    {
+      "id": "freepi",
+      "name": "FreePi（GitHub 设备授权）",
+      "channelType": 69,
+      "baseUrl": "https://api.freepi.ai",
+      "signupUrl": "https://freepi.ai",
+      "keyRequired": true,
+      "models": [],
+      "freeNote": "使用专属 GitHub 设备授权，在 GitHub 登录并输入本页设备码；需要时明确接受 FreePi 当前条款。授权成功后仅在服务器加密保存你自己的 FreePi token，并建立默认私有渠道；公开消耗账号额度需显式勾选。实时模型来自 /client-version，额度、并发与广告条件以上游为准。本平台不伪造广告曝光，不自动换号或绕过限制。",
+      "monthlyTokens": 0,
+      "freeType": "reverse-proxy",
+      "tos": "own-account",
+      "poolKey": "freepi",
+      "authMode": "oauth",
+      "authType": "key",
+      "hiddenEndpoint": false
     }
   ]
 }

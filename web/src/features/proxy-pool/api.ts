@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { api, type ApiRequestConfig } from '@/lib/api'
+import { requireServerSuccess } from '@/lib/server-error-message'
 
 import type {
   ApiEnvelope,
@@ -37,9 +38,7 @@ import type {
 const BASE = '/api/proxy-pool'
 
 /** 动作类请求自己处理错误文案，不被全局拦截器吃掉。 */
-const poolActionConfig = (
-  config: ApiRequestConfig = {}
-): ApiRequestConfig => ({
+const poolActionConfig = (config: ApiRequestConfig = {}): ApiRequestConfig => ({
   ...config,
   skipBusinessError: true,
   skipErrorHandler: true,
@@ -48,7 +47,9 @@ const poolActionConfig = (
 // ── 节点 ──────────────────────────────────────────────────────────────────
 export async function listEndpoints(): Promise<ProxyEndpoint[]> {
   const res = await api.get(`${BASE}/endpoints`)
-  return (res.data as ApiEnvelope<ProxyEndpoint[]>).data ?? []
+  return (
+    requireServerSuccess(res.data as ApiEnvelope<ProxyEndpoint[]>).data ?? []
+  )
 }
 
 export async function createEndpoint(
@@ -60,7 +61,9 @@ export async function createEndpoint(
 
 export async function updateEndpoint(
   id: number,
-  data: Partial<Pick<ProxyEndpoint, 'name' | 'enabled' | 'weight' | 'region' | 'public'>>
+  data: Partial<
+    Pick<ProxyEndpoint, 'name' | 'enabled' | 'weight' | 'region' | 'public'>
+  >
 ): Promise<ApiEnvelope<unknown>> {
   const res = await api.patch(
     `${BASE}/endpoints/${id}`,
@@ -70,7 +73,9 @@ export async function updateEndpoint(
   return res.data as ApiEnvelope<unknown>
 }
 
-export async function deleteEndpoint(id: number): Promise<ApiEnvelope<unknown>> {
+export async function deleteEndpoint(
+  id: number
+): Promise<ApiEnvelope<unknown>> {
   const res = await api.delete(`${BASE}/endpoints/${id}`, poolActionConfig())
   return res.data as ApiEnvelope<unknown>
 }
@@ -78,13 +83,20 @@ export async function deleteEndpoint(id: number): Promise<ApiEnvelope<unknown>> 
 /** 连通性探测：后端会真的经该出口（或内置 mihomo）测速并返回延迟 ms。 */
 export async function testEndpoint(
   id: number
-): Promise<ApiEnvelope<{ ok: boolean; ip?: string; latency_ms?: number; error?: string }>> {
+): Promise<
+  ApiEnvelope<{ ok: boolean; ip?: string; latency_ms?: number; error?: string }>
+> {
   const res = await api.post(
     `${BASE}/endpoints/${id}/test`,
     {},
     poolActionConfig()
   )
-  return res.data as ApiEnvelope<{ ok: boolean; ip?: string; latency_ms?: number; error?: string }>
+  return res.data as ApiEnvelope<{
+    ok: boolean
+    ip?: string
+    latency_ms?: number
+    error?: string
+  }>
 }
 
 /** 一键导入本机 HaizhuClash 0.14.3 节点到公共池（mode: full=7114 / top=791）。 */
@@ -96,7 +108,11 @@ export async function importHaizhuNodes(
     { mode },
     poolActionConfig()
   )
-  return res.data as ApiEnvelope<{ imported: number; mode: string; public: boolean }>
+  return res.data as ApiEnvelope<{
+    imported: number
+    mode: string
+    public: boolean
+  }>
 }
 
 /** 获取共享 mihomo 内核状态与当前用户可见节点。 */
@@ -114,15 +130,24 @@ export async function reloadRuntime(): Promise<ApiEnvelope<unknown>> {
   return res.data as ApiEnvelope<unknown>
 }
 
-export async function selectRuntimeNode(name: string): Promise<ApiEnvelope<{ selected: string }>> {
-  const res = await api.post(`${BASE}/runtime/select`, { name }, poolActionConfig())
+export async function selectRuntimeNode(
+  name: string
+): Promise<ApiEnvelope<{ selected: string }>> {
+  const res = await api.post(
+    `${BASE}/runtime/select`,
+    { name },
+    poolActionConfig()
+  )
   return res.data as ApiEnvelope<{ selected: string }>
 }
 
 // ── 订阅 ──────────────────────────────────────────────────────────────────
 export async function listSubscriptions(): Promise<ProxySubscription[]> {
   const res = await api.get(`${BASE}/subscriptions`)
-  return (res.data as ApiEnvelope<ProxySubscription[]>).data ?? []
+  return (
+    requireServerSuccess(res.data as ApiEnvelope<ProxySubscription[]>).data ??
+    []
+  )
 }
 
 export async function createSubscription(
@@ -157,7 +182,7 @@ export async function deleteSubscription(
 // ── 汇总 / 导出 ────────────────────────────────────────────────────────────
 export async function getSummary(): Promise<ProxyPoolSummary> {
   const res = await api.get(`${BASE}/summary`)
-  return (res.data as ApiEnvelope<ProxyPoolSummary>).data
+  return requireServerSuccess(res.data as ApiEnvelope<ProxyPoolSummary>).data
 }
 
 /** 导出 mihomo 配置文本（客户端型节点要这份配置才能在本地起端口）。 */

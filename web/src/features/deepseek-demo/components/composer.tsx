@@ -17,9 +17,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { ArrowUp, Square } from 'lucide-react'
-import { useCallback, useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 
-import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
 
 interface ComposerProps {
   value: string
@@ -31,80 +33,75 @@ interface ComposerProps {
   onStop: () => void
 }
 
-/**
- * DeepSeek 风格的输入框：圆角大盒子，Enter 发送 / Shift+Enter 换行，
- * 生成中按钮变成停止。高度随内容自动增长（上限 ~200px）。
- */
-export function Composer({
-  value,
-  disabled,
-  isStreaming,
-  placeholder,
-  onChange,
-  onSubmit,
-  onStop,
-}: ComposerProps) {
+export function Composer(props: ComposerProps) {
+  const { t } = useTranslation()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const composingRef = useRef(false)
 
-  const resize = useCallback(() => {
+  useEffect(() => {
     const el = textareaRef.current
     if (!el) return
     el.style.height = 'auto'
-    el.style.height = `${Math.min(el.scrollHeight, 200)}px`
-  }, [])
+    el.style.height = `${Math.max(48, Math.min(el.scrollHeight, 200))}px`
+  }, [props.value])
 
-  useEffect(() => {
-    resize()
-  }, [value, resize])
-
-  const canSubmit = !disabled && !isStreaming && value.trim().length > 0
+  const canSubmit =
+    !props.disabled && !props.isStreaming && props.value.trim().length > 0
 
   return (
-    <div className='mx-auto w-full max-w-3xl px-4 pb-4'>
-      <div
-        className={cn(
-          'relative flex items-end gap-2 rounded-3xl border border-border/80 bg-background px-4 py-3 shadow-[0_2px_16px_-8px_rgba(0,0,0,0.25)] transition-colors',
-          'focus-within:border-[#4d6bfe]/60'
-        )}
-      >
-        <textarea
+    <div className='mx-auto w-full max-w-3xl shrink-0 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-5'>
+      <div className='border-border/70 bg-muted/40 focus-within:border-primary/60 rounded-3xl border px-4 pt-2 pb-3 transition-colors'>
+        <Textarea
           ref={textareaRef}
           rows={1}
-          value={value}
-          disabled={disabled}
-          placeholder={placeholder ?? '给 AI 发送消息，Enter 发送，Shift + Enter 换行'}
-          onChange={(event) => onChange(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey) {
-              event.preventDefault()
-              if (canSubmit) onSubmit()
-            }
+          value={props.value}
+          disabled={props.disabled && !props.isStreaming}
+          aria-label={t('Message')}
+          placeholder={props.placeholder ?? t('Message DeepSeek')}
+          onChange={(event) => props.onChange(event.target.value)}
+          onCompositionStart={() => {
+            composingRef.current = true
           }}
-          className='max-h-[200px] min-h-7 w-full resize-none bg-transparent py-1 text-sm leading-6 outline-none placeholder:text-muted-foreground/70 disabled:opacity-60'
+          onCompositionEnd={() => {
+            composingRef.current = false
+          }}
+          onKeyDown={(event) => {
+            if (
+              event.key !== 'Enter' ||
+              event.shiftKey ||
+              event.nativeEvent.isComposing ||
+              composingRef.current ||
+              event.keyCode === 229
+            ) {
+              return
+            }
+            event.preventDefault()
+            if (canSubmit) props.onSubmit()
+          }}
+          className='max-h-[200px] min-h-12 resize-none rounded-none border-0 bg-transparent px-0 text-base shadow-none focus-visible:ring-0 sm:text-sm dark:bg-transparent'
         />
-        <button
-          type='button'
-          aria-label={isStreaming ? '停止生成' : '发送'}
-          disabled={isStreaming ? false : !canSubmit}
-          onClick={isStreaming ? onStop : onSubmit}
-          className={cn(
-            'mb-0.5 flex size-8 shrink-0 items-center justify-center rounded-full transition-colors',
-            isStreaming
-              ? 'bg-muted text-foreground hover:bg-muted/70'
-              : canSubmit
-                ? 'bg-[#4d6bfe] text-white hover:bg-[#3f5bea]'
-                : 'bg-muted text-muted-foreground'
-          )}
-        >
-          {isStreaming ? (
-            <Square className='size-3.5 fill-current' />
-          ) : (
-            <ArrowUp className='size-4' />
-          )}
-        </button>
+        <div className='flex items-center justify-between gap-2'>
+          <span className='text-muted-foreground text-xs'>
+            {t('Shift + Enter for a new line')}
+          </span>
+          <Button
+            type='button'
+            size='icon'
+            aria-label={props.isStreaming ? t('Stop generating') : t('Send')}
+            disabled={!props.isStreaming && !canSubmit}
+            onClick={props.isStreaming ? props.onStop : props.onSubmit}
+            className='size-10 rounded-full bg-[#4d6bfe] text-white hover:bg-[#3f5bea] sm:size-9'
+          >
+            {props.isStreaming ? (
+              <Square className='size-3.5 fill-current' aria-hidden='true' />
+            ) : (
+              <ArrowUp className='size-5' aria-hidden='true' />
+            )}
+          </Button>
+        </div>
       </div>
-      <p className='mt-2 text-center text-[11px] text-muted-foreground'>
-        内容由 AI 生成，请自行判断准确性
+      <p className='text-muted-foreground mt-2 text-center text-[11px]'>
+        {t('AI-generated content may be inaccurate.')}
       </p>
     </div>
   )

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -72,7 +74,8 @@ func AddSelfChannelFromTemplate(c *gin.Context) {
 		//   ""        → 跟随用户出口 IP 池（逐请求轮换，默认）
 		//   "direct"  → 强制直连（忽略用户出口池）
 		//   "http://…"/"socks5://…" → 该渠道固定走这个代理
-		Proxy string `json:"proxy"`
+		Proxy       string                  `json:"proxy"`
+		ProxyPolicy *dto.ChannelProxyPolicy `json:"proxy_policy"`
 		// Visibility 是否公开到公共池：0=私有（默认，仅自己可用），1=公开（所有登录用户可路由）
 		Visibility int `json:"visibility"`
 		// Tier 层级：free=免费层（只凭订阅来源/入口地址），api=密钥层（需要上游 API Key）
@@ -88,6 +91,8 @@ func AddSelfChannelFromTemplate(c *gin.Context) {
 		SubscriptionUrl string `json:"subscription_url"`
 		// Models 用户勾选要加入「我的渠道」的模型列表（空则用模板默认全部模型）
 		Models []string `json:"models"`
+		// AllModels is the full discovered catalog, independent of the selected subset.
+		AllModels []string `json:"all_models"`
 		// PublicModels 用户勾选要公开到「公共池」的模型子集（支持部分公开）
 		PublicModels []string `json:"public_models"`
 	}{}
@@ -98,6 +103,18 @@ func AddSelfChannelFromTemplate(c *gin.Context) {
 	tpl := constant.GetFreeSourceTemplate(req.TemplateId)
 	if tpl == nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Unknown templateId"})
+		return
+	}
+	if err := model.ValidateSelfChannelProxyPolicy(uid, req.ProxyPolicy, req.Proxy); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if tpl.Id == "freepi" {
+		common.ApiErrorMsg(c, "Use GitHub device authorization to connect FreePi")
+		return
+	}
+	if liveFreeCatalogProvider(tpl.BaseUrl, tpl.Id) == "opencode" {
+		common.ApiErrorMsg(c, "OpenCode free models are not available through this gateway. Use the official OpenCode client")
 		return
 	}
 	req.Key = strings.TrimSpace(req.Key)
@@ -201,14 +218,33 @@ func AddSelfChannelFromTemplate(c *gin.Context) {
 		name = tpl.Name
 	}
 
-	chosenModels := make([]string, 0, len(req.Models))
-	for _, m := range req.Models {
-		if v := strings.TrimSpace(m); v != "" {
-			chosenModels = append(chosenModels, v)
+	allCandidates := mergeModelCatalogs(tpl.Models, req.AllModels, req.Models)
+	if liveFreeCatalogProvider(baseURL, tpl.Id) != "" {
+		proxyURL, proxyErr := model.ResolveChannelProxyPolicy(uid, dto.ChannelSettings{Proxy: req.Proxy, ProxyPolicy: req.ProxyPolicy})
+		if proxyErr != nil {
+			common.ApiError(c, proxyErr)
+			return
+		}
+		live, verified, _ := FetchLiveFreeModelsForUpstream(baseURL, tpl.Id, req.Key, proxyURL)
+		if !verified || len(live) == 0 {
+			common.ApiErrorMsg(c, "Unable to verify the upstream free model catalog. Please refresh and try again")
+			return
+		}
+		allCandidates = live
+		allowed := make(map[string]bool, len(live))
+		for _, id := range live {
+			allowed[id] = true
+		}
+		for _, id := range req.Models {
+			if !allowed[strings.TrimSpace(id)] {
+				common.ApiErrorMsg(c, "Selected model is not in the current free model catalog")
+				return
+			}
 		}
 	}
+	chosenModels := mergeModelCatalogs(req.Models)
 	if len(chosenModels) == 0 {
-		chosenModels = tpl.Models
+		chosenModels = allCandidates
 	}
 
 	publicModels := make([]string, 0, len(req.PublicModels))
@@ -234,12 +270,14 @@ func AddSelfChannelFromTemplate(c *gin.Context) {
 		Tier:       normalizeChannelTier(req.Tier),
 		AllowIps:   strings.TrimSpace(req.AllowIps),
 	}
-	allCandidateSet := map[string]bool{}
-	allCandidates := make([]string, 0, len(tpl.Models)+len(chosenModels))
-	for _, m := range append(append([]string(nil), tpl.Models...), chosenModels...) {
-		if v := strings.TrimSpace(m); v != "" && !allCandidateSet[v] {
-			allCandidateSet[v] = true
-			allCandidates = append(allCandidates, v)
+	selected := make(map[string]bool, len(chosenModels))
+	for _, id := range chosenModels {
+		selected[id] = true
+	}
+	for _, id := range publicModels {
+		if !selected[id] {
+			common.ApiErrorMsg(c, "Public models must be selected channel models")
+			return
 		}
 	}
 	otherInfo := map[string]any{
@@ -251,22 +289,10 @@ func AddSelfChannelFromTemplate(c *gin.Context) {
 		otherInfo["publicModels"] = publicModels
 	}
 	channel.SetOtherInfo(otherInfo)
-	// 出口代理策略：空=跟随用户出口池；direct=强制直连；其余=固定代理（创建时校验格式）
-	proxy := strings.TrimSpace(req.Proxy)
-	if proxy != "" {
-		if proxy != "direct" {
-			if _, err := common.ParseProxyURLStrict(proxy); err != nil {
-				c.JSON(http.StatusOK, gin.H{
-					"success": false,
-					"message": "invalid proxy: " + err.Error(),
-				})
-				return
-			}
-		}
-		setting := channel.GetSetting()
-		setting.Proxy = proxy
-		channel.SetSetting(setting)
-	}
+	setting := channel.GetSetting()
+	setting.Proxy = strings.TrimSpace(req.Proxy)
+	setting.ProxyPolicy = req.ProxyPolicy
+	channel.SetSetting(setting)
 	// 多密钥：Keys 非空时合并成 one-channel-many-keys（复用 new-api 的 multi_to_single 模式），
 	// 这样用户不必为同一个上游建 N 个渠道。单密钥保持 single 模式不变。
 	addMode := "single"
@@ -467,176 +493,203 @@ func normalizeMultiKeyMode(m string) constant.MultiKeyMode {
 // 只能改自己的渠道：owner_id 必须等于当前登录用户，平台渠道（owner_id=0）不可动。
 func SetSelfChannelVisibility(c *gin.Context) {
 	uid := c.GetInt("id")
-	req := struct {
+	var req struct {
 		ChannelId    int      `json:"channelId"`
 		Visibility   int      `json:"visibility"`
 		Tier         string   `json:"tier"`
 		AllowIps     string   `json:"allowIps"`
 		PublicModels []string `json:"publicModels"`
 		AllModels    []string `json:"allModels"`
-	}{}
+	}
 	if err := c.ShouldBindJSON(&req); err != nil || req.ChannelId <= 0 {
-		common.ApiErrorMsg(c, "Invalid parameters")
+		common.ApiErrorT(c, "Invalid parameters")
 		return
 	}
-	if err := model.SetSelfChannelVisibility(uid, req.ChannelId, normalizeChannelVisibility(req.Visibility), normalizeChannelTier(req.Tier)); err != nil {
+	channel, ok := loadSelfOwnedChannel(c, req.ChannelId, false)
+	if !ok {
+		return
+	}
+	info := channel.GetOtherInfo()
+	if info == nil {
+		info = map[string]any{}
+	}
+	if req.PublicModels != nil {
+		selected := make(map[string]bool)
+		for _, id := range strings.Split(channel.Models, ",") {
+			selected[strings.TrimSpace(id)] = true
+		}
+		public := mergeModelCatalogs(req.PublicModels)
+		for _, id := range public {
+			if !selected[id] {
+				common.ApiErrorMsg(c, "Public models must be selected channel models")
+				return
+			}
+		}
+		info["publicModels"] = public
+	}
+	if req.AllModels != nil {
+		templateID, _ := info["templateId"].(string)
+		all := DefaultModelsForChannel(channel)
+		// Free-source catalogs are verified on the server. A display-only update
+		// cannot reintroduce paid models or shrink the catalog to the selection.
+		if liveFreeCatalogProvider(channel.GetBaseURL(), templateID) == "" {
+			all = mergeModelCatalogs(all, req.AllModels)
+		}
+		info["allModels"] = all
+	}
+	channel.SetOtherInfo(info)
+	updates := map[string]any{"visibility": normalizeChannelVisibility(req.Visibility), "tier": normalizeChannelTier(req.Tier), "other_info": channel.OtherInfo}
+	if strings.TrimSpace(req.AllowIps) != "" {
+		updates["allow_ips"] = strings.TrimSpace(req.AllowIps)
+	}
+	if err := model.DB.Model(&model.Channel{}).Where("id = ? AND owner_id = ?", req.ChannelId, uid).Updates(updates).Error; err != nil {
 		common.ApiError(c, err)
 		return
-	}
-	if req.PublicModels != nil || req.AllModels != nil {
-		if ch, ok := loadSelfOwnedChannel(c, req.ChannelId, false); ok && ch != nil {
-			info := ch.GetOtherInfo()
-			if info == nil {
-				info = map[string]any{}
-			}
-			if req.PublicModels != nil {
-				cleaned := make([]string, 0, len(req.PublicModels))
-				for _, m := range req.PublicModels {
-					if v := strings.TrimSpace(m); v != "" {
-						cleaned = append(cleaned, v)
-					}
-				}
-				info["publicModels"] = cleaned
-			}
-			if len(req.AllModels) > 0 {
-				cleanedAll := make([]string, 0, len(req.AllModels))
-				seen := map[string]bool{}
-				for _, m := range req.AllModels {
-					if v := strings.TrimSpace(m); v != "" && !seen[v] {
-						seen[v] = true
-						cleanedAll = append(cleanedAll, v)
-					}
-				}
-				info["allModels"] = cleanedAll
-			}
-			ch.SetOtherInfo(info)
-			_ = model.DB.Model(&model.Channel{}).Where("id = ? AND owner_id = ?", req.ChannelId, uid).Update("other_info", ch.OtherInfo).Error
-		}
-	}
-	if strings.TrimSpace(req.AllowIps) != "" {
-		if err := model.SetSelfChannelAllowIps(uid, req.ChannelId, strings.TrimSpace(req.AllowIps)); err != nil {
-			common.ApiError(c, err)
-			return
-		}
 	}
 	model.InitChannelCache()
 	common.ApiSuccess(c, gin.H{"channelId": req.ChannelId, "visibility": normalizeChannelVisibility(req.Visibility), "tier": normalizeChannelTier(req.Tier)})
 }
 
-// FetchLiveFreeModelsForUpstream 针对 OpenRouter / OpenCode 及通用 OpenAI 兼容免费源实时探测上游最新免费模型列表。
-func FetchLiveFreeModelsForUpstream(baseURL, templateId, key, proxyURL string) ([]string, bool, int64) {
-	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
-	tplId := strings.ToLower(strings.TrimSpace(templateId))
-	isOpenRouter := tplId == "openrouter-free" || strings.Contains(strings.ToLower(base), "openrouter.ai")
-	isOpenCode := tplId == "opencode-free" || tplId == "opencode-zen" || strings.Contains(strings.ToLower(base), "opencode.ai")
-
-	seen := map[string]bool{}
-	var out []string
-	add := func(id string) {
-		v := strings.TrimSpace(id)
-		if v != "" && !seen[v] {
-			seen[v] = true
-			out = append(out, v)
-		}
+// liveFreeCatalogProvider uses exact hostnames; lookalike URLs are not trusted catalogs.
+func liveFreeCatalogProvider(baseURL, templateID string) string {
+	u, _ := url.Parse(baseURL)
+	host := ""
+	if u != nil {
+		host = strings.ToLower(u.Hostname())
 	}
+	if templateID == "openrouter-free" || host == "openrouter.ai" {
+		return "openrouter"
+	}
+	if templateID == "opencode-free" || templateID == "opencode-zen" || host == "opencode.ai" {
+		return "opencode"
+	}
+	return ""
+}
 
-	var latencyMs int64
-	probedLive := false
-
-	if base != "" && !strings.Contains(base, "{") {
-		modelsEndpoint := base + "/v1/models"
-		if strings.HasSuffix(base, "/v1") || strings.HasSuffix(base, "/openai") || strings.HasSuffix(base, "/compatibility") {
-			modelsEndpoint = base + "/models"
+// FetchLiveFreeModelsForUpstream returns only advertised, compatible free models.
+// Never append retired model IDs or auto routers that can select paid models.
+func FetchLiveFreeModelsForUpstream(baseURL, templateID, key, proxyURL string) ([]string, bool, int64) {
+	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	provider := liveFreeCatalogProvider(base, templateID)
+	if base == "" || strings.Contains(base, "{") {
+		return nil, false, 0
+	}
+	endpoint := base + "/v1/models"
+	if strings.HasSuffix(base, "/v1") || strings.HasSuffix(base, "/openai") || strings.HasSuffix(base, "/compatibility") {
+		endpoint = base + "/models"
+	}
+	if parsed, err := url.Parse(base); err == nil && strings.EqualFold(parsed.Hostname(), "opencode.ai") {
+		endpoint = "https://opencode.ai/zen/v1/models"
+	}
+	client, err := service.GetHttpClientWithProxySettings(proxyURL, dto.ChannelSettings{})
+	if err != nil {
+		return nil, false, 0
+	}
+	probeClient := *client
+	probeClient.Timeout = 7 * time.Second
+	// A redirected catalog must never receive the user's API credential.
+	probeClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, false, 0
+	}
+	if provider == "" && key != "" && !strings.HasPrefix(key, "sk-free-") {
+		req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(key))
+	}
+	start := time.Now()
+	resp, err := probeClient.Do(req)
+	latency := time.Since(start).Milliseconds()
+	if err != nil {
+		return nil, false, latency
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, false, latency
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, (4<<20)+1))
+	if err != nil || len(body) > 4<<20 {
+		return nil, false, latency
+	}
+	var payload struct {
+		Data []struct {
+			ID      string         `json:"id"`
+			Pricing map[string]any `json:"pricing"`
+			Cost    *struct {
+				Text struct {
+					Input struct {
+						Price *float64 `json:"price"`
+					} `json:"input"`
+					Output struct {
+						Price *float64 `json:"price"`
+					} `json:"output"`
+				} `json:"text"`
+			} `json:"cost"`
+			API map[string]any `json:"api"`
+		} `json:"data"`
+	}
+	if common.Unmarshal(body, &payload) != nil || payload.Data == nil {
+		return nil, false, latency
+	}
+	out := make([]string, 0, len(payload.Data))
+	seen := map[string]bool{}
+	for _, item := range payload.Data {
+		id := strings.TrimSpace(item.ID)
+		if id == "" || strings.ContainsAny(id, ",\r\n") || seen[id] {
+			continue
 		}
-		if client, err := service.GetHttpClientWithProxySettings(proxyURL, dto.ChannelSettings{}); err == nil {
-			probeClient := *client
-			probeClient.Timeout = 7 * time.Second
-			httpReq, rerr := http.NewRequest(http.MethodGet, modelsEndpoint, nil)
-			if rerr == nil {
-				cleanKey := strings.TrimSpace(key)
-				// OpenRouter 的 /api/v1/models 公开免鉴权；若带占位 key sk-free-* 反而会 401
-				if cleanKey != "" && !strings.HasPrefix(cleanKey, "sk-free-") {
-					httpReq.Header.Set("Authorization", "Bearer "+cleanKey)
+		if provider == "openrouter" {
+			if id == "openrouter/auto" || !zeroCatalogPrice(item.Pricing["prompt"]) || !zeroCatalogPrice(item.Pricing["completion"]) {
+				continue
+			}
+			free := true
+			for _, value := range item.Pricing {
+				if !zeroCatalogPrice(value) {
+					free = false
+					break
 				}
-				start := time.Now()
-				if resp, derr := probeClient.Do(httpReq); derr == nil && resp != nil {
-					latencyMs = time.Since(start).Milliseconds()
-					body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
-					_ = resp.Body.Close()
-					var payload struct {
-						Data []struct {
-							Id      string `json:"id"`
-							Pricing *struct {
-								Prompt     string `json:"prompt"`
-								Completion string `json:"completion"`
-							} `json:"pricing"`
-						} `json:"data"`
-					}
-					if common.Unmarshal(body, &payload) == nil && len(payload.Data) > 0 {
-						probedLive = true
-						for _, item := range payload.Data {
-							id := strings.TrimSpace(item.Id)
-							if id == "" {
-								continue
-							}
-							if isOpenRouter {
-								isFree := strings.HasSuffix(strings.ToLower(id), ":free") ||
-									id == "openrouter/auto" ||
-									id == "openrouter/free" ||
-									(item.Pricing != nil && item.Pricing.Prompt == "0" && item.Pricing.Completion == "0")
-								if !isFree {
-									continue
-								}
-							}
-							add(id)
-						}
-					}
+			}
+			if !free {
+				continue
+			}
+		}
+		if provider == "opencode" {
+			// Current OpenCode catalog advertises per-model protocol endpoints and cost.
+			// Legacy catalogs omit cost; only their explicit free IDs are accepted.
+			if item.Cost != nil {
+				input, output := item.Cost.Text.Input.Price, item.Cost.Text.Output.Price
+				if input == nil || output == nil || *input != 0 || *output != 0 {
+					continue
+				}
+			} else if !strings.HasSuffix(id, "-free") && id != "big-pickle" {
+				continue
+			}
+			if len(item.API) > 0 {
+				if _, ok := item.API["chat-completions"]; !ok {
+					continue
 				}
 			}
 		}
+		seen[id] = true
+		out = append(out, id)
 	}
+	return out, true, latency
+}
 
-	// OpenRouter 热门免费模型保底补充（防止网络波动时列表只剩 1 个 openrouter/auto）
-	if isOpenRouter {
-		for _, m := range []string{
-			"openrouter/auto",
-			"openrouter/free",
-			"deepseek/deepseek-chat-v3-0324:free",
-			"deepseek/deepseek-r1:free",
-			"deepseek/deepseek-r1-0528:free",
-			"google/gemini-2.5-pro-exp-03-25:free",
-			"google/gemini-2.0-flash-exp:free",
-			"qwen/qwen3-235b-a22b:free",
-			"qwen/qwen3-32b:free",
-			"qwen/qwq-32b:free",
-			"meta-llama/llama-4-maverick:free",
-			"meta-llama/llama-4-scout:free",
-			"meta-llama/llama-3.3-70b-instruct:free",
-			"mistralai/mistral-small-3.1-24b-instruct:free",
-			"nvidia/llama-3.1-nemotron-ultra-253b-v1:free",
-		} {
-			add(m)
+func zeroCatalogPrice(value any) bool {
+	switch v := value.(type) {
+	case string:
+		n, err := strconv.ParseFloat(v, 64)
+		if err != nil || n != 0 {
+			return false
 		}
+		// Do not treat underflowed positive prices as zero.
+		mantissa, _, _ := strings.Cut(strings.ToLower(v), "e")
+		return !strings.ContainsAny(mantissa, "123456789")
+	case float64:
+		return v == 0
+	default:
+		return false
 	}
-
-	// OpenCode 免费模型保底补充（万一上游有新 free 模型，上面 probedLive 已收进 out，这里再补全经典 free 模型）
-	if isOpenCode {
-		for _, m := range []string{
-			"big-pickle",
-			"deepseek-v4.1-flash-free",
-			"glm-5.3-flash-free",
-			"longcat-2.5-free",
-			"minimax-m3.1-flash-free",
-			"mimo-v2.6-flash-free",
-			"nemotron-3.5-lightning-free",
-			"qwen3-coder-free",
-			"grok-code-fast-1-free",
-		} {
-			add(m)
-		}
-	}
-
-	return out, probedLive, latencyMs
 }
 
 // ProbeTemplateModels POST /api/channel/self/probe_template_models
@@ -644,10 +697,11 @@ func FetchLiveFreeModelsForUpstream(baseURL, templateId, key, proxyURL string) (
 func ProbeTemplateModels(c *gin.Context) {
 	uid := c.GetInt("id")
 	var req struct {
-		TemplateId string            `json:"templateId"`
-		Key        string            `json:"key"`
-		Proxy      string            `json:"proxy"`
-		Extra      map[string]string `json:"extra"`
+		TemplateId  string                  `json:"templateId"`
+		Key         string                  `json:"key"`
+		Proxy       string                  `json:"proxy"`
+		ProxyPolicy *dto.ChannelProxyPolicy `json:"proxy_policy"`
+		Extra       map[string]string       `json:"extra"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ApiErrorMsg(c, "invalid request body")
@@ -660,11 +714,10 @@ func ProbeTemplateModels(c *gin.Context) {
 	}
 
 	// 挑选最佳出口代理：若用户未指定固定代理，自动从该用户可见的出口池挑最优（已按延迟升序排列）
-	proxyURL := strings.TrimSpace(req.Proxy)
-	if proxyURL == "" {
-		proxyURL = model.PickUserProxyUrl(uid)
-	} else if proxyURL == "direct" {
-		proxyURL = ""
+	proxyURL, proxyErr := model.ResolveChannelProxyPolicy(uid, dto.ChannelSettings{Proxy: req.Proxy, ProxyPolicy: req.ProxyPolicy})
+	if proxyErr != nil {
+		common.ApiError(c, proxyErr)
+		return
 	}
 
 	baseURL := strings.TrimRight(strings.TrimSpace(tpl.BaseUrl), "/")
@@ -692,14 +745,37 @@ func ProbeTemplateModels(c *gin.Context) {
 	for _, m := range liveModels {
 		addModel(m)
 	}
-	for _, m := range tpl.Models {
-		addModel(m)
+	if liveFreeCatalogProvider(baseURL, tpl.Id) == "" {
+		for _, m := range tpl.Models {
+			addModel(m)
+		}
+	} else if !probedLive {
+		common.ApiErrorMsg(c, "Unable to verify the upstream free model catalog. Please refresh and try again")
+		return
 	}
 
 	common.ApiSuccess(c, gin.H{
-		"models":      models,
-		"probed_live": probedLive,
-		"latency_ms":  latencyMs,
-		"proxy_used":  maskProxyUrl(proxyURL),
+		"models":        models,
+		"callable":      liveFreeCatalogProvider(baseURL, tpl.Id) != "opencode",
+		"call_contract": freeModelCallContract(baseURL, tpl.Id),
+		"probed_live":   probedLive,
+		"latency_ms":    latencyMs,
+		"proxy_used":    maskProxyUrl(proxyURL),
 	})
+}
+
+// mergeModelCatalogs preserves catalog order without conflating it with model selection.
+func mergeModelCatalogs(lists ...[]string) []string {
+	out := make([]string, 0)
+	seen := make(map[string]bool)
+	for _, list := range lists {
+		for _, id := range list {
+			id = strings.TrimSpace(id)
+			if id != "" && !strings.ContainsAny(id, ",\r\n") && !seen[id] {
+				seen[id] = true
+				out = append(out, id)
+			}
+		}
+	}
+	return out
 }

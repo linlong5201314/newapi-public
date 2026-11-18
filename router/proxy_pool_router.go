@@ -22,7 +22,7 @@ func registerProxyPoolRoutes(apiRouter *gin.RouterGroup) {
 		proxyRoute.PATCH("/endpoints/:id", controller.UpdateProxyEndpoint)
 		proxyRoute.DELETE("/endpoints/:id", controller.DeleteProxyEndpoint)
 		proxyRoute.POST("/endpoints/:id/test", controller.TestProxyEndpoint)
-		proxyRoute.POST("/import-haizhu", controller.ImportHaizhuPoolNodes)
+		proxyRoute.POST("/import-haizhu", middleware.RootAuth(), controller.ImportHaizhuPoolNodes)
 
 		proxyRoute.GET("/subscriptions", controller.GetProxySubscriptions)
 		proxyRoute.POST("/subscriptions", controller.CreateProxySubscription)
@@ -30,11 +30,12 @@ func registerProxyPoolRoutes(apiRouter *gin.RouterGroup) {
 		proxyRoute.DELETE("/subscriptions/:id", controller.DeleteProxySubscription)
 
 		proxyRoute.GET("/summary", controller.GetProxyPoolSummary)
-		proxyRoute.GET("/export", controller.ExportProxyPoolConfig)
+		proxyRoute.GET("/export", middleware.RootAuth(), controller.ExportProxyPoolConfig)
 
-		// 内核边车：机场/客户端节点 → 本地可拨号出口
-		proxyRoute.GET("/runtime", controller.GetProxyRuntimeStatus)
-		proxyRoute.POST("/runtime/reload", controller.ReloadProxyRuntime)
-		proxyRoute.POST("/runtime/select", controller.SelectProxyRuntimeNode)
+		// 全局内核状态和操作仅限超管；普通管理员也不能访问。
+		kernelRoute := proxyRoute.Group("/runtime", middleware.RootAuth())
+		kernelRoute.GET("", controller.GetProxyRuntimeStatus)
+		kernelRoute.POST("/reload", controller.ReloadProxyRuntime)
+		kernelRoute.POST("/select", controller.SelectProxyRuntimeNode)
 	}
 }

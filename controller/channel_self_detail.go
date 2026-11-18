@@ -38,6 +38,7 @@ func GetSelfChannelDetail(c *gin.Context) {
 	uid := c.GetInt("id")
 
 	setting := channel.GetSetting()
+	setting.ProxyPolicy = effectiveSelfChannelProxyPolicy(setting)
 	otherInfo := channel.GetOtherInfo()
 	templateId, _ := otherInfo["templateId"].(string)
 	tpl := constant.GetFreeSourceTemplate(templateId)
@@ -168,19 +169,22 @@ func GetSelfChannelDetail(c *gin.Context) {
 
 	// key 一律不回给前端：详情页只需要「有没有配密钥」，不需要密钥本体。
 	hasKey := strings.TrimSpace(channel.Key) != ""
-	channel.Key = ""
+	proxyConfigured := strings.TrimSpace(setting.Proxy) != ""
+	sanitizeSelfChannel(channel)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
 		"data": gin.H{
-			"channel":       channel,
-			"models":        models,
-			"all_models":    allModels,
-			"public_models": publicModels,
-			"health":        health,
-			"proxy":         proxyView,
-			"allow_ips":     channel.AllowIps,
+			"channel":          channel,
+			"models":           models,
+			"all_models":       allModels,
+			"public_models":    publicModels,
+			"health":           health,
+			"proxy":            proxyView,
+			"proxy_policy":     setting.ProxyPolicy,
+			"proxy_configured": proxyConfigured,
+			"allow_ips":        channel.AllowIps,
 			"template": gin.H{
 				"id":             templateId,
 				"name":           templateName,
@@ -192,16 +196,16 @@ func GetSelfChannelDetail(c *gin.Context) {
 			},
 			"token_estimate": tokenEstimate,
 			"proxy_pool": gin.H{
-				"endpoint_total":       len(endpoints),
-				"endpoint_enabled":     enabledEndpoints,
-				"own_endpoint_count":   ownEndpoints,
-				"public_pool_count":    publicPoolEndpoints,
-				"own_ip_tokens_total":  ownIpTokensTotal,
-				"usable_url_count":     len(usableUrls),
-				"subscription_total":   len(subscriptions),
-				"subscription_nodes":   subNodes,
-				"regions":              regionCount,
-				"selectable_nodes":     selectableNodes,
+				"endpoint_total":      len(endpoints),
+				"endpoint_enabled":    enabledEndpoints,
+				"own_endpoint_count":  ownEndpoints,
+				"public_pool_count":   publicPoolEndpoints,
+				"own_ip_tokens_total": ownIpTokensTotal,
+				"usable_url_count":    len(usableUrls),
+				"subscription_total":  len(subscriptions),
+				"subscription_nodes":  subNodes,
+				"regions":             regionCount,
+				"selectable_nodes":    selectableNodes,
 			},
 			"has_key":  hasKey,
 			"is_owned": true,

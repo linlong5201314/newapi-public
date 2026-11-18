@@ -10,15 +10,19 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"gorm.io/gorm"
 )
 
 // SelfAccountBinding 用户提交的上游账号（账号----密码 多行），用于账号授权型反代。
 // 账号密文存 accounts_enc，明文只在离线上架/转发时解密使用；普通用户 API 只返回掩码。
 type SelfAccountBinding struct {
-	Id       int    `json:"id" gorm:"primaryKey;autoIncrement"`
-	UserId   int    `json:"user_id" gorm:"not null;index:idx_sab_user"`
-	Provider string `json:"provider" gorm:"type:varchar(64);not null;index:idx_sab_provider"`
+	// Stored with encrypted account material; no schema migration or URL exposure.
+	ProxyPolicy     *dto.ChannelProxyPolicy `json:"proxy_policy,omitempty" gorm:"-"`
+	ProxyConfigured bool                    `json:"proxy_configured" gorm:"-"`
+	Id              int                     `json:"id" gorm:"primaryKey;autoIncrement"`
+	UserId          int                     `json:"user_id" gorm:"not null;index:idx_sab_user"`
+	Provider        string                  `json:"provider" gorm:"type:varchar(64);not null;index:idx_sab_provider"`
 	// Kind 绑定类型：password=账号密码（账号型反代）、token=会话Token（密码登录被上游设备风控拦截时改用）、
 	// mixed=账号密码与会话Token混填、oauth=授权登录（粘贴授权码/Token）、gateway=配套网关（如 magpie，一用户一实例）
 	Kind string `json:"kind" gorm:"type:varchar(16);not null;default:'password'"`
@@ -106,9 +110,10 @@ func BuildDeepSeekDeviceProfile(seed string) *DeepSeekDeviceProfile {
 
 // SelfAccountCred 单条账号凭据（自带该号专属的虚拟设备指纹）。
 type SelfAccountCred struct {
-	Account  string                 `json:"account"`
-	Password string                 `json:"password"`
-	Device   *DeepSeekDeviceProfile `json:"device,omitempty"`
+	ProxyPolicy *dto.ChannelProxyPolicy `json:"proxy_policy,omitempty"`
+	Account     string                  `json:"account"`
+	Password    string                  `json:"password"`
+	Device      *DeepSeekDeviceProfile  `json:"device,omitempty"`
 }
 
 // ParseAccountLines 解析「账号----密码」多行文本，兼容 ---- / , / | / Tab 分隔，忽略空行与 # 注释。
@@ -130,14 +135,14 @@ func ParseAccountLines(raw string) ([]SelfAccountCred, error) {
 			case strings.Contains(line, ","):
 				sep = ","
 			default:
-				return nil, fmt.Errorf("账号格式不对：%s（应为 账号----密码）", line)
+				return nil, errors.New("Invalid account format; expected account----password")
 			}
 		}
 		parts := strings.SplitN(line, sep, 2)
 		acc := strings.TrimSpace(parts[0])
 		pwd := strings.TrimSpace(parts[1])
 		if acc == "" || pwd == "" {
-			return nil, fmt.Errorf("账号或密码为空：%s", line)
+			return nil, errors.New("Account and password are required")
 		}
 		key := strings.ToLower(acc)
 		if seen[key] {
@@ -158,6 +163,9 @@ func ParseAccountLines(raw string) ([]SelfAccountCred, error) {
 func maskAccount(acc string) string {
 	acc = strings.TrimSpace(acc)
 	if len(acc) <= 4 {
+		if acc == "" {
+			return "***"
+		}
 		return acc[:1] + "***"
 	}
 	if i := strings.Index(acc, "@"); i > 2 {
@@ -168,7 +176,10 @@ func maskAccount(acc string) string {
 
 func (b *SelfAccountBinding) EncodeAccounts(creds []SelfAccountCred) error {
 	for i := range creds {
-		if creds[i].Device == nil {
+		if b.ProxyPolicy != nil {
+			creds[i].ProxyPolicy = b.ProxyPolicy
+		}
+		if creds[i].Device == nil && b.Provider == "ds2api" {
 			seed := creds[i].Account + "|" + creds[i].Password
 			creds[i].Device = BuildDeepSeekDeviceProfile(seed)
 		}
@@ -291,15 +302,53 @@ func PendingBindings(limit int) ([]SelfAccountBinding, error) {
 	return rows, err
 }
 
-func MarkBindingStatus(id int, status string, channelId int, serviceRef string, errMsg string) error {
-	updates := map[string]any{"status": status, "last_error": errMsg}
-	if channelId > 0 {
-		updates["channel_id"] = channelId
+// MarkBindingStatus only attaches a provisioned channel with the actual owner.
+// It never claims a platform or another tenant's existing channel.
+func MarkBindingStatus(id int, status string, channelID int, serviceRef string, errMsg string) error {
+	if status != "pending" && status != "provisioning" && status != "ready" && status != "failed" {
+		return errors.New("invalid binding status")
 	}
-	if serviceRef != "" {
-		updates["service_ref"] = serviceRef
-	}
-	return DB.Model(&SelfAccountBinding{}).Where("id = ?", id).Updates(updates).Error
+	return DB.Transaction(func(tx *gorm.DB) error {
+		var binding SelfAccountBinding
+		if err := tx.Where("id = ?", id).First(&binding).Error; err != nil {
+			return err
+		}
+		if binding.UserId <= 0 {
+			return errors.New("binding owner is required")
+		}
+		if channelID > 0 {
+			var channel Channel
+			if err := tx.Where("id = ? AND owner_id = ?", channelID, binding.UserId).First(&channel).Error; err != nil {
+				return errors.New("binding channel ownership mismatch")
+			}
+			creds, err := binding.DecodeAccounts()
+			if err != nil {
+				return errors.New("binding credentials unavailable")
+			}
+			setting := channel.GetSetting()
+			setting.Proxy = binding.Proxy
+			if len(creds) > 0 {
+				setting.ProxyPolicy = creds[0].ProxyPolicy
+			}
+			if err := ValidateSelfChannelProxyPolicy(binding.UserId, setting.ProxyPolicy, setting.Proxy); err != nil {
+				return err
+			}
+			channel.SetSetting(setting)
+			if err := tx.Model(&Channel{}).Where("id = ? AND owner_id = ?", channelID, binding.UserId).Updates(map[string]any{"setting": channel.Setting, "visibility": binding.Public}).Error; err != nil {
+				return err
+			}
+		} else if status == "ready" && binding.ChannelId <= 0 {
+			return errors.New("ready binding requires an owned channel")
+		}
+		updates := map[string]any{"status": status, "last_error": errMsg}
+		if channelID > 0 {
+			updates["channel_id"] = channelID
+		}
+		if serviceRef != "" {
+			updates["service_ref"] = serviceRef
+		}
+		return tx.Model(&SelfAccountBinding{}).Where("id = ? AND user_id = ?", id, binding.UserId).Updates(updates).Error
+	})
 }
 
 func GetBindingById(id int) (*SelfAccountBinding, error) {
@@ -396,11 +445,11 @@ func ParseAccountOrTokenLines(raw string) ([]SelfAccountCred, error) {
 				p := strings.SplitN(line, "|", 2)
 				acc, secret = strings.TrimSpace(p[0]), strings.TrimSpace(p[1])
 			default:
-				return nil, fmt.Errorf("格式不对：%s（应为 账号----密码，或 账号----会话Token，或直接粘贴 Token / 抓包头）", line)
+				return nil, errors.New("Invalid credential format")
 			}
 		}
 		if secret == "" {
-			return nil, fmt.Errorf("密码/Token 为空：%s", line)
+			return nil, errors.New("Password or token is required")
 		}
 		key := strings.ToLower(acc + "|" + secret)
 		if seen[key] {
@@ -478,14 +527,14 @@ func ParseGatewayKeys(raw string) ([]SelfAccountCred, error) {
 			case strings.Contains(line, "|"):
 				sep = "|"
 			default:
-				return nil, fmt.Errorf("上游凭据格式不对：%s（应为 供应商----密钥，例如 deepseek----sk-xxx）", line)
+				return nil, errors.New("Invalid gateway credential format; expected provider----key")
 			}
 		}
 		parts := strings.SplitN(line, sep, 2)
 		name := strings.TrimSpace(parts[0])
 		key := strings.TrimSpace(parts[1])
 		if name == "" || key == "" {
-			return nil, fmt.Errorf("供应商或密钥为空：%s", line)
+			return nil, errors.New("Provider and key are required")
 		}
 		k := strings.ToLower(name + "|" + key)
 		if seen[k] {

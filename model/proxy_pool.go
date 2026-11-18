@@ -4,13 +4,20 @@
 package model
 
 import (
+	"fmt"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 
 	"gorm.io/gorm"
 )
 
-var ensureProxySchemaOnce sync.Once
+var proxySchemaMu sync.Mutex
+var proxySchemaReadyDB *gorm.DB
 
 const (
 	// ProxyEndpointMaxFailCount 连续失败达到该次数后节点退出可用列表。
@@ -21,25 +28,25 @@ const (
 
 // ProxyEndpoint 用户出口节点。
 type ProxyEndpoint struct {
-	Id             int        `json:"id" gorm:"primaryKey;autoIncrement"`
-	UserId         int        `json:"user_id" gorm:"index;not null"`
-	Name           string     `json:"name" gorm:"type:varchar(120);not null"`
-	Kind           string     `json:"kind" gorm:"type:varchar(20);not null"` // http|https|socks5|socks5h|vless|vmess|trojan|hysteria2|ss
-	Url            string     `json:"url" gorm:"type:varchar(1000)"`         // 可直接使用的代理 URL（仅 http/https/socks5/socks5h 有值）
-	RawUri         string     `json:"raw_uri" gorm:"type:text"`              // 客户端型节点的原始 URI（vless://... 等）
-	Region         string     `json:"region" gorm:"type:varchar(60)"`
-	SubscriptionId int        `json:"subscription_id" gorm:"index;default:0"` // 0=手动添加
-	Source         string     `json:"source" gorm:"type:varchar(40);index;default:'manual'"`
-	Enabled        bool       `json:"enabled" gorm:"default:true"`
+	Id             int    `json:"id" gorm:"primaryKey;autoIncrement"`
+	UserId         int    `json:"user_id" gorm:"index;not null;default:0"`
+	Name           string `json:"name" gorm:"type:varchar(120);not null;default:''"`
+	Kind           string `json:"kind" gorm:"type:varchar(20);not null;default:''"` // http|https|socks5|socks5h|vless|vmess|trojan|hysteria2|ss
+	Url            string `json:"url" gorm:"type:varchar(1000)"`                    // 可直接使用的代理 URL（仅 http/https/socks5/socks5h 有值）
+	RawUri         string `json:"raw_uri" gorm:"type:text"`                         // 客户端型节点的原始 URI（vless://... 等）
+	Region         string `json:"region" gorm:"type:varchar(60)"`
+	SubscriptionId int    `json:"subscription_id" gorm:"index;default:0"` // 0=手动添加
+	Source         string `json:"source" gorm:"type:varchar(40);index;default:'manual'"`
+	Enabled        bool   `json:"enabled" gorm:"default:true"`
 	// Public=true 时该节点进入公共池：所有用户可见可选；false 时仅归属用户可见可用。
 	Public    bool       `json:"public" gorm:"index;default:false"`
 	Weight    int        `json:"weight" gorm:"default:1"`
-	LatencyMs int        `json:"latency_ms" gorm:"default:0"`
+	LatencyMs int        `json:"latency_ms" gorm:"column:latency_ms;default:0"`
 	FailCount int        `json:"fail_count" gorm:"default:0"`
 	LastOkAt  *time.Time `json:"last_ok_at"`
-	LastError      string     `json:"last_error" gorm:"type:varchar(500)"`
-	CreatedAt      time.Time  `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt      time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
+	LastError string     `json:"last_error" gorm:"type:varchar(500)"`
+	CreatedAt time.Time  `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
 func (ProxyEndpoint) TableName() string { return "proxy_endpoints" }
@@ -47,7 +54,7 @@ func (ProxyEndpoint) TableName() string { return "proxy_endpoints" }
 // ProxySubscription 用户添加的机场订阅。
 type ProxySubscription struct {
 	Id           int        `json:"id" gorm:"primaryKey;autoIncrement"`
-	UserId       int        `json:"user_id" gorm:"index;not null"`
+	UserId       int        `json:"user_id" gorm:"index;not null;default:0"`
 	Name         string     `json:"name" gorm:"type:varchar(120)"`
 	Url          string     `json:"url" gorm:"type:text"`           // 订阅链接（返回给前端时脱敏，只回 host+前缀）
 	Format       string     `json:"format" gorm:"type:varchar(20)"` // clash|base64|uri-list|auto
@@ -65,21 +72,61 @@ type ProxySubscription struct {
 
 func (ProxySubscription) TableName() string { return "proxy_subscriptions" }
 
-// EnsureProxyPoolSchema 在 SKIP_DB_MIGRATION=true 时也确保代理池表的新增列（latency_ms / public / source）存在。
-func EnsureProxyPoolSchema() {
+// EnsureProxyPoolSchema 在 SKIP_DB_MIGRATION=true 时也补齐代理池表的全部缺列。
+// 只增补缺失结构，不用 AutoMigrate 重写已有列/默认值，避免跨库重复 ALTER。
+func EnsureProxyPoolSchema() error {
+	proxySchemaMu.Lock()
+	defer proxySchemaMu.Unlock()
 	if DB == nil {
-		return
+		return fmt.Errorf("proxy pool database is not initialized")
 	}
-	// 直接用轻量幂等 DDL 补列（避免跨区 PostgreSQL 上 GORM AutoMigrate 查数十次 information_schema 拖慢冷启动）
-	_ = DB.Exec("ALTER TABLE proxy_endpoints ADD COLUMN IF NOT EXISTS public boolean NOT NULL DEFAULT false").Error
-	_ = DB.Exec("ALTER TABLE proxy_endpoints ADD COLUMN IF NOT EXISTS latency_ms integer NOT NULL DEFAULT 0").Error
-	_ = DB.Exec("ALTER TABLE proxy_endpoints ADD COLUMN IF NOT EXISTS source varchar(40) NOT NULL DEFAULT 'manual'").Error
-	_ = DB.Exec("ALTER TABLE proxy_subscriptions ADD COLUMN IF NOT EXISTS public boolean NOT NULL DEFAULT false").Error
+	if proxySchemaReadyDB == DB {
+		return nil
+	}
+	migrator := DB.Migrator()
+	for _, target := range []any{&ProxyEndpoint{}, &ProxySubscription{}} {
+		stmt := &gorm.Statement{DB: DB}
+		if err := stmt.Parse(target); err != nil {
+			return fmt.Errorf("parse proxy pool schema: %w", err)
+		}
+		if !migrator.HasTable(target) {
+			if err := migrator.CreateTable(target); err != nil {
+				// A second application node may be initializing the same table.
+				if !migrator.HasTable(target) {
+					return fmt.Errorf("create proxy pool table %s: %w", stmt.Table, err)
+				}
+			}
+		}
+		for _, field := range stmt.Schema.Fields {
+			if field.DBName == "" || migrator.HasColumn(target, field.DBName) {
+				continue
+			}
+			if err := migrator.AddColumn(target, field.Name); err != nil {
+				if !migrator.HasColumn(target, field.DBName) {
+					return fmt.Errorf("add proxy pool field %s.%s: %w", stmt.Table, field.DBName, err)
+				}
+			}
+		}
+		for name := range stmt.Schema.ParseIndexes() {
+			if migrator.HasIndex(target, name) {
+				continue
+			}
+			if err := migrator.CreateIndex(target, name); err != nil {
+				if !migrator.HasIndex(target, name) {
+					return fmt.Errorf("create proxy pool index %s: %w", name, err)
+				}
+			}
+		}
+	}
+	proxySchemaReadyDB = DB
+	return nil
 }
 
 // ListProxyEndpoints 列出某用户可见的出口节点：自己的全部节点优先 + 已公开进池的低延迟节点（上限 600 条防止跨区超大包阻塞）。
 func ListProxyEndpoints(userId int) ([]ProxyEndpoint, error) {
-	ensureProxySchemaOnce.Do(EnsureProxyPoolSchema)
+	if err := EnsureProxyPoolSchema(); err != nil {
+		return nil, err
+	}
 	var list []ProxyEndpoint
 	err := DB.Select("id, user_id, name, kind, url, CASE WHEN raw_uri <> '' THEN substr(raw_uri, 1, 20) ELSE '' END AS raw_uri, region, subscription_id, source, enabled, public, weight, latency_ms, fail_count, last_ok_at, last_error, created_at, updated_at").
 		Where("user_id = ? OR public = ?", userId, true).
@@ -91,23 +138,29 @@ func ListProxyEndpoints(userId int) ([]ProxyEndpoint, error) {
 
 // ProxyPoolStats 代理池聚合统计。
 type ProxyPoolStats struct {
-	Total       int `gorm:"column:total"`
-	Enabled     int `gorm:"column:enabled"`
-	ClientNodes int `gorm:"column:client_nodes"`
-	PublicNodes int `gorm:"column:public_nodes"`
-	HaizhuNodes int `gorm:"column:haizhu_nodes"`
+	Total        int `gorm:"column:total"`
+	Enabled      int `gorm:"column:enabled"`
+	ClientNodes  int `gorm:"column:client_nodes"`
+	PublicNodes  int `gorm:"column:public_nodes"`
+	HaizhuNodes  int `gorm:"column:haizhu_nodes"`
+	DirectNodes  int `gorm:"column:direct_nodes"`
+	HealthyNodes int `gorm:"column:healthy_nodes"`
 }
 
 // GetProxyPoolStatsForUser 单次 SQL 聚合统计该用户可见的代理池规模（跨区库 ~220ms）。
 func GetProxyPoolStatsForUser(userId int) (ProxyPoolStats, error) {
-	ensureProxySchemaOnce.Do(EnsureProxyPoolSchema)
+	if err := EnsureProxyPoolSchema(); err != nil {
+		return ProxyPoolStats{}, err
+	}
 	var st ProxyPoolStats
 	err := DB.Model(&ProxyEndpoint{}).
 		Select(`COUNT(*) AS total,
 			COALESCE(SUM(CASE WHEN enabled = true THEN 1 ELSE 0 END), 0) AS enabled,
 			COALESCE(SUM(CASE WHEN raw_uri <> '' THEN 1 ELSE 0 END), 0) AS client_nodes,
 			COALESCE(SUM(CASE WHEN public = true THEN 1 ELSE 0 END), 0) AS public_nodes,
-			COALESCE(SUM(CASE WHEN source = 'haizhu' THEN 1 ELSE 0 END), 0) AS haizhu_nodes`).
+			COALESCE(SUM(CASE WHEN source = 'haizhu' THEN 1 ELSE 0 END), 0) AS haizhu_nodes,
+ COALESCE(SUM(CASE WHEN url <> '' THEN 1 ELSE 0 END), 0) AS direct_nodes,
+ COALESCE(SUM(CASE WHEN enabled = true AND fail_count = 0 AND last_ok_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS healthy_nodes`).
 		Where("user_id = ? OR public = ?", userId, true).
 		Scan(&st).Error
 	return st, err
@@ -325,16 +378,173 @@ func CountProxySubscriptions(userId int) (int, error) {
 // 条件：enabled、url 非空、连续失败次数未达上限；优先使用未失败且延迟最低的节点；
 // 末尾追加内核（mihomo）的本地出口，让只有客户端协议（vless/ss/anytls…）的节点也能真正发请求。
 func ListUsableProxyUrls(userId int) ([]string, error) {
-	ensureProxySchemaOnce.Do(EnsureProxyPoolSchema)
-	var urls []string
-	err := DB.Model(&ProxyEndpoint{}).
-		Where("(user_id = ? OR public = ?) AND enabled = ? AND url <> '' AND fail_count < ?", userId, true, true, ProxyEndpointMaxFailCount).
-		Order("fail_count ASC, CASE WHEN latency_ms > 0 THEN latency_ms ELSE 99999 END ASC, weight DESC, id ASC").
-		Pluck("url", &urls).Error
+	if err := EnsureProxyPoolSchema(); err != nil {
+		return nil, err
+	}
+	var endpoints []ProxyEndpoint
+	err := DB.Where("(user_id = ? OR public = ?) AND enabled = ? AND fail_count < ?", userId, true, true, ProxyEndpointMaxFailCount).
+		Order("fail_count ASC, CASE WHEN latency_ms > 0 THEN latency_ms ELSE 99999 END ASC, weight DESC, id ASC").Find(&endpoints).Error
 	if err != nil {
 		return nil, err
 	}
-	return append(urls, extraProxyURLProvider(userId)...), nil
+	urls := make([]string, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		if endpoint.Url != "" {
+			urls = append(urls, endpoint.Url)
+		} else if endpoint.RawUri != "" {
+			if proxyURL, err := endpointProxyURLProvider(endpoint); err == nil {
+				urls = append(urls, proxyURL)
+			}
+		}
+	}
+	return urls, nil
+}
+
+// ValidateSelfChannelProxyPolicy checks visibility without contacting proxy nodes.
+func ValidateSelfChannelProxyPolicy(userID int, policy *dto.ChannelProxyPolicy, fixedProxy string) error {
+	if policy == nil {
+		return nil
+	}
+	if policy.SubscriptionID < 0 || policy.EndpointID < 0 {
+		return fmt.Errorf("proxy policy IDs must not be negative")
+	}
+	if policy.Mode != "subscription" && policy.SubscriptionID != 0 || policy.Mode != "endpoint" && policy.EndpointID != 0 {
+		return fmt.Errorf("proxy policy IDs do not match its mode")
+	}
+	switch policy.Mode {
+	case "direct", "user_pool", "public_pool":
+		return nil
+	case "fixed":
+		parsed, err := common.ParseProxyURLStrict(strings.TrimSpace(fixedProxy))
+		if err != nil || parsed == nil {
+			return fmt.Errorf("fixed proxy policy requires a valid proxy URL")
+		}
+		return nil
+	case "endpoint", "subscription":
+		if userID <= 0 {
+			return fmt.Errorf("proxy policy requires an authenticated owner")
+		}
+		if err := EnsureProxyPoolSchema(); err != nil {
+			return err
+		}
+		if policy.Mode == "endpoint" {
+			if policy.EndpointID <= 0 {
+				return fmt.Errorf("proxy endpoint ID is required")
+			}
+			ep, err := GetProxyEndpointVisible(userID, policy.EndpointID)
+			if err != nil {
+				return fmt.Errorf("proxy endpoint unavailable or not visible: %w", err)
+			}
+			if !ep.Enabled {
+				return fmt.Errorf("proxy endpoint is disabled")
+			}
+			return nil
+		}
+		if policy.SubscriptionID <= 0 {
+			return fmt.Errorf("proxy subscription ID is required")
+		}
+		var sub ProxySubscription
+		if err := DB.Where("id = ? AND (user_id = ? OR public = ?)", policy.SubscriptionID, userID, true).First(&sub).Error; err != nil {
+			return fmt.Errorf("proxy subscription unavailable or not visible: %w", err)
+		}
+		if !sub.Enabled {
+			return fmt.Errorf("proxy subscription is disabled")
+		}
+		return nil
+	default:
+		return fmt.Errorf("invalid proxy policy mode")
+	}
+}
+
+var proxyPolicyCursor atomic.Uint64
+
+// ResolveChannelProxyPolicy rechecks scope on every request. Explicit policies
+// never fall back to direct or a global selector that could expose private nodes.
+func ResolveChannelProxyPolicy(userID int, setting dto.ChannelSettings) (string, error) {
+	policy := setting.ProxyPolicy
+	if policy == nil {
+		legacy := strings.TrimSpace(setting.Proxy)
+		switch legacy {
+		case "direct":
+			return "", nil
+		case "", "userpool":
+			if userID <= 0 {
+				return "", nil
+			}
+			urls, err := ListUsableProxyUrls(userID)
+			if err != nil {
+				return "", err
+			}
+			if len(urls) == 0 {
+				return "", nil
+			}
+			return urls[(proxyPolicyCursor.Add(1)-1)%uint64(len(urls))], nil
+		default:
+			return legacy, nil
+		}
+	}
+	if err := ValidateSelfChannelProxyPolicy(userID, policy, setting.Proxy); err != nil {
+		return "", err
+	}
+	switch policy.Mode {
+	case "direct":
+		return "", nil
+	case "fixed":
+		return strings.TrimSpace(setting.Proxy), nil
+	}
+	if userID <= 0 {
+		return "", fmt.Errorf("proxy policy requires an authenticated owner")
+	}
+	if err := EnsureProxyPoolSchema(); err != nil {
+		return "", err
+	}
+	query := DB.Model(&ProxyEndpoint{}).Where("enabled = ? AND fail_count < ?", true, ProxyEndpointMaxFailCount)
+	switch policy.Mode {
+	case "user_pool":
+		query = query.Where("user_id = ?", userID)
+	case "public_pool":
+		query = query.Where("public = ?", true)
+	case "endpoint":
+		query = query.Where("id = ? AND (user_id = ? OR public = ?)", policy.EndpointID, userID, true)
+	case "subscription":
+		query = query.Where("subscription_id = ? AND (user_id = ? OR public = ?)", policy.SubscriptionID, userID, true)
+	}
+	var endpoints []ProxyEndpoint
+	if err := query.Order("fail_count ASC, CASE WHEN latency_ms > 0 THEN latency_ms ELSE 99999 END ASC, weight DESC, id ASC").Find(&endpoints).Error; err != nil {
+		return "", fmt.Errorf("resolve proxy policy: %w", err)
+	}
+	var urls []string
+	var listenerErr error
+	for _, endpoint := range endpoints {
+		if endpoint.Url != "" {
+			urls = append(urls, endpoint.Url)
+		} else if endpoint.RawUri != "" {
+			proxyURL, err := endpointProxyURLProvider(endpoint)
+			if err != nil {
+				listenerErr = err
+			} else {
+				urls = append(urls, proxyURL)
+			}
+		}
+	}
+	if len(urls) == 0 {
+		if listenerErr != nil {
+			return "", listenerErr
+		}
+		return "", fmt.Errorf("no usable proxy in selected scope")
+	}
+	return urls[(proxyPolicyCursor.Add(1)-1)%uint64(len(urls))], nil
+}
+
+var endpointProxyURLProvider = func(ProxyEndpoint) (string, error) {
+	return "", fmt.Errorf("mihomo endpoint listener is unavailable; reload the kernel")
+}
+
+// SetEndpointProxyURLProvider registers the loaded, fixed-node listener resolver at startup.
+func SetEndpointProxyURLProvider(fn func(ProxyEndpoint) (string, error)) {
+	if fn != nil {
+		endpointProxyURLProvider = fn
+	}
 }
 
 // extraProxyURLProvider 由内核管理器注册（避免 model → service 的循环依赖）。
@@ -363,7 +573,9 @@ func SetKernelFailoverProvider(fn func(userId int, proxyURL string) bool) {
 
 // ListAllEnabledProxyEndpoints 列出启用节点（内核配置编译用：优先用户自有订阅节点 + 低延迟公共节点，上限 300 条避免跨区大字段阻塞）。
 func ListAllEnabledProxyEndpoints() ([]ProxyEndpoint, error) {
-	ensureProxySchemaOnce.Do(EnsureProxyPoolSchema)
+	if err := EnsureProxyPoolSchema(); err != nil {
+		return nil, err
+	}
 	var list []ProxyEndpoint
 	err := DB.Where("enabled = ? AND fail_count < ?", true, ProxyEndpointMaxFailCount).
 		Order("CASE WHEN source <> 'haizhu' THEN 0 ELSE 1 END ASC, fail_count ASC, CASE WHEN latency_ms > 0 THEN latency_ms ELSE 99999 END ASC, weight DESC, id ASC").

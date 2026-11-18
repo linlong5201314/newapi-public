@@ -2,6 +2,7 @@ package channel
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -216,4 +217,28 @@ func TestToWebSocketURL(t *testing.T) {
 	} {
 		assert.Equal(t, want, toWebSocketURL(input), input)
 	}
+}
+
+func TestEgressProxyLogAddressRemovesAllCredentials(t *testing.T) {
+	for _, raw := range []string{
+		"http://endpoint:fixture-secret@127.0.0.1:23556/path?token=fixture-token#fragment",
+		"http://fixture-user:fixture-secret@127.0.0.1:23556",
+		"http://fixture-secret@127.0.0.1:23556",
+		"http://fixture-secret@%zz",
+	} {
+		got := egressProxyLogAddress(raw)
+		assert.NotContains(t, got, "fixture")
+		assert.NotContains(t, got, "endpoint")
+		assert.NotContains(t, got, "@")
+		assert.NotContains(t, got, "token")
+	}
+	assert.Equal(t, "http://127.0.0.1:23556", egressProxyLogAddress("http://endpoint:fixture-secret@127.0.0.1:23556"))
+}
+
+func TestEgressProxyErrorPreservesIdentityWithoutCredentials(t *testing.T) {
+	cause := errors.New("dial http://fixture-user:fixture-secret@127.0.0.1:23556")
+	err := egressProxyTransportError{cause: cause, address: egressProxyLogAddress("http://fixture-user:fixture-secret@127.0.0.1:23556")}
+	assert.ErrorIs(t, err, cause)
+	assert.NotContains(t, err.Error(), "fixture")
+	assert.NotContains(t, err.Error(), "@")
 }

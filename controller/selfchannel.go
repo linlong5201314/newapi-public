@@ -1,7 +1,9 @@
 package controller
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -39,12 +41,22 @@ func loadSelfOwnedChannel(c *gin.Context, id int, selectAll bool) (*model.Channe
 		writeSelfChannelNotFound(c)
 		return nil, false
 	}
-	channel, err := model.GetChannelById(id, selectAll)
-	if err != nil || channel == nil || channel.OwnerId != c.GetInt("id") {
+	uid := c.GetInt("id")
+	if uid <= 0 {
 		writeSelfChannelNotFound(c)
 		return nil, false
 	}
-	return channel, true
+	var channel model.Channel
+	query := model.DB.Where("id = ? AND owner_id = ?", id, uid)
+	if !selectAll {
+		query = query.Omit("key")
+	}
+	err := query.First(&channel).Error
+	if err != nil {
+		writeSelfChannelNotFound(c)
+		return nil, false
+	}
+	return &channel, true
 }
 
 // countSelfChannels 统计用户当前自建渠道数量。
@@ -119,7 +131,7 @@ func GetSelfChannels(c *gin.Context) {
 	}
 
 	for _, datum := range channelData {
-		clearChannelInfo(datum)
+		sanitizeSelfChannel(datum)
 	}
 
 	var results []struct {
@@ -180,7 +192,7 @@ func GetSelfChannel(c *gin.Context) {
 	if !ok {
 		return
 	}
-	clearChannelInfo(channel)
+	sanitizeSelfChannel(channel)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -230,6 +242,11 @@ func AddSelfChannel(c *gin.Context) {
 	}
 
 	// 强制归属当前用户，客户端传入的 owner_id 一律忽略。
+	setting := addChannelRequest.Channel.GetSetting()
+	if err := model.ValidateSelfChannelProxyPolicy(uid, setting.ProxyPolicy, setting.Proxy); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	addChannelRequest.Channel.OwnerId = uid
 	addChannelExecute(c, &addChannelRequest)
 }
@@ -237,6 +254,67 @@ func AddSelfChannel(c *gin.Context) {
 // UpdateSelfChannel PUT /api/channel/self
 // 复用 updateChannelExecute：归属不符 404；owner_id 强制保留原值（禁止改归属）。
 func UpdateSelfChannel(c *gin.Context) {
+	raw, err := c.GetRawData()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var req map[string]any
+	var patch PatchChannel
+	if common.Unmarshal(raw, &req) != nil || common.Unmarshal(raw, &patch) != nil {
+		common.ApiErrorT(c, "Invalid parameters")
+		return
+	}
+	// Struct JSON matching is case-insensitive; map-based guards must not accept
+	// alternate spellings that would otherwise bypass protected-field validation.
+	for key := range req {
+		for _, canonical := range []string{"models", "setting", "other_info"} {
+			if strings.EqualFold(key, canonical) && key != canonical {
+				common.ApiErrorT(c, "Invalid parameters")
+				return
+			}
+		}
+	}
+	original, ok := loadSelfOwnedChannel(c, patch.Id, true)
+	if !ok {
+		return
+	}
+	if err := prepareSelfChannelUpdate(c.GetInt("id"), original, req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	templateID, _ := original.GetOtherInfo()["templateId"].(string)
+	if liveFreeCatalogProvider(original.GetBaseURL(), templateID) != "" {
+		if _, changing := req["models"]; changing {
+			proxy, err := model.ResolveChannelProxyPolicy(c.GetInt("id"), original.GetSetting())
+			if err != nil {
+				common.ApiError(c, err)
+				return
+			}
+			ids, verified, _ := FetchLiveFreeModelsForUpstream(original.GetBaseURL(), templateID, "", proxy)
+			if !verified {
+				common.ApiErrorMsg(c, "Unable to verify the upstream free model catalog. Please refresh and try again")
+				return
+			}
+			allowed := make(map[string]bool, len(ids))
+			for _, id := range ids {
+				allowed[id] = true
+			}
+			for _, id := range strings.Split(patch.Models, ",") {
+				if !allowed[strings.TrimSpace(id)] {
+					common.ApiErrorMsg(c, "Selected model is not in the current free model catalog")
+					return
+				}
+			}
+		}
+	}
+	raw, err = common.Marshal(req)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	c.Request.Body = io.NopCloser(bytes.NewReader(raw))
+	c.Request.ContentLength = int64(len(raw))
 	updateChannelExecute(c, c.GetInt("id"))
 }
 
@@ -349,11 +427,10 @@ func FetchSelfChannelModels(c *gin.Context) {
 			key = keys[0]
 		}
 	}
-	proxyURL := strings.TrimSpace(channel.GetSetting().Proxy)
-	if proxyURL == "" {
-		proxyURL = model.PickUserProxyUrl(c.GetInt("id"))
-	} else if proxyURL == "direct" {
-		proxyURL = ""
+	proxyURL, proxyErr := model.ResolveChannelProxyPolicy(c.GetInt("id"), channel.GetSetting())
+	if proxyErr != nil {
+		common.ApiError(c, proxyErr)
+		return
 	}
 
 	seen := map[string]bool{}
@@ -369,25 +446,31 @@ func FetchSelfChannelModels(c *gin.Context) {
 	}
 
 	// 1. 针对 OpenRouter / OpenCode / 通用免费源实时拉取最新免费模型（含 :free 自动筛选）
-	liveFree, _, _ := FetchLiveFreeModelsForUpstream(channel.GetBaseURL(), templateId, key, proxyURL)
+	liveFree, verified, _ := FetchLiveFreeModelsForUpstream(channel.GetBaseURL(), templateId, key, proxyURL)
 	add(liveFree)
-
-	// 2. 尝试标准适配器上游拉取
-	if len(merged) == 0 {
-		if ids, uerr := fetchChannelUpstreamModelIDs(channel); uerr == nil {
-			add(ids)
+	if liveFreeCatalogProvider(channel.GetBaseURL(), templateId) != "" {
+		if !verified {
+			common.ApiErrorMsg(c, "Unable to verify the upstream free model catalog. Please refresh and try again")
+			return
 		}
+	} else {
+		if len(merged) == 0 {
+			if ids, uerr := fetchChannelUpstreamModelIDs(channel); uerr == nil {
+				add(ids)
+			}
+		}
+		add(DefaultModelsForChannel(channel))
 	}
-
-	// 3. 合并该渠道的完整内置/历史候选模型池（确保即使之前只保存了 1 个模型，也能找回全部模型）
-	add(DefaultModelsForChannel(channel))
 
 	if info == nil {
 		info = map[string]any{}
 	}
 	info["allModels"] = merged
 	channel.SetOtherInfo(info)
-	_ = model.DB.Model(&model.Channel{}).Where("id = ?", channel.Id).Update("other_info", channel.OtherInfo).Error
+	if err := model.DB.Model(&model.Channel{}).Where("id = ? AND owner_id = ?", channel.Id, c.GetInt("id")).Update("other_info", channel.OtherInfo).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

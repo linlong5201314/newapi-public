@@ -18,6 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { api, type ApiRequestConfig } from '@/lib/api'
 
+import type { ChannelProxyPolicy } from './api'
+
 /**
  * [M2-FE] Free-source templates + free quota pool API.
  *
@@ -94,6 +96,8 @@ export type CreateFromTemplateRequest = {
   subscription_url?: string
   /** 用户勾选加入「我的渠道」的模型列表 */
   models?: string[]
+  all_models?: string[]
+  proxy_policy?: ChannelProxyPolicy
   /** 用户勾选公开到「公共池」的模型子集 */
   public_models?: string[]
 }
@@ -105,6 +109,8 @@ export type ProbeTemplateModelsResponse = {
     models: string[]
     probed_live: boolean
     latency_ms: number
+    callable?: boolean
+    call_contract?: string
     proxy_used: string
   }
 }
@@ -132,9 +138,7 @@ export type FreeUsageResponse = {
   data?: unknown
 }
 
-const actionConfig = (
-  config: ApiRequestConfig = {}
-): ApiRequestConfig => ({
+const actionConfig = (config: ApiRequestConfig = {}): ApiRequestConfig => ({
   ...config,
   skipBusinessError: true,
   skipErrorHandler: true,
@@ -185,7 +189,9 @@ export function normalizeFreeTemplates(data: unknown): FreeSourceTemplate[] {
         name,
         authMode: asString(record.authMode ?? record.auth_mode),
         authType: asString(record.authType ?? record.auth_type),
-        hiddenEndpoint: Boolean(record.hiddenEndpoint ?? record.hidden_endpoint),
+        hiddenEndpoint: Boolean(
+          record.hiddenEndpoint ?? record.hidden_endpoint
+        ),
         channelType: asNumber(record.channelType ?? record.channel_type),
         baseUrl: asString(record.baseUrl ?? record.base_url),
         models: Array.isArray(record.models)
@@ -194,9 +200,7 @@ export function normalizeFreeTemplates(data: unknown): FreeSourceTemplate[] {
             )
           : undefined,
         freeNote: asString(record.freeNote ?? record.free_note),
-        monthlyTokens: asNumber(
-          record.monthlyTokens ?? record.monthly_tokens
-        ),
+        monthlyTokens: asNumber(record.monthlyTokens ?? record.monthly_tokens),
         freeType: asString(record.freeType ?? record.free_type),
         extraFields: Array.isArray(extraFieldsRaw)
           ? extraFieldsRaw.filter(
@@ -240,12 +244,8 @@ export function normalizeFreeUsage(data: unknown): FreeUsagePool[] {
       return {
         templateId,
         name,
-        monthlyTokens: asNumber(
-          record.monthlyTokens ?? record.monthly_tokens
-        ),
-        usedThisMonth: asNumber(
-          record.usedThisMonth ?? record.used_this_month
-        ),
+        monthlyTokens: asNumber(record.monthlyTokens ?? record.monthly_tokens),
+        usedThisMonth: asNumber(record.usedThisMonth ?? record.used_this_month),
         remaining: asNumber(record.remaining),
         resetsAt: asNumber(record.resetsAt ?? record.resets_at),
       }
@@ -287,6 +287,7 @@ export async function createChannelFromTemplate(
 export async function probeTemplateModels(data: {
   templateId: string
   key?: string
+  proxy_policy?: ChannelProxyPolicy
   proxy?: string
   extra?: Record<string, string>
 }): Promise<ProbeTemplateModelsResponse> {

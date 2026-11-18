@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 export type DemoRole = 'user' | 'assistant'
 
-export type DemoMessageStatus = 'streaming' | 'complete' | 'error'
+export type DemoMessageStatus = 'streaming' | 'complete' | 'error' | 'stopped'
 
 export interface DemoMessage {
   id: string

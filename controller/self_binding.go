@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 
 	"github.com/gin-gonic/gin"
 )
@@ -19,11 +20,12 @@ import (
 func CreateSelfBinding(c *gin.Context) {
 	uid := c.GetInt("id")
 	var req struct {
-		Provider    string `json:"provider"`
-		Accounts    string `json:"accounts"`
-		DisplayName string `json:"displayName"`
-		Public      bool   `json:"public"`
-		Proxy       string `json:"proxy"`
+		Provider    string                  `json:"provider"`
+		Accounts    string                  `json:"accounts"`
+		DisplayName string                  `json:"displayName"`
+		Public      bool                    `json:"public"`
+		Proxy       string                  `json:"proxy"`
+		ProxyPolicy *dto.ChannelProxyPolicy `json:"proxy_policy"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ApiError(c, err)
@@ -34,6 +36,10 @@ func CreateSelfBinding(c *gin.Context) {
 		common.ApiErrorMsg(c, err.Error())
 		return
 	}
+	if err := model.ValidateSelfChannelProxyPolicy(uid, req.ProxyPolicy, proxy); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	provider := strings.TrimSpace(req.Provider)
 	tpl := constant.GetFreeSourceTemplate(provider)
 	if tpl == nil {
@@ -42,6 +48,10 @@ func CreateSelfBinding(c *gin.Context) {
 	}
 	if tpl.AuthMode != "account" && tpl.AuthMode != "oauth" && tpl.AuthMode != "gateway" && tpl.AuthMode != "bridge" {
 		common.ApiErrorMsg(c, "该来源不是账号授权类型，请直接用模板添加渠道")
+		return
+	}
+	if provider == "freepi" {
+		common.ApiErrorMsg(c, "Use GitHub device authorization to connect FreePi")
 		return
 	}
 	kind := "password"
@@ -81,6 +91,7 @@ func CreateSelfBinding(c *gin.Context) {
 		return
 	}
 	binding := &model.SelfAccountBinding{
+		ProxyPolicy: req.ProxyPolicy,
 		UserId:      uid,
 		Provider:    tpl.Id,
 		Kind:        kind,
@@ -102,6 +113,9 @@ func CreateSelfBinding(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	binding.ProxyConfigured = binding.Proxy != ""
+	binding.Proxy = ""
+	binding.ServiceRef = ""
 	common.ApiSuccess(c, gin.H{"binding": binding})
 }
 
@@ -112,6 +126,17 @@ func GetSelfBindings(c *gin.Context) {
 	if err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	for i := range rows {
+		if creds, err := rows[i].DecodeAccounts(); err == nil && len(creds) > 0 {
+			rows[i].ProxyPolicy = creds[0].ProxyPolicy
+		}
+		rows[i].ProxyConfigured = rows[i].Proxy != ""
+		rows[i].Proxy = ""
+		rows[i].ServiceRef = ""
+		if rows[i].LastError != "" {
+			rows[i].LastError = "Upstream provisioning failed. Please retry or contact an administrator"
+		}
 	}
 	common.ApiSuccess(c, gin.H{"items": rows, "total": len(rows)})
 }
@@ -192,7 +217,7 @@ func normalizeBindingProxy(raw string) (string, error) {
 	if !strings.HasPrefix(l, "http://") && !strings.HasPrefix(l, "https://") && !strings.HasPrefix(l, "socks5://") {
 		return "", fmt.Errorf("代理格式不对：需 http:// / https:// / socks5:// 开头，或填 direct 表示直连")
 	}
-	if _, err := url.Parse(v); err != nil {
+	if _, err := url.ParseRequestURI(v); err != nil {
 		return "", fmt.Errorf("代理地址解析失败: %v", err)
 	}
 	return v, nil

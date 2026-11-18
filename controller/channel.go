@@ -1345,8 +1345,12 @@ func updateChannelExecute(c *gin.Context, requiredOwnerId int) {
 		updateAudit["base_url_source"] = "plugin_default"
 	}
 	recordManageAudit(c, "channel.update", updateAudit)
-	channel.Key = ""
-	clearChannelInfo(&channel.Channel)
+	if requiredOwnerId > 0 {
+		sanitizeSelfChannel(&channel.Channel)
+	} else {
+		channel.Key = ""
+		clearChannelInfo(&channel.Channel)
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",

@@ -267,6 +267,20 @@ export const channelFormSchema = z
       .string()
       .optional()
       .refine(isOptionalProxyURL, ERROR_MESSAGES.INVALID_PROXY),
+    proxy_policy: z
+      .object({
+        mode: z.enum([
+          'user_pool',
+          'public_pool',
+          'subscription',
+          'endpoint',
+          'direct',
+          'fixed',
+        ]),
+        subscription_id: z.number().int().positive().optional(),
+        endpoint_id: z.number().int().positive().optional(),
+      })
+      .optional(),
     http_protocol: z.enum(['auto', 'http1']).optional(),
     http2_connection_shards: z.number().int().optional(),
     tls_insecure_skip_verify: z.boolean().optional(),
@@ -510,6 +524,7 @@ export function transformChannelToFormDefaults(
     force_format: false,
     thinking_to_content: false,
     proxy: '',
+    proxy_policy: undefined as ChannelFormValues['proxy_policy'],
     http_protocol: HTTP_PROTOCOL_AUTO as 'auto' | 'http1',
     http2_connection_shards: 1,
     tls_insecure_skip_verify: false,
@@ -526,12 +541,16 @@ export function transformChannelToFormDefaults(
       const shards = normalizeHttp2ConnectionShards(
         parsed.http2_connection_shards
       )
+      let legacyProxyMode: 'user_pool' | 'direct' | 'fixed' = 'user_pool'
+      if (parsed.proxy === 'direct') legacyProxyMode = 'direct'
+      else if (parsed.proxy) legacyProxyMode = 'fixed'
       extraSettings = {
         task_plugin_key: parsed.task_plugin_key || '',
         task_extend_plugin_keys: readTaskExtendPluginKeys(channel.type, parsed),
         force_format: parsed.force_format || false,
         thinking_to_content: parsed.thinking_to_content || false,
         proxy: parsed.proxy || '',
+        proxy_policy: parsed.proxy_policy ?? { mode: legacyProxyMode },
         http_protocol: protocol,
         http2_connection_shards: protocol === HTTP_PROTOCOL_HTTP1 ? 1 : shards,
         tls_insecure_skip_verify: parsed.tls_insecure_skip_verify === true,
@@ -664,6 +683,8 @@ export function transformChannelToFormDefaults(
  */
 export function buildSettingJSON(formData: ChannelFormValues): string {
   const settingObj: Record<string, unknown> = {
+    ...JSON.parse(formData.setting || '{}'),
+    proxy_policy: formData.proxy_policy,
     task_plugin_key:
       formData.type === CHANNEL_TYPE_TASK_PLUGIN
         ? formData.task_plugin_key?.trim() || ''
@@ -675,7 +696,10 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
         : undefined,
     force_format: formData.force_format || false,
     thinking_to_content: formData.thinking_to_content || false,
-    proxy: formData.proxy?.trim() || '',
+    proxy:
+      formData.proxy_policy && formData.proxy_policy.mode !== 'fixed'
+        ? ''
+        : formData.proxy?.trim() || '',
     pass_through_body_enabled: formData.pass_through_body_enabled === true,
     responses_websocket_enabled:
       supportsResponsesWebSocket(formData.type) &&

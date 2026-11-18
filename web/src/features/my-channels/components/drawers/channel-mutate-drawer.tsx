@@ -202,12 +202,13 @@ import {
   nextTaskPluginBaseUrl,
 } from '../../lib/task-plugin-base-url'
 import type { Channel } from '../../types'
-import { ChannelPluginExtensions } from '../channel-plugin-extensions'
-import { ChannelQuickOptions } from '../channel-quick-options'
 import {
   TraeImportDialog,
   WorkbuddyOAuthDialog,
 } from '../channel-credential-dialogs'
+import { ChannelPluginExtensions } from '../channel-plugin-extensions'
+import { ChannelProxySelector } from '../channel-proxy-selector'
+import { ChannelQuickOptions } from '../channel-quick-options'
 import { ChannelTypeLogo } from '../channel-type-badge'
 import { useChannels } from '../channels-provider'
 import { AdvancedCustomEditorDialog } from '../dialogs/advanced-custom-editor-dialog'
@@ -1797,23 +1798,21 @@ export function ChannelMutateDrawer({
   )
 
   const proxyFields = (
-    <FormField
-      control={form.control}
-      name='proxy'
-      render={({ field }) => (
-        <FormItem>
-          <FormLabel>{t('Proxy Address')}</FormLabel>
-          <FormControl>
-            <Input placeholder={t('socks5://user:pass@host:port')} {...field} />
-          </FormControl>
-          <FormDescription>
-            {t(
-              'Network proxy for this channel (supports HTTP, HTTPS, SOCKS5, and SOCKS5H)'
-            )}
-          </FormDescription>
-          <FormMessage />
-        </FormItem>
-      )}
+    <ChannelProxySelector
+      enabled={open}
+      disabled={isSubmitting}
+      policy={formValues.proxy_policy ?? { mode: 'user_pool' }}
+      proxy={formValues.proxy || ''}
+      fixedConfigured={isEditing && formValues.proxy_policy?.mode === 'fixed'}
+      onPolicyChange={(policy) => {
+        form.setValue('proxy_policy', policy, { shouldDirty: true })
+        if (policy.mode !== 'fixed') {
+          form.setValue('proxy', '', { shouldDirty: true })
+        }
+      }}
+      onProxyChange={(proxy) =>
+        form.setValue('proxy', proxy, { shouldDirty: true })
+      }
     />
   )
 
@@ -4459,7 +4458,9 @@ export function ChannelMutateDrawer({
                     }
                     return (
                       <FormItem>
-                        <FormLabel required>{t('Account Credential')}</FormLabel>
+                        <FormLabel required>
+                          {t('Account Credential')}
+                        </FormLabel>
                         <div className='border-border/60 flex flex-col gap-3 rounded-lg border p-4'>
                           {hasCredential ? (
                             <div className='flex flex-col gap-1'>
@@ -5141,13 +5142,7 @@ export function ChannelMutateDrawer({
               ref={channelFormRef}
               onSubmit={form.handleSubmit(onSubmit, onInvalid)}
               className={sideDrawerFormClassName(
-                cn(
-                  'gap-5',
-                  (!isEditing ||
-                    (!isChannelDetailLoading && channelData?.data)) &&
-                    'overflow-hidden',
-                  showProviderPicker && 'hidden'
-                )
+                cn('gap-5', showProviderPicker && 'hidden')
               )}
               hidden={showProviderPicker}
             >

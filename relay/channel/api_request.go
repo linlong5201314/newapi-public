@@ -410,8 +410,13 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	}
 	targetHeader.Set("Content-Type", c.Request.Header.Get("Content-Type"))
 	dialer := *websocket.DefaultDialer
-	if info.ChannelSetting.Proxy != "" {
-		proxyURL, _, proxyErr := common2.ParseProxyURLRuntime(info.ChannelSetting.Proxy)
+	proxyRaw, proxyErr := resolveEgressProxyURL(info)
+	if proxyErr != nil {
+		return nil, fmt.Errorf("resolve egress proxy: %w", proxyErr)
+	}
+	dialer.Proxy = nil
+	if proxyRaw != "" {
+		proxyURL, _, proxyErr := common2.ParseProxyURLRuntime(proxyRaw)
 		if proxyErr != nil {
 			return nil, proxyErr
 		}
@@ -485,13 +490,16 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 				break
 			}
 		}
-		proxyURL = resolveEgressProxyURL(info)
+		proxyURL, err = resolveEgressProxyURL(info)
+		if err != nil {
+			return nil, fmt.Errorf("resolve egress proxy: %w", err)
+		}
 		if attempt > 0 && proxyURL == "" {
 			break
 		}
 		client, cerr := service.GetHttpClientWithProxySettings(proxyURL, info.ChannelSetting)
 		if cerr != nil {
-			return nil, fmt.Errorf("new proxy http client failed: %w", cerr)
+			return nil, fmt.Errorf("new proxy http client failed: %w", egressProxyTransportError{cause: cerr, address: egressProxyLogAddress(proxyURL)})
 		}
 		relayClient := *client
 		relayClient.CheckRedirect = keepUpstreamRedirectResponse
@@ -510,11 +518,11 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		if err != nil {
 			model.RecordProxyOutcome(info.UserId, proxyURL, false)
 			if attempt+1 < maxAttempts && proxyURL != "" {
-				logger.LogWarn(c, fmt.Sprintf("proxy pool circuit-breaker: attempt %d via %s failed (%s), switching exit IP", attempt+1, proxyURL, err.Error()))
+				logger.LogWarn(c, fmt.Sprintf("proxy pool circuit-breaker: attempt %d via %s failed (%s), switching exit IP", attempt+1, egressProxyLogAddress(proxyURL), "transport error"))
 				continue
 			}
-			logger.LogError(c, common2.LogText("do request failed: %s", err.Error()))
-			return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))
+			logger.LogError(c, common2.LogText("do request failed: %s", "upstream transport error"))
+			return nil, types.NewError(egressProxyTransportError{cause: err, address: egressProxyLogAddress(proxyURL)}, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))
 		}
 
 		// 上游返回 IP 级限流或网关错误时，同样触发代理池熔断换 IP 重试
@@ -523,7 +531,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 			if resp.Body != nil {
 				_ = resp.Body.Close()
 			}
-			logger.LogWarn(c, fmt.Sprintf("proxy pool circuit-breaker: attempt %d via %s got HTTP %d, switching exit IP", attempt+1, proxyURL, resp.StatusCode))
+			logger.LogWarn(c, fmt.Sprintf("proxy pool circuit-breaker: attempt %d via %s got HTTP %d, switching exit IP", attempt+1, egressProxyLogAddress(proxyURL), resp.StatusCode))
 			continue
 		}
 
@@ -619,25 +627,28 @@ func newTaskAPIRequest(c *gin.Context, fullRequestURL string, requestBody io.Rea
 	return http.NewRequestWithContext(c.Request.Context(), c.Request.Method, fullRequestURL, requestBody)
 }
 
-// resolveEgressProxyURL 决定本次上游请求走哪个出口。
-//
-// 优先级（越具体越优先）：
-//  1. 渠道自带 proxy —— 管理员为该渠道固定了出口，不能被用户池覆盖；
-//  2. 请求用户自己的出口池 —— 逐请求轮询，把按 IP 限流的免费额度摊到 N 个 IP 上；
-//  3. 都没有则返回空串，走直连。
-func resolveEgressProxyURL(info *common.RelayInfo) string {
+// resolveEgressProxyURL preserves legacy settings and fails closed for explicit scopes.
+func resolveEgressProxyURL(info *common.RelayInfo) (string, error) {
 	if info == nil {
-		return ""
+		return "", nil
 	}
-	if channelProxy := strings.TrimSpace(info.ChannelSetting.Proxy); channelProxy != "" {
-		// "direct" = 管理员显式要求该渠道直连，跳过用户出口池
-		if channelProxy == "direct" {
-			return ""
-		}
-		return channelProxy
-	}
-	if info.UserId <= 0 {
-		return ""
-	}
-	return model.PickUserProxyUrl(info.UserId)
+	return model.ResolveChannelProxyPolicy(info.UserId, info.ChannelSetting)
 }
+
+// egressProxyLogAddress intentionally excludes all userinfo, path, query and fragment.
+func egressProxyLogAddress(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" || parsed.Scheme == "" {
+		return "[redacted proxy]"
+	}
+	return parsed.Scheme + "://" + parsed.Host
+}
+
+// egressProxyTransportError keeps errors.Is/As while never rendering proxy credentials.
+type egressProxyTransportError struct {
+	cause   error
+	address string
+}
+
+func (e egressProxyTransportError) Error() string { return "egress transport failed via " + e.address }
+func (e egressProxyTransportError) Unwrap() error { return e.cause }

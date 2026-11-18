@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "rsbuild dev",
     "build": "rsbuild build",
-    "build:check": "bun check -b && rsbuild build",
-    "typecheck": "bun check -b",
+    "build:check": "tsc -b && rsbuild build",
+    "typecheck": "tsc -b",
     "lint": "oxlint -c .oxlintrc.json .",
     "lint:fix": "oxlint -c .oxlintrc.json . --fix",
     "lint:plugins": "cd ../plugins && oxlint -c .oxlintrc.json .",
@@ -107,6 +107,7 @@
     "oxfmt": "^0.72.0",
     "oxlint": "^1.72.0",
     "shadcn": "^4.12.0",
+    "typescript": "6.0.2",
     "vitest": "^5.0.4"
   },
   "overrides": {

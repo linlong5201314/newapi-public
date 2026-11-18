@@ -54,15 +54,20 @@ func registerSelfChannelRoutes(apiRouter *gin.RouterGroup) {
 		selfChannelRoute.POST("/oauth/raccoon/start", controller.SelfRaccoonOAuthStart)
 		selfChannelRoute.GET("/oauth/raccoon/poll", controller.SelfRaccoonOAuthPoll)
 		// DS2API（DeepSeek 网页端）一键生成授权链接 → 复制去浏览器登录/确认 → 自动返回建渠道
-		selfChannelRoute.POST("/oauth/ds2api/start", controller.SelfDs2ApiOAuthStart)
+		selfChannelRoute.POST("/oauth/ds2api/start", middleware.CriticalRateLimit(), controller.SelfDs2ApiOAuthStart)
 		selfChannelRoute.GET("/oauth/ds2api/poll", controller.SelfDs2ApiOAuthPoll)
+		selfChannelRoute.POST("/oauth/freepi/start", middleware.CriticalRateLimit(), controller.StartFreePiOAuth)
+		selfChannelRoute.POST("/oauth/freepi/poll", middleware.CriticalRateLimit(), controller.PollFreePiOAuth)
+		selfChannelRoute.POST("/oauth/freepi/consent", middleware.CriticalRateLimit(), controller.ConsentFreePiOAuth)
+		selfChannelRoute.POST("/oauth/freepi/cancel", middleware.CriticalRateLimit(), controller.CancelFreePiOAuth)
 		selfChannelRoute.POST("/import_trae", controller.SelfImportTrae)
 	}
 	// 授权回跳与引导页由浏览器直接访问，不能挂 UserAuth。
 	apiRouter.GET("/channel/self/oauth/raccoon/callback", controller.SelfRaccoonOAuthCallback)
-	apiRouter.GET("/channel/self/oauth/ds2api/authorize", controller.SelfDs2ApiOAuthAuthorizePage)
-	apiRouter.GET("/channel/self/oauth/ds2api/callback", controller.SelfDs2ApiOAuthCallback)
-	apiRouter.POST("/channel/self/oauth/ds2api/callback", controller.SelfDs2ApiOAuthCallback)
+	// Refresh cookies are scoped to /api/user/auth; the browser ceremony must
+	// share that path to verify the initiating platform session on every request.
+	apiRouter.GET("/user/auth/ds2api/login", selfChannelEnabledGuard(), controller.SelfDs2ApiOAuthAuthorizePage)
+	apiRouter.POST("/user/auth/ds2api/credentials", selfChannelEnabledGuard(), middleware.CriticalRateLimit(), controller.SelfDs2ApiOAuthCallback)
 }
 
 // selfChannelEnabledGuard 平台总开关：SelfChannelEnabled=false 时全组 404。

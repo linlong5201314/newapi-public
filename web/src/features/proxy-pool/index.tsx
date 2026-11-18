@@ -68,7 +68,8 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { handleServerError } from '@/lib/handle-server-error'
-import { useIsAdmin } from '@/hooks/use-admin'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 import {
   createEndpoint,
@@ -93,12 +94,16 @@ const QUERY_KEY = ['proxy-pool'] as const
 
 export function ProxyPoolPage() {
   const { t } = useTranslation()
-  const isAdmin = useIsAdmin()
+  const isSuperAdmin = useAuthStore(
+    (state) => (state.auth.user?.role ?? 0) >= ROLE.SUPER_ADMIN
+  )
   const queryClient = useQueryClient()
   const [endpointOpen, setEndpointOpen] = useState(false)
   const [subscriptionOpen, setSubscriptionOpen] = useState(false)
   const [busyId, setBusyId] = useState<string>('')
-  const [scopeFilter, setScopeFilter] = useState<'all' | 'mine' | 'public' | 'haizhu'>('all')
+  const [scopeFilter, setScopeFilter] = useState<
+    'all' | 'mine' | 'public' | 'haizhu'
+  >('all')
   const [searchKeyword, setSearchKeyword] = useState('')
   const [pageSize, setPageSize] = useState(120)
 
@@ -117,6 +122,8 @@ export function ProxyPoolPage() {
   const runtimeQuery = useQuery({
     queryKey: [...QUERY_KEY, 'runtime'],
     queryFn: getRuntimeStatus,
+    enabled: isSuperAdmin,
+    refetchInterval: isSuperAdmin ? 10000 : false,
   })
 
   const refreshAll = () => {
@@ -226,7 +233,11 @@ export function ProxyPoolPage() {
   })
 
   const toggleMutation = useMutation({
-    mutationFn: (payload: { id: number; enabled?: boolean; public?: boolean }) =>
+    mutationFn: (payload: {
+      id: number
+      enabled?: boolean
+      public?: boolean
+    }) =>
       updateEndpoint(payload.id, {
         ...(payload.enabled !== undefined ? { enabled: payload.enabled } : {}),
         ...(payload.public !== undefined ? { public: payload.public } : {}),
@@ -277,7 +288,10 @@ export function ProxyPoolPage() {
     onError: (error) => handleServerError(error, t('Export failed')),
   })
 
-  const endpoints = endpointsQuery.data ?? []
+  const endpoints = useMemo(
+    () => endpointsQuery.data ?? [],
+    [endpointsQuery.data]
+  )
   const subscriptions = subscriptionsQuery.data ?? []
   const summary = summaryQuery.data
   const runtime = runtimeQuery.data
@@ -285,7 +299,9 @@ export function ProxyPoolPage() {
   const filteredEndpoints = useMemo(() => {
     const kw = searchKeyword.trim().toLowerCase()
     return endpoints.filter((ep) => {
-      if (scopeFilter === 'mine' && (!ep.is_owner || ep.source === 'haizhu')) return false
+      if (scopeFilter === 'mine' && (!ep.is_owner || ep.source === 'haizhu')) {
+        return false
+      }
       if (scopeFilter === 'public' && !ep.public) return false
       if (scopeFilter === 'haizhu' && ep.source !== 'haizhu') return false
       if (!kw) return true
@@ -337,7 +353,10 @@ export function ProxyPoolPage() {
                 <EndpointRow
                   key={endpoint.id}
                   endpoint={endpoint}
-                  busy={busyId === `ep-${endpoint.id}` || busyId === `test-${endpoint.id}`}
+                  busy={
+                    busyId === `ep-${endpoint.id}` ||
+                    busyId === `test-${endpoint.id}`
+                  }
                   testing={busyId === `test-${endpoint.id}`}
                   onToggle={(enabled) =>
                     toggleMutation.mutate({ id: endpoint.id, enabled })
@@ -353,9 +372,10 @@ export function ProxyPoolPage() {
           </Table>
         </div>
         {filteredEndpoints.length > pageSize && (
-          <div className='flex items-center justify-between px-1 text-xs text-muted-foreground'>
+          <div className='text-muted-foreground flex items-center justify-between px-1 text-xs'>
             <span>
-              当前显示前 {visibleEndpoints.length} / 共 {filteredEndpoints.length} 个节点（已按低延迟优先排序）
+              当前显示前 {visibleEndpoints.length} / 共{' '}
+              {filteredEndpoints.length} 个节点（已按低延迟优先排序）
             </span>
             <Button
               size='sm'
@@ -375,7 +395,7 @@ export function ProxyPoolPage() {
       <SectionPageLayout.Title>{t('Egress IP Pool')}</SectionPageLayout.Title>
       <SectionPageLayout.Actions>
         <div className='flex flex-wrap items-center gap-2'>
-          {isAdmin && (
+          {isSuperAdmin && (
             <Button
               size='sm'
               variant='default'
@@ -383,18 +403,28 @@ export function ProxyPoolPage() {
               onClick={() => importHaizhuMutation.mutate('full')}
             >
               <Sparkles className='me-1 h-4 w-4' />
-              {importHaizhuMutation.isPending ? '正在导入…' : '导入 Haizhu 7114 公共节点'}
+              {importHaizhuMutation.isPending
+                ? '正在导入…'
+                : '导入 Haizhu 7114 公共节点'}
             </Button>
           )}
-          <Button size='sm' variant='outline' onClick={() => setSubscriptionOpen(true)}>
+          <Button
+            size='sm'
+            variant='outline'
+            onClick={() => setSubscriptionOpen(true)}
+          >
             <Rss className='me-1 h-4 w-4' />
             {t('Import subscription')}
           </Button>
-          <Button size='sm' variant='outline' onClick={() => setEndpointOpen(true)}>
+          <Button
+            size='sm'
+            variant='outline'
+            onClick={() => setEndpointOpen(true)}
+          >
             <Plus className='me-1 h-4 w-4' />
             {t('Add node')}
           </Button>
-          {isAdmin && (
+          {isSuperAdmin && (
             <Button
               size='sm'
               variant='outline'
@@ -415,18 +445,25 @@ export function ProxyPoolPage() {
             value={String(summary?.endpoint_total ?? endpoints.length)}
             hint={`公共池公开: ${summary?.public_node_count ?? endpoints.filter((e) => e.public).length} · 启用中: ${summary?.endpoint_enabled ?? endpoints.filter((e) => e.enabled).length}`}
           />
-          {isAdmin ? (
+          {isSuperAdmin ? (
             <StatCard
               icon={<Globe className='h-4 w-4' />}
-              label='共享 mihomo 内核（仅管理员可见）'
-              value={runtime?.running ? `运行中 (:${runtime.port || 23456})` : '待启动'}
+              label={t('Shared mihomo kernel (super administrator only)')}
+              value={
+                runtime?.running
+                  ? `运行中 (:${runtime.port || 23456})`
+                  : '待启动'
+              }
               hint={`已装载 ${runtime?.proxies ?? 0} 个代理节点，自动优选最快节点`}
             />
           ) : (
             <StatCard
               icon={<Globe className='h-4 w-4' />}
               label='公共池共享节点'
-              value={String(summary?.public_node_count ?? endpoints.filter((e) => e.public).length)}
+              value={String(
+                summary?.public_node_count ??
+                  endpoints.filter((e) => e.public).length
+              )}
               hint='自动按延迟优选最快出口，遇错自动熔断切换'
             />
           )}
@@ -444,18 +481,19 @@ export function ProxyPoolPage() {
           />
         </div>
 
-        {/* 共享 mihomo 内核控制卡：仅超级管理员/管理员可见 */}
-        {isAdmin && (
+        {/* 共享 mihomo 内核控制卡：仅超级管理员可见 */}
+        {isSuperAdmin && (
           <Card>
             <CardHeader className='pb-3'>
               <div className='flex flex-wrap items-center justify-between gap-2'>
                 <div>
                   <CardTitle className='flex items-center gap-2 text-base'>
                     <Cpu className='h-4 w-4' />
-                    单实例共享 mihomo 边车内核（仅管理员可见 · 端口 127.0.0.1:23456）
+                    {t('Shared mihomo runtime (super administrator only)')}
                   </CardTitle>
                   <CardDescription>
-                    全站共用一套 mihomo 内核。公开节点（含 Haizhu 7114 节点与管理员公开节点）全员可用；未勾选公开的私有节点/订阅只对添加者本人可见和可调用。
+                    全站共用一套 mihomo 内核。公开节点（含 Haizhu 7114
+                    节点与管理员公开节点）全员可用；未勾选公开的私有节点/订阅只对添加者本人可见和可调用。
                   </CardDescription>
                 </div>
                 <Button
@@ -465,29 +503,45 @@ export function ProxyPoolPage() {
                   onClick={() => reloadRuntimeMutation.mutate()}
                 >
                   <RefreshCw className='me-1 h-3.5 w-3.5' />
-                  重载内核配置
+                  {t('Reload kernel configuration')}
                 </Button>
               </div>
             </CardHeader>
             <CardContent className='flex flex-wrap items-center gap-3 pt-0 text-xs'>
+              {runtimeQuery.isError && (
+                <ErrorState
+                  className='min-h-0 w-full'
+                  title={t('Failed to load kernel status')}
+                  onRetry={() => void runtimeQuery.refetch()}
+                />
+              )}
+              {runtime?.last_error && (
+                <p role='alert' className='text-destructive w-full break-words'>
+                  {runtime.last_error}
+                </p>
+              )}
               <Badge variant={runtime?.running ? 'default' : 'secondary'}>
                 {runtime?.running ? '内核在线' : '内核未运行'}
               </Badge>
               <span className='text-muted-foreground'>
                 当前出站策略：
-                <strong className='ms-1 font-mono text-foreground'>
+                <strong className='text-foreground ms-1 font-mono'>
                   {runtime?.selected_node || 'PUBLIC_FAST (自动测速最快)'}
                 </strong>
               </span>
               {runtime?.nodes && runtime.nodes.length > 0 && (
                 <div className='ms-auto flex items-center gap-2'>
-                  <span className='text-muted-foreground'>手动指定出站节点：</span>
+                  <span className='text-muted-foreground'>
+                    手动指定出站节点：
+                  </span>
                   <select
                     className='border-input bg-background h-8 max-w-[280px] rounded-md border px-2 text-xs'
                     value={runtime.selected_node || 'PUBLIC_FAST'}
                     onChange={(e) => selectNodeMutation.mutate(e.target.value)}
                   >
-                    <option value='PUBLIC_FAST'>⚡ PUBLIC_FAST（自动测速优选最快节点）</option>
+                    <option value='PUBLIC_FAST'>
+                      ⚡ PUBLIC_FAST（自动测速优选最快节点）
+                    </option>
                     {runtime.nodes.slice(0, 200).map((n) => (
                       <option key={n} value={n}>
                         {n}
@@ -517,7 +571,9 @@ export function ProxyPoolPage() {
                   subscription={subscription}
                   busy={busyId === `sub-${subscription.id}`}
                   onSync={() => syncMutation.mutate(subscription.id)}
-                  onDelete={() => deleteSubscriptionMutation.mutate(subscription.id)}
+                  onDelete={() =>
+                    deleteSubscriptionMutation.mutate(subscription.id)
+                  }
                 />
               ))}
             </CardContent>
@@ -538,9 +594,18 @@ export function ProxyPoolPage() {
                   {(
                     [
                       ['all', `全部可见 (${endpoints.length})`],
-                      ['mine', `我的私有/自建 (${endpoints.filter((e) => e.is_owner && e.source !== 'haizhu').length})`],
-                      ['public', `公共池公开 (${endpoints.filter((e) => e.public).length})`],
-                      ['haizhu', `Haizhu内置 (${endpoints.filter((e) => e.source === 'haizhu').length})`],
+                      [
+                        'mine',
+                        `我的私有/自建 (${endpoints.filter((e) => e.is_owner && e.source !== 'haizhu').length})`,
+                      ],
+                      [
+                        'public',
+                        `公共池公开 (${endpoints.filter((e) => e.public).length})`,
+                      ],
+                      [
+                        'haizhu',
+                        `Haizhu内置 (${endpoints.filter((e) => e.source === 'haizhu').length})`,
+                      ],
                     ] as const
                   ).map(([key, label]) => (
                     <button
@@ -634,7 +699,8 @@ function EndpointRow(props: EndpointRowProps) {
           <Badge variant='secondary' className='ms-2 text-[10px]'>
             Haizhu公共池
           </Badge>
-        ) : endpoint.subscription_id > 0 ? (
+        ) : null}
+        {endpoint.source !== 'haizhu' && endpoint.subscription_id > 0 ? (
           <Badge variant='outline' className='ms-2'>
             {t('From subscription')}
           </Badge>
@@ -648,7 +714,9 @@ function EndpointRow(props: EndpointRowProps) {
       </TableCell>
       <TableCell className='font-mono text-xs'>
         {endpoint.latency_ms && endpoint.latency_ms > 0 ? (
-          <span className='text-emerald-600 font-medium'>{endpoint.latency_ms} ms</span>
+          <span className='font-medium text-emerald-600'>
+            {endpoint.latency_ms} ms
+          </span>
         ) : (
           <span className='text-muted-foreground'>未测速</span>
         )}
@@ -687,7 +755,9 @@ function EndpointRow(props: EndpointRowProps) {
             />
           )}
           {failures > 0 && (
-            <Badge variant='warning'>{t('{{n}} failures', { n: failures })}</Badge>
+            <Badge variant='warning'>
+              {t('{{n}} failures', { n: failures })}
+            </Badge>
           )}
           {endpoint.last_error && (
             <Badge variant='destructive' className='max-w-[160px] truncate'>
@@ -748,7 +818,12 @@ function SubscriptionRow(props: SubscriptionRowProps) {
 
   const total = subscription.traffic_total ?? 0
   const used = subscription.traffic_used ?? 0
-  const trafficText = total > 0 ? `${formatBytes(used)} / ${formatBytes(total)}` : used > 0 ? `${formatBytes(used)}` : ''
+  let trafficText = ''
+  if (total > 0) {
+    trafficText = `${formatBytes(used)} / ${formatBytes(total)}`
+  } else if (used > 0) {
+    trafficText = formatBytes(used)
+  }
   const expireText = subscription.expire_at
     ? new Date(subscription.expire_at).toLocaleDateString()
     : ''
@@ -757,12 +832,17 @@ function SubscriptionRow(props: SubscriptionRowProps) {
     <div className='flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2'>
       <div className='min-w-0 space-y-0.5'>
         <div className='flex items-center gap-2'>
-          <span className='truncate text-sm font-medium'>{subscription.name}</span>
+          <span className='truncate text-sm font-medium'>
+            {subscription.name}
+          </span>
           <Badge variant='outline'>{subscription.format || 'auto'}</Badge>
           <Badge variant='secondary'>
             {t('{{n}} IPs', { n: subscription.node_count })}
           </Badge>
-          <Badge variant={subscription.public ? 'default' : 'outline'} className='text-xs'>
+          <Badge
+            variant={subscription.public ? 'default' : 'outline'}
+            className='text-xs'
+          >
             {subscription.public ? '已公开到公共池' : '私有（仅自己可用）'}
           </Badge>
           {trafficText ? (
@@ -834,7 +914,8 @@ function AddEndpointDialog(props: AddEndpointDialogProps) {
         <DialogHeader>
           <DialogTitle>{t('Add egress node')}</DialogTitle>
           <DialogDescription>
-            添加代理 IP 节点。若不勾选公开，则只有你自己的账户看得见、调得动，别人看不见也用不了。
+            添加代理 IP
+            节点。若不勾选公开，则只有你自己的账户看得见、调得动，别人看不见也用不了。
           </DialogDescription>
         </DialogHeader>
         <div className='space-y-3'>
@@ -863,7 +944,10 @@ function AddEndpointDialog(props: AddEndpointDialogProps) {
               onChange={(e) => setIsPublic(e.target.checked)}
               className='size-4'
             />
-            <span>公开到公共池 IP（勾选后所有人可见可调用；不勾选则仅自己账户可见可用）</span>
+            <span>
+              公开到公共池
+              IP（勾选后所有人可见可调用；不勾选则仅自己账户可见可用）
+            </span>
           </label>
         </div>
         <DialogFooter>
@@ -905,7 +989,12 @@ function AddSubscriptionDialog(props: AddSubscriptionDialogProps) {
       toast.error(t('Subscription URL is required'))
       return
     }
-    props.onSubmit({ name: name.trim(), url: url.trim(), format, public: isPublic })
+    props.onSubmit({
+      name: name.trim(),
+      url: url.trim(),
+      format,
+      public: isPublic,
+    })
   }
 
   return (
@@ -914,7 +1003,8 @@ function AddSubscriptionDialog(props: AddSubscriptionDialogProps) {
         <DialogHeader>
           <DialogTitle>{t('Import subscription')}</DialogTitle>
           <DialogDescription>
-            粘贴机场订阅链接，自动过滤流量提示假节点并注入共享 mihomo 内核。不勾选公开时仅你本人可见可调用。
+            粘贴机场订阅链接，自动过滤流量提示假节点并注入共享 mihomo
+            内核。不勾选公开时仅你本人可见可调用。
           </DialogDescription>
         </DialogHeader>
         <div className='space-y-3'>
@@ -944,11 +1034,7 @@ function AddSubscriptionDialog(props: AddSubscriptionDialogProps) {
               value={format}
               onChange={(event) =>
                 setFormat(
-                  event.target.value as
-                    | 'auto'
-                    | 'clash'
-                    | 'base64'
-                    | 'uri-list'
+                  event.target.value as 'auto' | 'clash' | 'base64' | 'uri-list'
                 )
               }
             >
@@ -965,7 +1051,10 @@ function AddSubscriptionDialog(props: AddSubscriptionDialogProps) {
               onChange={(e) => setIsPublic(e.target.checked)}
               className='size-4'
             />
-            <span>公开到公共池 IP（勾选后显示在公共池供大家调用；不勾选仅自己账户可见可用）</span>
+            <span>
+              公开到公共池
+              IP（勾选后显示在公共池供大家调用；不勾选仅自己账户可见可用）
+            </span>
           </label>
         </div>
         <DialogFooter>

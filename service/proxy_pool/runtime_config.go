@@ -1,6 +1,8 @@
-﻿package proxy_pool
+package proxy_pool
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"fmt"
 	"net"
 	"net/url"
@@ -13,9 +15,9 @@ import (
 
 // 本文件负责把「启用节点（公共池公开节点 + 用户私有节点）」编译成一份单共享 mihomo 配置：
 //   - 全局唯一 mixed-port（默认 23456），external-controller（默认 127.0.0.1:23459）
-//   - 不用多用户多端口 listeners（避免 Windows 非常用端口拦截）
+//   - 每个节点固定独立 loopback listener，私有节点不进入共享选择组
 //   - 公共池节点（Public=true）进入 PUBLIC_FAST (url-test) 与 PROXY 组，所有用户共享可用
-//   - 用户未勾选公开的私有节点（Public=false）仅进入该用户自己的可选列表 NodeNames[uid]，
+//   - 用户未勾选公开的私有节点（Public=false）仅进入所有者视图与节点专属 listener，
 //     对其他用户既不可见（数据库与接口层过滤）也不可被其他用户调用或切换。
 
 const (
@@ -53,6 +55,9 @@ type RuntimePlan struct {
 	AllNodes    []string
 	// EndpointNodeName 节点 ID -> 内核里的唯一节点名（供单节点测速使用）。
 	EndpointNodeName map[int]string
+	EndpointPorts    map[int]int
+	EndpointURLs     map[int]string
+	EndpointKeys     map[int]uint64
 	Proxies          int
 }
 
@@ -76,6 +81,7 @@ type runtimeDoc struct {
 	Proxies            []map[string]any `yaml:"proxies"`
 	ProxyGroups        []map[string]any `yaml:"proxy-groups"`
 	Rules              []string         `yaml:"rules"`
+	Listeners          []map[string]any `yaml:"listeners,omitempty"`
 }
 
 // nodeNamePrefix 给节点名加 uid 前缀，保证跨用户重名也不会让 mihomo 启动失败。
@@ -110,6 +116,9 @@ func BuildRuntimeConfig(users []RuntimeUser, opts RuntimeOptions) (*RuntimePlan,
 		Groups:           map[int]string{},
 		NodeNames:        map[int][]string{},
 		EndpointNodeName: map[int]string{},
+		EndpointPorts:    map[int]int{},
+		EndpointURLs:     map[int]string{},
+		EndpointKeys:     map[int]uint64{},
 	}
 
 	sorted := slices.Clone(users)
@@ -137,7 +146,23 @@ func BuildRuntimeConfig(users []RuntimeUser, opts RuntimeOptions) (*RuntimePlan,
 			doc.Proxies = append(doc.Proxies, proxy)
 			plan.AllNodes = append(plan.AllNodes, name)
 			if node.ID > 0 {
+				port := opts.BasePort + 100 + len(plan.EndpointPorts)
+				if port > 65535 {
+					return nil, fmt.Errorf("endpoint listener port exceeds 65535")
+				}
+				key := stableHash(node.URL + "\x00" + node.RawURI)
+				mac := hmac.New(sha256.New, []byte(opts.Secret))
+				_, _ = fmt.Fprintf(mac, "%d:%d:%d", user.UID, node.ID, key)
+				token := fmt.Sprintf("%x", mac.Sum(nil))
 				plan.EndpointNodeName[node.ID] = name
+				plan.EndpointPorts[node.ID] = port
+				plan.EndpointKeys[node.ID] = key
+				plan.EndpointURLs[node.ID] = fmt.Sprintf("http://endpoint:%s@127.0.0.1:%d", token, port)
+				doc.Listeners = append(doc.Listeners, map[string]any{
+					"name": fmt.Sprintf("endpoint-%d", node.ID), "type": "mixed",
+					"listen": "127.0.0.1", "port": port, "proxy": name,
+					"users": []map[string]string{{"username": "endpoint", "password": token}},
+				})
 			}
 			if node.Public {
 				plan.PublicNodes = append(plan.PublicNodes, name)
@@ -159,13 +184,13 @@ func BuildRuntimeConfig(users []RuntimeUser, opts RuntimeOptions) (*RuntimePlan,
 		return plan, nil
 	}
 
-	// 公共池自动测速优选组（取前 maxUrlTestNodes 个公开节点参与周期测速，若无公开节点则用全部节点兜底）
+	// Shared selectors must never route other users through private nodes.
 	fastCandidates := plan.PublicNodes
-	if len(fastCandidates) == 0 {
-		fastCandidates = plan.AllNodes
-	}
 	if len(fastCandidates) > maxUrlTestNodes {
 		fastCandidates = fastCandidates[:maxUrlTestNodes]
+	}
+	if len(fastCandidates) == 0 {
+		fastCandidates = []string{"REJECT"}
 	}
 
 	doc.ProxyGroups = append(doc.ProxyGroups, map[string]any{
@@ -173,13 +198,14 @@ func BuildRuntimeConfig(users []RuntimeUser, opts RuntimeOptions) (*RuntimePlan,
 		"type":      "url-test",
 		"url":       "http://cp.cloudflare.com/generate_204",
 		"interval":  180,
+		"lazy":      true,
 		"tolerance": 80,
 		"proxies":   fastCandidates,
 	})
 
-	selectMembers := make([]string, 0, len(plan.AllNodes)+2)
+	selectMembers := make([]string, 0, len(plan.PublicNodes)+2)
 	selectMembers = append(selectMembers, PublicFastGroupName)
-	selectMembers = append(selectMembers, plan.AllNodes...)
+	selectMembers = append(selectMembers, plan.PublicNodes...)
 	doc.ProxyGroups = append(doc.ProxyGroups, map[string]any{
 		"name":    SharedGroupName,
 		"type":    "select",

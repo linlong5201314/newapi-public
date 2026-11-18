@@ -86,9 +86,23 @@ export async function getChannel(id: number): Promise<GetChannelResponse> {
   return res.data
 }
 
-/** 详情抽屉：渠道 + 健康度 + 额度 + 出口池 + 模板元数据（一次取齐）。 */
+export type ChannelProxyPolicy = {
+  mode:
+    | 'user_pool'
+    | 'public_pool'
+    | 'subscription'
+    | 'endpoint'
+    | 'direct'
+    | 'fixed'
+  subscription_id?: number
+  endpoint_id?: number
+}
+
+/** Owner-scoped, redacted channel detail. */
 export type SelfChannelDetail = {
   channel: Channel
+  proxy_policy?: ChannelProxyPolicy
+  proxy_configured?: boolean
   models: string[]
   all_models?: string[]
   public_models?: string[]
@@ -421,49 +435,30 @@ export async function importTraeCredential(payload: {
   return res.data
 }
 
-// ============================================================================
-// Form metadata helpers
-//
-// The endpoints below back the create/edit drawer. Several of them live
-// under the admin channel/group routers upstream; for self-service users
-// every helper here is fail-soft, so a 403 simply degrades optional hints
-// (default base URLs, model suggestions, prefill groups, task plugin
-// metadata) instead of breaking the drawer.
-// ============================================================================
-
-/**
- * Optional per-type default base URL hints. Fail-soft: returns null when the
- * endpoint is not reachable for the current user.
- */
+// Optional administrator metadata has no self-service route. Do not probe it:
+// even caught 403 responses can activate the global permissions interceptor.
 export async function getChannelDefaultBaseURLs(): Promise<Partial<
   Record<number, string>
 > | null> {
-  try {
-    const response = await api.get<{
-      success: boolean
-      data: Partial<Record<number, string>>
-    }>('/api/channel/default_base_urls')
-    return requireServerSuccess(response.data).data
-  } catch {
-    return null
-  }
+  return null
 }
 
-/**
- * All available models (used for suggestions in the models editor).
- * Fail-soft: returns an empty list when not permitted.
- */
+/** DashboardListModels is UserAuth and returns a channel-type -> model IDs map. */
 export async function getAllModels(): Promise<{
   success: boolean
   message?: string
   data?: Array<{ id: string; [key: string]: unknown }>
 }> {
-  try {
-    const res = await api.get('/api/channel/models')
-    return res.data
-  } catch {
-    return { success: true, data: [] }
-  }
+  const res = await api.get('/api/models')
+  const body = requireServerSuccess(
+    res.data as {
+      success: boolean
+      message?: string
+      data?: Record<string, string[]>
+    }
+  )
+  const models = [...new Set(Object.values(body.data ?? {}).flat())]
+  return { success: true, data: models.map((id) => ({ id })) }
 }
 
 export type TaskPluginOption = {
@@ -484,15 +479,7 @@ export type TaskPluginOption = {
  * Task plugin options. Fail-soft: returns an empty list when not permitted.
  */
 export async function getTaskPluginOptions(): Promise<TaskPluginOption[]> {
-  try {
-    const response = await api.get<{
-      success: boolean
-      data: TaskPluginOption[]
-    }>('/api/task_plugin_options')
-    return requireServerSuccess(response.data).data
-  } catch {
-    return []
-  }
+  return []
 }
 
 /**
@@ -506,15 +493,41 @@ export const getGroups = getUserGroups
  * Get prefill groups for quick model selection.
  * Fail-soft: returns an empty list when not permitted.
  */
-export async function getPrefillGroups(type: 'model' | 'group' = 'model'): Promise<{
+export async function getPrefillGroups(
+  _type: 'model' | 'group' = 'model'
+): Promise<{
   success: boolean
   message?: string
   data?: Array<{ id: number; name: string; items: string | string[] }>
 }> {
-  try {
-    const res = await api.get('/api/prefill_group', { params: { type } })
-    return res.data
-  } catch {
-    return { success: true, data: [] }
+  return { success: true, data: [] }
+}
+
+/** Keep candidate catalog independent from the enabled/public model subsets. */
+export async function saveChannelModels(
+  id: number,
+  data: {
+    models: string[]
+    publicModels: string[]
+    allModels: string[]
+    tier: string
   }
+): Promise<void> {
+  requireServerSuccess(
+    await updateChannel(id, { models: data.models.join(',') })
+  )
+  const response = await api.post(
+    `${SELF_BASE}/visibility`,
+    {
+      channelId: id,
+      visibility: data.publicModels.length > 0 ? 1 : 0,
+      tier: data.tier,
+      publicModels: data.publicModels,
+      allModels: [
+        ...new Set([...data.allModels, ...data.models, ...data.publicModels]),
+      ],
+    },
+    channelActionConfig()
+  )
+  requireServerSuccess(response.data)
 }

@@ -21,18 +21,19 @@ import {
   Key,
   MessageSquarePlus,
   PanelLeftClose,
+  PanelLeftOpen,
   Radio,
   FlaskConical,
   Trash2,
 } from 'lucide-react'
+import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
-import type { ReactNode } from 'react'
-
+import { ConfirmDialog } from '@/components/confirm-dialog'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 import type { DemoConversation } from '../types'
-
-type DemoSidebarLink = '/playground' | '/my-channels' | '/keys'
 
 interface DemoSidebarProps {
   conversations: DemoConversation[]
@@ -45,170 +46,197 @@ interface DemoSidebarProps {
   onToggleCollapse: () => void
 }
 
-/** 会话时间分组：今天 / 近 7 天 / 更早。 */
-function groupLabel(timestamp: number): string {
+export function DemoSidebar(props: DemoSidebarProps) {
+  const { t } = useTranslation()
+  const [deleteId, setDeleteId] = useState<string | null>(null)
   const now = new Date()
-  const date = new Date(timestamp)
-  const startOfToday = new Date(
+  const today = new Date(
     now.getFullYear(),
     now.getMonth(),
     now.getDate()
   ).getTime()
-  if (timestamp >= startOfToday) return '今天'
-  if (timestamp >= startOfToday - 6 * 86400000) return '近 7 天'
-  return '更早'
-}
-
-export function DemoSidebar({
-  conversations,
-  activeId,
-  userName,
-  collapsed,
-  onSelect,
-  onNew,
-  onDelete,
-  onToggleCollapse,
-}: DemoSidebarProps) {
-  const grouped = conversations.reduce<Record<string, DemoConversation[]>>(
-    (acc, conversation) => {
-      const label = groupLabel(conversation.updatedAt)
-      acc[label] = acc[label] ?? []
-      acc[label].push(conversation)
-      return acc
+  const sections = [
+    {
+      label: t('Today'),
+      items: props.conversations.filter((item) => item.updatedAt >= today),
     },
-    {}
-  )
-  const order = ['今天', '近 7 天', '更早'].filter((label) => grouped[label])
+    {
+      label: t('Previous 7 days'),
+      items: props.conversations.filter(
+        (item) =>
+          item.updatedAt < today && item.updatedAt >= today - 6 * 86400000
+      ),
+    },
+    {
+      label: t('Earlier'),
+      items: props.conversations.filter(
+        (item) => item.updatedAt < today - 6 * 86400000
+      ),
+    },
+  ]
 
-  if (collapsed) {
+  if (props.collapsed) {
     return (
-      <aside className='flex w-14 shrink-0 flex-col items-center gap-3 border-r border-border/60 bg-[#f7f8fc] py-4 dark:bg-[#141414]'>
-        <button
-          type='button'
-          onClick={onToggleCollapse}
-          aria-label='展开侧边栏'
-          className='flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted'
+      <aside
+        aria-label={t('Chat history')}
+        className='border-border/60 bg-muted/40 flex h-full w-14 shrink-0 flex-col items-center gap-3 border-r py-4'
+      >
+        <Button
+          variant='ghost'
+          size='icon'
+          onClick={props.onToggleCollapse}
+          aria-label={t('Expand sidebar')}
         >
-          <MessageSquarePlus className='size-4.5' />
-        </button>
-        <button
-          type='button'
-          onClick={onNew}
-          aria-label='新对话'
-          className='flex size-9 items-center justify-center rounded-lg bg-[#4d6bfe] text-white'
+          <PanelLeftOpen aria-hidden='true' />
+        </Button>
+        <Button
+          variant='ghost'
+          size='icon'
+          onClick={props.onNew}
+          aria-label={t('New chat')}
         >
-          <MessageSquarePlus className='size-4.5' />
-        </button>
+          <MessageSquarePlus aria-hidden='true' />
+        </Button>
       </aside>
     )
   }
 
   return (
-    <aside className='flex w-64 shrink-0 flex-col border-r border-border/60 bg-[#f7f8fc] dark:bg-[#141414]'>
-      <div className='flex items-center justify-between px-4 pt-4 pb-2'>
-        <div className='flex items-center gap-2'>
-          <span className='flex size-7 items-center justify-center rounded-lg bg-[#4d6bfe] text-sm font-bold text-white'>
-            D
+    <>
+      <aside
+        aria-label={t('Chat history')}
+        className='border-border/60 bg-muted/40 flex h-full w-64 max-w-full shrink-0 flex-col border-r'
+      >
+        <div className='flex items-center justify-between px-4 pt-4 pb-2'>
+          <span className='text-lg font-semibold tracking-tight text-[#4d6bfe]'>
+            DeepSeek · NewAPI
           </span>
-          <span className='text-sm font-semibold'>DeepSeek 对话</span>
+          <Button
+            variant='ghost'
+            size='icon'
+            onClick={props.onToggleCollapse}
+            aria-label={t('Collapse sidebar')}
+          >
+            <PanelLeftClose aria-hidden='true' />
+          </Button>
         </div>
-        <button
-          type='button'
-          onClick={onToggleCollapse}
-          aria-label='收起侧边栏'
-          className='flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted'
+        <div className='px-3 pt-2 pb-4'>
+          <Button
+            onClick={props.onNew}
+            variant='secondary'
+            className='h-11 w-full justify-start rounded-xl bg-[#4d6bfe]/10 text-[#4d6bfe] hover:bg-[#4d6bfe]/20'
+          >
+            <MessageSquarePlus aria-hidden='true' />
+            {t('New chat')}
+          </Button>
+        </div>
+        <nav
+          aria-label={t('Conversations')}
+          className='min-h-0 flex-1 overflow-y-auto px-2 pb-2'
         >
-          <PanelLeftClose className='size-4' />
-        </button>
-      </div>
-
-      <div className='px-3 pt-2 pb-3'>
-        <button
-          type='button'
-          onClick={onNew}
-          className='flex w-full items-center justify-center gap-2 rounded-xl bg-[#4d6bfe] py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#3f5bea]'
-        >
-          <MessageSquarePlus className='size-4' />
-          开启新对话
-        </button>
-      </div>
-
-      <div className='min-h-0 flex-1 overflow-y-auto px-2 pb-2'>
-        {order.length === 0 && (
-          <p className='px-3 py-6 text-xs text-muted-foreground'>
-            还没有会话，发第一条消息就会出现在这里。
-          </p>
-        )}
-        {order.map((label) => (
-          <div key={label} className='mb-2'>
-            <p className='px-2 py-1 text-[11px] font-medium text-muted-foreground'>
-              {label}
+          {props.conversations.length === 0 && (
+            <p className='text-muted-foreground px-3 py-6 text-xs'>
+              {t('Your conversations will appear here.')}
             </p>
-            {grouped[label].map((conversation) => (
-              <div
-                key={conversation.id}
-                className={cn(
-                  'group flex items-center gap-1 rounded-lg px-2 py-2 text-sm transition-colors',
-                  conversation.id === activeId
-                    ? 'bg-white text-foreground shadow-xs dark:bg-[#232323]'
-                    : 'text-muted-foreground hover:bg-white/70 dark:hover:bg-[#1e1e1e]'
-                )}
-              >
-                <button
-                  type='button'
-                  onClick={() => onSelect(conversation.id)}
-                  className='min-w-0 flex-1 truncate text-left'
-                  title={conversation.title}
-                >
-                  {conversation.title}
-                </button>
-                <button
-                  type='button'
-                  aria-label='删除会话'
-                  onClick={() => onDelete(conversation.id)}
-                  className='flex size-6 shrink-0 items-center justify-center rounded-md opacity-0 transition-opacity group-hover:opacity-100 hover:bg-muted hover:text-destructive'
-                >
-                  <Trash2 className='size-3.5' />
-                </button>
-              </div>
+          )}
+          {sections
+            .filter((section) => section.items.length > 0)
+            .map((section) => (
+              <section key={section.label} className='mb-3'>
+                <h2 className='text-muted-foreground px-2 py-1 text-xs'>
+                  {section.label}
+                </h2>
+                {[...section.items]
+                  .sort((a, b) => b.updatedAt - a.updatedAt)
+                  .map((conversation) => (
+                    <div
+                      key={conversation.id}
+                      className={cn(
+                        'group flex items-center gap-1 rounded-xl px-1',
+                        conversation.id === props.activeId &&
+                          'bg-background shadow-xs'
+                      )}
+                    >
+                      <Button
+                        variant='ghost'
+                        onClick={() => props.onSelect(conversation.id)}
+                        aria-current={
+                          conversation.id === props.activeId
+                            ? 'page'
+                            : undefined
+                        }
+                        className='h-11 min-w-0 flex-1 justify-start'
+                        title={conversation.title}
+                      >
+                        <span className='truncate'>{conversation.title}</span>
+                      </Button>
+                      <Button
+                        variant='ghost'
+                        size='icon'
+                        aria-label={t('Delete conversation')}
+                        onClick={() => setDeleteId(conversation.id)}
+                        className='text-muted-foreground hover:text-destructive size-9 shrink-0 sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100'
+                      >
+                        <Trash2 className='size-4' aria-hidden='true' />
+                      </Button>
+                    </div>
+                  ))}
+              </section>
             ))}
+        </nav>
+        <div className='border-border/60 border-t p-3'>
+          <div className='mb-2 grid grid-cols-3 gap-1'>
+            <Link
+              to='/playground'
+              className='text-muted-foreground hover:bg-muted flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg text-xs'
+            >
+              <FlaskConical className='size-4' aria-hidden='true' />
+              {t('Playground')}
+            </Link>
+            <Link
+              to='/my-channels'
+              className='text-muted-foreground hover:bg-muted flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg text-xs'
+            >
+              <Radio className='size-4' aria-hidden='true' />
+              {t('My channels')}
+            </Link>
+            <Link
+              to='/keys'
+              className='text-muted-foreground hover:bg-muted flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg text-xs'
+            >
+              <Key className='size-4' aria-hidden='true' />
+              {t('Keys')}
+            </Link>
           </div>
-        ))}
-      </div>
-
-      <div className='border-t border-border/60 p-3'>
-        <div className='mb-2 grid grid-cols-3 gap-1'>
-          <SidebarLink to='/playground' icon={<FlaskConical className='size-4' />} label='游乐场' />
-          <SidebarLink to='/my-channels' icon={<Radio className='size-4' />} label='我的渠道' />
-          <SidebarLink to='/keys' icon={<Key className='size-4' />} label='密钥' />
+          <div className='flex items-center gap-2 rounded-lg px-2 py-1.5'>
+            <span
+              aria-hidden='true'
+              className='bg-muted flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold'
+            >
+              {props.userName.slice(0, 1).toUpperCase()}
+            </span>
+            <span className='text-muted-foreground truncate text-xs'>
+              {props.userName}
+            </span>
+          </div>
         </div>
-        <div className='flex items-center gap-2 rounded-lg px-2 py-1.5'>
-          <span className='flex size-7 items-center justify-center rounded-full bg-muted text-xs font-semibold'>
-            {userName.slice(0, 1).toUpperCase()}
-          </span>
-          <span className='truncate text-xs text-muted-foreground'>{userName}</span>
-        </div>
-      </div>
-    </aside>
-  )
-}
-
-function SidebarLink({
-  to,
-  icon,
-  label,
-}: {
-  to: DemoSidebarLink
-  icon: ReactNode
-  label: string
-}) {
-  return (
-    <Link
-      to={to}
-      className='flex flex-col items-center gap-1 rounded-lg py-2 text-[11px] text-muted-foreground transition-colors hover:bg-white/70 hover:text-foreground dark:hover:bg-[#1e1e1e]'
-    >
-      {icon}
-      {label}
-    </Link>
+      </aside>
+      <ConfirmDialog
+        open={deleteId !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteId(null)
+        }}
+        destructive
+        title={t('Delete conversation?')}
+        desc={t(
+          'This conversation will be removed from this device. This cannot be undone.'
+        )}
+        confirmText={t('Delete')}
+        handleConfirm={() => {
+          if (deleteId) props.onDelete(deleteId)
+          setDeleteId(null)
+        }}
+      />
+    </>
   )
 }

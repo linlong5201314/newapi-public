@@ -8,7 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// GetMagpiePlugins 返回精选的 magpie provider 插件目录，供前端展示与一键复制安装命令。
+// GetMagpiePlugins exposes catalog import sources and host-local CLI commands.
+// Reading or copying this catalog never installs plugins or authorizes accounts.
 func GetMagpiePlugins(c *gin.Context) {
 	items := model.ListMagpiePlugins(c.Query("q"))
 	c.JSON(http.StatusOK, gin.H{

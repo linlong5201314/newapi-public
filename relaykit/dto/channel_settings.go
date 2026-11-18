@@ -11,15 +11,23 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 )
 
+// ChannelProxyPolicy selects an egress scope. Fixed proxy credentials stay in Proxy.
+type ChannelProxyPolicy struct {
+	Mode           string `json:"mode"`
+	SubscriptionID int    `json:"subscription_id,omitempty"`
+	EndpointID     int    `json:"endpoint_id,omitempty"`
+}
+
 type ChannelSettings struct {
-	TaskPluginKey             string `json:"task_plugin_key,omitempty"`
-	ForceFormat               bool   `json:"force_format,omitempty"`
-	ThinkingToContent         bool   `json:"thinking_to_content,omitempty"`
-	Proxy                     string `json:"proxy"`
-	PassThroughBodyEnabled    bool   `json:"pass_through_body_enabled,omitempty"`
-	ResponsesWebSocketEnabled bool   `json:"responses_websocket_enabled,omitempty"`
-	SystemPrompt              string `json:"system_prompt,omitempty"`
-	SystemPromptOverride      bool   `json:"system_prompt_override,omitempty"`
+	ProxyPolicy               *ChannelProxyPolicy `json:"proxy_policy,omitempty"`
+	TaskPluginKey             string              `json:"task_plugin_key,omitempty"`
+	ForceFormat               bool                `json:"force_format,omitempty"`
+	ThinkingToContent         bool                `json:"thinking_to_content,omitempty"`
+	Proxy                     string              `json:"proxy"`
+	PassThroughBodyEnabled    bool                `json:"pass_through_body_enabled,omitempty"`
+	ResponsesWebSocketEnabled bool                `json:"responses_websocket_enabled,omitempty"`
+	SystemPrompt              string              `json:"system_prompt,omitempty"`
+	SystemPromptOverride      bool                `json:"system_prompt_override,omitempty"`
 	// TaskExtendPluginKeys lists the task plugins a New API channel (type 60)
 	// is extended with. The upstream gateway may host many plugins, so the
 	// channel serves every listed plugin's models while the request still pins

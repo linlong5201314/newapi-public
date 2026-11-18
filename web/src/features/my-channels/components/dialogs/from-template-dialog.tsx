@@ -18,14 +18,11 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  AlertTriangle,
   ArrowLeft,
   CheckSquare,
   Copy,
-  Cpu,
   ExternalLink,
   Gift,
-  Globe,
   KeyRound,
   Loader2,
   Network,
@@ -34,7 +31,7 @@ import {
   Rss,
   ShieldCheck,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -62,15 +59,16 @@ import {
   startWorkbuddyOAuth,
   type OAuthSession,
 } from '@/features/account-bindings/api'
-import {
-  createSubscription,
-  getRuntimeStatus,
-  listEndpoints,
-  selectRuntimeNode,
-} from '@/features/proxy-pool/api'
+import { FreePiAuthorizationCard } from '@/features/account-bindings/freepi-authorization'
+import { createSubscription, listEndpoints } from '@/features/proxy-pool/api'
 import { handleServerError } from '@/lib/handle-server-error'
+import {
+  getServerErrorMessage,
+  requireServerSuccess,
+} from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
+import type { ChannelProxyPolicy } from '../../api'
 import {
   createChannelFromTemplate,
   getFreeTemplates,
@@ -78,6 +76,9 @@ import {
   type FreeSourceTemplate,
 } from '../../free-sources'
 import { channelsQueryKeys } from '../../lib'
+import { isChannelProxySelectionComplete } from '../../lib/channel-proxy'
+import { ChannelModelSelection } from '../channel-model-selection'
+import { ChannelProxySelector } from '../channel-proxy-selector'
 
 type FromTemplateDialogProps = {
   open: boolean
@@ -100,7 +101,9 @@ function tosDotClass(tos?: string): string {
 }
 
 /** 判定模板类别：api=需API密钥免费层, ip=IP免费层(免密钥), auth=Token/OAuth账号授权, sub=机场订阅 */
-function classifyTemplate(tpl: FreeSourceTemplate): 'api' | 'ip' | 'auth' | 'sub' {
+function classifyTemplate(
+  tpl: FreeSourceTemplate
+): 'api' | 'ip' | 'auth' | 'sub' {
   if (tpl.authType === 'subscription' || tpl.authMode === 'subscription') {
     return 'sub'
   }
@@ -112,34 +115,14 @@ function classifyTemplate(tpl: FreeSourceTemplate): 'api' | 'ip' | 'auth' | 'sub
   ) {
     return 'auth'
   }
-  if (tpl.authMode === 'ip' || tpl.keyRequired === false || tpl.authType === 'none') {
+  if (
+    tpl.authMode === 'ip' ||
+    tpl.keyRequired === false ||
+    tpl.authType === 'none'
+  ) {
     return 'ip'
   }
   return 'api'
-}
-
-/** 从粘贴文本中实时提取 Bearer Token 并预览确定性虚拟设备指纹摘要 */
-function previewDeepSeekDevices(raw: string): Array<{ label: string; deviceId: string; session: string }> {
-  const lines = raw
-    .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => l && !l.startsWith('#'))
-  if (lines.length === 0) return []
-  const bearerMatch = raw.match(/(?:authorization\s*[:=]\s*Bearer\s+|^Bearer\s+)([A-Za-z0-9+/=._-]{32,})/im)
-  const seeds = bearerMatch ? [bearerMatch[1]] : lines.slice(0, 5)
-  return seeds.map((s, idx) => {
-    let h = 2166136261
-    for (let i = 0; i < s.length; i++) {
-      h ^= s.charCodeAt(i)
-      h = Math.imul(h, 16777619)
-    }
-    const hex = Math.abs(h).toString(16).padStart(8, '0')
-    return {
-      label: s.includes('----') ? s.split('----')[0] : `Token #${idx + 1} (${s.slice(0, 8)}…)`,
-      deviceId: `${hex}-${hex.slice(0, 4)}-4${hex.slice(1, 4)}-a${hex.slice(2, 5)}-${hex}${hex.slice(0, 4)}`,
-      session: `ds_session_${hex}${hex.slice(0, 8)}`,
-    }
-  })
 }
 
 function formatTokenCount(n: number): string {
@@ -154,15 +137,18 @@ export function FromTemplateDialog({
 }: FromTemplateDialogProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const [categoryTab, setCategoryTab] = useState<'all' | 'api' | 'ip' | 'auth' | 'sub'>('all')
+  const [categoryTab, setCategoryTab] = useState<
+    'all' | 'api' | 'ip' | 'auth' | 'sub'
+  >('all')
   const [selected, setSelected] = useState<FreeSourceTemplate | null>(null)
   const [apiKey, setApiKey] = useState('')
   const [customName, setCustomName] = useState('')
   const [extraValues, setExtraValues] = useState<Record<string, string>>({})
 
   // 出口代理策略（独立分区）
-  const [proxyMode, setProxyMode] = useState<'own_pool' | 'free_pool' | 'node' | 'direct' | 'custom'>('own_pool')
-  const [selectedNodeName, setSelectedNodeName] = useState('')
+  const [proxyPolicy, setProxyPolicy] = useState<ChannelProxyPolicy>({
+    mode: 'user_pool',
+  })
   const [proxyUrl, setProxyUrl] = useState('')
   const [allowIps, setAllowIps] = useState('')
   const [subscriptionUrl, setSubscriptionUrl] = useState('')
@@ -175,11 +161,16 @@ export function FromTemplateDialog({
   const [myModels, setMyModels] = useState<string[]>([])
   const [publicModels, setPublicModels] = useState<string[]>([])
   const [probingModels, setProbingModels] = useState(false)
-  const [probeInfo, setProbeInfo] = useState<string>('')
+  const [callable, setCallable] = useState(true)
+  const [probedCount, setProbedCount] = useState<number | null>(null)
+  const [probeError, setProbeError] = useState<unknown>(null)
+  const modelRequest = useRef(0)
 
   const [visibility, setVisibility] = useState(false)
   const [multiKeys, setMultiKeys] = useState('')
-  const [multiKeyMode, setMultiKeyMode] = useState<'random' | 'polling'>('random')
+  const [multiKeyMode, setMultiKeyMode] = useState<'random' | 'polling'>(
+    'random'
+  )
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   // Token / OAuth 账号授权状态（内嵌在创建渠道弹窗内）
@@ -187,7 +178,9 @@ export function FromTemplateDialog({
   const [traeUid, setTraeUid] = useState('')
   const [oauthRealm, setOauthRealm] = useState<'cn' | 'global'>('cn')
   const [wbSession, setWbSession] = useState<OAuthSession | null>(null)
-  const [raccoonSession, setRaccoonSession] = useState<OAuthSession | null>(null)
+  const [raccoonSession, setRaccoonSession] = useState<OAuthSession | null>(
+    null
+  )
   const [ds2apiSession, setDs2apiSession] = useState<OAuthSession | null>(null)
   const [oauthStatusText, setOauthStatusText] = useState('')
 
@@ -204,24 +197,21 @@ export function FromTemplateDialog({
     enabled: open,
   })
 
-  const runtimeQuery = useQuery({
-    queryKey: ['proxy-pool', 'runtime'],
-    queryFn: getRuntimeStatus,
-    enabled: open,
-  })
-
-  const endpoints = endpointsQuery.data ?? []
-  const ownNodes = useMemo(
-    () => endpoints.filter((e) => e.is_owner && e.source !== 'haizhu' && e.enabled),
-    [endpoints]
+  const endpoints = useMemo(
+    () => endpointsQuery.data ?? [],
+    [endpointsQuery.data]
   )
-  const publicPoolNodes = useMemo(
-    () => endpoints.filter((e) => (e.public || e.source === 'haizhu') && e.enabled),
+  const ownNodes = useMemo(
+    () =>
+      endpoints.filter((e) => e.is_owner && e.source !== 'haizhu' && e.enabled),
     [endpoints]
   )
   // 自有 IP 每个节点粗估可扩充约 50 万免费层 token；免费公共池不显示剩余 token
   const ownEstimatedTokens = useMemo(() => {
-    const perNode = selected?.monthlyTokens && selected.monthlyTokens > 0 ? selected.monthlyTokens : 500_000
+    const perNode =
+      selected?.monthlyTokens && selected.monthlyTokens > 0
+        ? selected.monthlyTokens
+        : 500_000
     return ownNodes.length * perNode
   }, [ownNodes.length, selected?.monthlyTokens])
 
@@ -231,8 +221,7 @@ export function FromTemplateDialog({
     setApiKey('')
     setCustomName('')
     setExtraValues({})
-    setProxyMode('own_pool')
-    setSelectedNodeName('')
+    setProxyPolicy({ mode: 'user_pool' })
     setProxyUrl('')
     setVisibility(false)
     setMultiKeys('')
@@ -250,34 +239,52 @@ export function FromTemplateDialog({
     setIsSubmitting(false)
   }, [open])
 
-  // 切换模板时初始化模型列表与默认代理模式，针对 openrouter/opencode 等自动拉取最新免费模型
+  // Late discovery responses belong to their original template session only.
   useEffect(() => {
-    if (!selected) return
-    const list = selected.models ?? []
+    const requests = modelRequest
+    const requestId = ++requests.current
+    setProbingModels(false)
+    if (!open || !selected) return
+    const list = [...new Set(selected.models ?? [])]
     setAvailableModels(list)
     setMyModels(list)
     setPublicModels([])
-    setProbeInfo('')
-    const kind = classifyTemplate(selected)
-    if (kind === 'ip') {
-      setProxyMode(ownNodes.length > 0 ? 'own_pool' : 'free_pool')
-    } else {
-      setProxyMode('own_pool')
-    }
+    setProbedCount(null)
+    setProbeError(null)
+    setCallable(!selected.id.startsWith('opencode-'))
+    setProxyPolicy({ mode: 'user_pool' })
+    let active = true
     if (
-      selected.id === 'openrouter-free' ||
-      selected.id === 'opencode-free' ||
-      selected.id === 'opencode-zen'
+      ['openrouter-free', 'opencode-free', 'opencode-zen'].includes(selected.id)
     ) {
-      void probeTemplateModels({ templateId: selected.id }).then((res) => {
-        if (res.success && res.data?.models && res.data.models.length > 0) {
-          setAvailableModels(res.data.models)
-          setMyModels(res.data.models)
-          setProbeInfo(`已自动同步 ${res.data.models.length} 个最新免费 (Free) 模型`)
-        }
-      })
+      setProbingModels(true)
+      void probeTemplateModels({ templateId: selected.id })
+        .then((response) => {
+          if (!active || requestId !== modelRequest.current) return
+          requireServerSuccess(response)
+          setCallable(response.data?.callable !== false)
+          const fetched = response.data?.models ?? []
+          setAvailableModels((previous) => [
+            ...new Set([...previous, ...fetched]),
+          ])
+          setProbedCount(fetched.length)
+        })
+        .catch((error: unknown) => {
+          if (active && requestId === modelRequest.current) {
+            setProbeError(error)
+          }
+        })
+        .finally(() => {
+          if (active && requestId === modelRequest.current) {
+            setProbingModels(false)
+          }
+        })
     }
-  }, [selected, ownNodes.length])
+    return () => {
+      active = false
+      requests.current++
+    }
+  }, [selected, open])
 
   // WorkBuddy OAuth 轮询
   useEffect(() => {
@@ -294,7 +301,9 @@ export function FromTemplateDialog({
             ? `WorkBuddy 授权成功，已开通渠道 #${res.channel.id}`
             : 'WorkBuddy 授权成功，渠道已开通'
         )
-        void queryClient.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
+        void queryClient.invalidateQueries({
+          queryKey: channelsQueryKeys.lists(),
+        })
         onOpenChange(false)
       }
     }, 3000)
@@ -319,7 +328,9 @@ export function FromTemplateDialog({
             ? `小浣熊授权成功，已开通渠道 #${res.channel.id}`
             : '小浣熊授权成功，渠道已开通'
         )
-        void queryClient.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
+        void queryClient.invalidateQueries({
+          queryKey: channelsQueryKeys.lists(),
+        })
         onOpenChange(false)
       } else if (res.message) {
         window.clearInterval(timer)
@@ -345,10 +356,14 @@ export function FromTemplateDialog({
         setDs2apiSession(null)
         toast.success(
           res.channel?.id
-            ? `DS2API 授权成功，已分配独立虚拟设备指纹并开通渠道 #${res.channel.id}`
-            : 'DS2API 授权成功，渠道已自动开通'
+            ? t('Account login completed; channel #{{id}} created', {
+                id: res.channel.id,
+              })
+            : t('Account login completed; channel created')
         )
-        void queryClient.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
+        void queryClient.invalidateQueries({
+          queryKey: channelsQueryKeys.lists(),
+        })
         onOpenChange(false)
       }
     }, 2500)
@@ -356,13 +371,61 @@ export function FromTemplateDialog({
       alive = false
       window.clearInterval(timer)
     }
-  }, [ds2apiSession, queryClient, onOpenChange])
+  }, [ds2apiSession, queryClient, onOpenChange, t])
 
   const templateKind = selected ? classifyTemplate(selected) : 'api'
   const isSubscription = templateKind === 'sub'
   const isAuthTemplate = templateKind === 'auth'
   const isIpFreeTemplate = templateKind === 'ip'
   const isApiKeyTemplate = templateKind === 'api'
+  const templatePresentation = {
+    api: {
+      description: 'API 密钥免费层（必须填 API Key，不可仅凭 IP 绕过）',
+      badge: '🔑 API 密钥免费层（必填 Key）',
+      step: '填写上游 API Key',
+      submit: '创建渠道',
+      variant: 'outline',
+    },
+    ip: {
+      description: 'IP 免费层（无需密钥，按出口 IP 与虚拟设备轮换扩容）',
+      badge: '🌐 IP 免费层（免密钥）',
+      step: '免密钥验证说明（IP 免费层）',
+      submit: '创建渠道',
+      variant: 'default',
+    },
+    auth: {
+      description: 'Token / OAuth 账号授权（直接在此完成授权登录并选模型）',
+      badge: '🛡️ Token / OAuth 账号授权',
+      step: 'Token / OAuth 授权登录',
+      submit: '提交 Token 授权并开通渠道',
+      variant: 'secondary',
+    },
+    sub: {
+      description: '机场订阅导入',
+      badge: '✈️ 机场订阅',
+      step: '填写机场订阅链接',
+      submit: '保存并同步订阅',
+      variant: 'outline',
+    },
+  } as const
+  const presentation = templatePresentation[templateKind]
+  const authorizationUrls: Record<string, string> = {
+    'trae-cn': 'https://www.trae.cn',
+    'trae-intl': 'https://www.trae.ai',
+    'cline-account': 'https://app.cline.bot',
+    'qoder-cn': 'https://qoder.cn/account/integrations',
+  }
+  const tokenPlaceholders: Record<string, string> = {
+    ds2api: t('Paste an existing token, or use the account login link above.'),
+    'trae-cn': '粘贴 Trae 登录回调链接 https://...?code=... 或 refreshToken',
+    'trae-intl': '粘贴 Trae 登录回调链接 https://...?code=... 或 refreshToken',
+    'qoder-cn':
+      '粘贴 Qoder CN 的 Personal Access Token (PAT) 或桌面端登录态 token（每行一个）',
+    'cline-account':
+      '粘贴 Cline WorkOS 浏览器授权后的回调链接或 access_token（每行一个）',
+    'internlm-inkstone':
+      '粘贴书生·端砚 Token Plan 的 sk-/ink- Key，或控制台 Cookie 中的 uaa-token',
+  }
 
   const extraFields = isAuthTemplate ? [] : (selected?.extraFields ?? [])
   const extraValue = (field: string) =>
@@ -378,7 +441,13 @@ export function FromTemplateDialog({
     !isSubscription || /^https?:\/\/\S+$/i.test(subscriptionUrl.trim())
 
   const canSubmit = useMemo(() => {
-    if (!selected) return false
+    if (!selected || !callable || selected.id === 'freepi') return false
+    if (
+      !isSubscription &&
+      !isChannelProxySelectionComplete(proxyPolicy, proxyUrl)
+    ) {
+      return false
+    }
     if (isSubscription) return subscriptionOk
     if (isAuthTemplate) {
       if (selected.id === 'magpie') return true
@@ -392,6 +461,7 @@ export function FromTemplateDialog({
     return extrasComplete && myModels.length > 0
   }, [
     selected,
+    callable,
     isSubscription,
     subscriptionOk,
     isAuthTemplate,
@@ -400,11 +470,13 @@ export function FromTemplateDialog({
     hasAnyKey,
     extrasComplete,
     myModels.length,
+    proxyPolicy,
+    proxyUrl,
   ])
 
   const resolveOutboundProxy = (): string => {
-    if (proxyMode === 'direct') return 'direct'
-    if (proxyMode === 'custom') return proxyUrl.trim()
+    if (proxyPolicy.mode === 'direct') return 'direct'
+    if (proxyPolicy.mode === 'fixed') return proxyUrl.trim()
     return ''
   }
 
@@ -427,11 +499,16 @@ export function FromTemplateDialog({
         toast.error(res.message || '同步订阅失败')
         return
       }
-      toast.success(`订阅已同步：解析出 ${res.data?.node_count ?? 0} 个可用节点（默认仅自己可见可用）`)
+      toast.success(
+        `订阅已同步：解析出 ${res.data?.node_count ?? 0} 个可用节点（默认仅自己可见可用）`
+      )
       setInlineSubUrl('')
       setInlineSubName('')
-      setProxyMode('node')
-      await Promise.all([endpointsQuery.refetch(), runtimeQuery.refetch()])
+      setProxyPolicy({ mode: 'user_pool' })
+      await endpointsQuery.refetch()
+      void queryClient.invalidateQueries({
+        queryKey: ['proxy-pool', 'subscriptions'],
+      })
     } catch (error) {
       handleServerError(error, '同步订阅失败')
     } finally {
@@ -439,40 +516,37 @@ export function FromTemplateDialog({
     }
   }
 
-  // 点击「获取模型」按钮（优先走低延迟可用节点探测上游）
   const handleProbeModels = async () => {
-    if (!selected) return
+    if (!selected || probingModels) return
+    const requestId = ++modelRequest.current
     setProbingModels(true)
-    setProbeInfo('')
+    setProbedCount(null)
+    setProbeError(null)
     try {
-      if (proxyMode === 'node' && selectedNodeName) {
-        await selectRuntimeNode(selectedNodeName).catch(() => undefined)
-      }
       const extra = extraFields.length
-        ? Object.fromEntries(extraFields.map((field) => [field, extraValue(field)]))
+        ? Object.fromEntries(
+            extraFields.map((field) => [field, extraValue(field)])
+          )
         : undefined
-      const res = await probeTemplateModels({
+      const response = await probeTemplateModels({
         templateId: selected.id,
         key: apiKey.trim() || parsedKeys[0] || '',
         proxy: resolveOutboundProxy(),
+        proxy_policy: proxyPolicy,
         extra,
       })
-      if (res.success && res.data?.models && res.data.models.length > 0) {
-        const fetched = res.data.models
-        setAvailableModels(fetched)
-        setMyModels((prev) => (prev.length > 0 ? Array.from(new Set([...prev, ...fetched])) : fetched))
-        const modeNote = res.data.probed_live
-          ? `已从上游实时拉取 ${fetched.length} 个模型（耗时 ${res.data.latency_ms} ms）`
-          : `已同步 ${fetched.length} 个可用模型`
-        setProbeInfo(modeNote)
-        toast.success(modeNote)
-      } else {
-        toast.error(res.message || '未获取到额外模型，已保留默认模型列表')
-      }
+      if (requestId !== modelRequest.current) return
+      requireServerSuccess(response)
+      setCallable(response.data?.callable !== false)
+      const fetched = response.data?.models ?? []
+      setAvailableModels((previous) => [...new Set([...previous, ...fetched])])
+      setProbedCount(fetched.length)
     } catch (error) {
-      handleServerError(error, '获取模型失败')
+      if (requestId === modelRequest.current) {
+        handleServerError(error, t('Failed to fetch upstream models'))
+      }
     } finally {
-      setProbingModels(false)
+      if (requestId === modelRequest.current) setProbingModels(false)
     }
   }
 
@@ -484,7 +558,9 @@ export function FromTemplateDialog({
       return
     }
     setWbSession(sess)
-    setOauthStatusText('已打开授权窗口，请在浏览器完成登录，本弹窗将自动开通渠道…')
+    setOauthStatusText(
+      '已打开授权窗口，请在浏览器完成登录，本弹窗将自动开通渠道…'
+    )
     window.open(sess.authUrl, '_blank', 'noopener,noreferrer')
   }
 
@@ -501,17 +577,27 @@ export function FromTemplateDialog({
   }
 
   const startDs2ApiFlow = async () => {
-    setOauthStatusText('正在生成专属 DS2API 授权登录链接…')
-    const sess = await startDs2ApiOAuth()
+    setOauthStatusText(t('Creating an account login link...'))
+    const sess = await startDs2ApiOAuth({
+      proxy: resolveOutboundProxy(),
+      proxy_policy: proxyPolicy,
+      models: myModels,
+      all_models: availableModels,
+      public_models: publicModels,
+    })
     if (!sess) {
       setOauthStatusText('生成授权链接失败，请稍后重试')
       return
     }
     setDs2apiSession(sess)
-    setOauthStatusText('已生成专属授权链接！可复制链接去浏览器登录，授权完成后本页将自动返回并开通渠道…')
+    setOauthStatusText(
+      t(
+        'Open the account login page and sign in with your own account. The channel is created after login.'
+      )
+    )
     void navigator.clipboard
       ?.writeText(sess.authUrl)
-      .then(() => toast.success('DS2API 授权链接已复制到剪贴板，去浏览器打开完成授权即可自动返回'))
+      .then(() => toast.success(t('Account login link copied')))
       .catch(() => undefined)
   }
 
@@ -519,10 +605,6 @@ export function FromTemplateDialog({
     if (!selected || !canSubmit) return
     setIsSubmitting(true)
     try {
-      if (proxyMode === 'node' && selectedNodeName) {
-        await selectRuntimeNode(selectedNodeName).catch(() => undefined)
-      }
-
       // 1) Token / OAuth 账号授权类模板：直接在弹窗内完成授权建渠道
       if (isAuthTemplate) {
         const raw = authTokensInput.trim()
@@ -535,7 +617,9 @@ export function FromTemplateDialog({
           )
           if (res.ok) {
             toast.success(res.notice || 'Trae 授权导入成功，渠道已开通')
-            void queryClient.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
+            void queryClient.invalidateQueries({
+              queryKey: channelsQueryKeys.lists(),
+            })
             onOpenChange(false)
           } else {
             toast.error(res.message || 'Trae 授权导入失败')
@@ -564,11 +648,15 @@ export function FromTemplateDialog({
               visibility: visibility || publicModels.length > 0 ? 1 : 0,
               tier: 'api',
               models: myModels,
+              all_models: availableModels,
+              proxy_policy: proxyPolicy,
               public_models: publicModels,
             })
             if (directRes.success) {
               toast.success(`${selected.name} Token 授权渠道已创建`)
-              void queryClient.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
+              void queryClient.invalidateQueries({
+                queryKey: channelsQueryKeys.lists(),
+              })
               onOpenChange(false)
               return
             }
@@ -582,10 +670,15 @@ export function FromTemplateDialog({
           displayName: customName.trim() || selected.name,
           public: visibility || publicModels.length > 0,
           proxy: resolveOutboundProxy(),
+          proxy_policy: proxyPolicy,
         })
         if (bindRes.ok) {
-          toast.success('Token 授权已提交，已为每个账号分配独立虚拟设备指纹并开通渠道')
-          void queryClient.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
+          toast.success(
+            'Token 授权已提交，已为每个账号分配独立虚拟设备指纹并开通渠道'
+          )
+          void queryClient.invalidateQueries({
+            queryKey: channelsQueryKeys.lists(),
+          })
           onOpenChange(false)
         } else {
           toast.error(bindRes.message || '提交授权失败')
@@ -595,7 +688,9 @@ export function FromTemplateDialog({
 
       // 2) API 密钥免费层 / IP 免费层 / 机场订阅模板
       const extra = extraFields.length
-        ? Object.fromEntries(extraFields.map((field) => [field, extraValue(field)]))
+        ? Object.fromEntries(
+            extraFields.map((field) => [field, extraValue(field)])
+          )
         : undefined
       const proxy = resolveOutboundProxy()
       const effectiveTier = isIpFreeTemplate ? 'free' : 'api'
@@ -610,6 +705,8 @@ export function FromTemplateDialog({
         visibility: effectiveVisibility,
         tier: effectiveTier,
         models: myModels,
+        all_models: availableModels,
+        proxy_policy: proxyPolicy,
         public_models: publicModels,
         ...(parsedKeys.length > 0
           ? { keys: parsedKeys, multi_key_mode: multiKeyMode }
@@ -626,7 +723,9 @@ export function FromTemplateDialog({
           isSubscription
             ? '机场订阅已保存并同步到出口池'
             : `渠道已创建（加入我的渠道 ${myModels.length} 个模型${
-                publicModels.length > 0 ? `，公开到公共池 ${publicModels.length} 个模型` : ''
+                publicModels.length > 0
+                  ? `，公开到公共池 ${publicModels.length} 个模型`
+                  : ''
               }）`
         )
         void queryClient.invalidateQueries({
@@ -652,13 +751,14 @@ export function FromTemplateDialog({
     return templates.filter((tpl) => classifyTemplate(tpl) === categoryTab)
   }, [templates, categoryTab])
 
-  const dsDevicePreviews = useMemo(
-    () => (selected?.id === 'ds2api' ? previewDeepSeekDevices(authTokensInput) : []),
-    [selected?.id, authTokensInput]
-  )
-
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) modelRequest.current++
+        onOpenChange(next)
+      }}
+    >
       <DialogContent className='flex max-h-[88vh] flex-col sm:max-w-3xl'>
         <DialogHeader>
           <DialogTitle className='flex items-center gap-2'>
@@ -667,15 +767,7 @@ export function FromTemplateDialog({
           </DialogTitle>
           <DialogDescription>
             {selected
-              ? `${selected.name} — ${
-                  isApiKeyTemplate
-                    ? 'API 密钥免费层（必须填 API Key，不可仅凭 IP 绕过）'
-                    : isIpFreeTemplate
-                      ? 'IP 免费层（无需密钥，按出口 IP 与虚拟设备轮换扩容）'
-                      : isAuthTemplate
-                        ? 'Token / OAuth 账号授权（直接在此完成授权登录并选模型）'
-                        : '机场订阅导入'
-                }`
+              ? `${selected.name} — ${presentation.description}`
               : '严格区分「API 密钥免费层」「IP 免费层（免密钥换 IP）」与「Token/OAuth 账号授权（WorkBuddy / Trae / 小浣熊 / Cline / Qoder CN / 书生·端砚 / DS2API）」。'}
           </DialogDescription>
         </DialogHeader>
@@ -716,11 +808,13 @@ export function FromTemplateDialog({
                     <Skeleton key={id} className='h-24 rounded-lg' />
                   ))}
                 </div>
-              ) : filteredTemplates.length === 0 ? (
+              ) : null}
+              {!isLoading && filteredTemplates.length === 0 && (
                 <div className='text-muted-foreground rounded-lg border border-dashed p-8 text-center text-sm'>
                   暂无匹配的免费源模板
                 </div>
-              ) : (
+              )}
+              {!isLoading && filteredTemplates.length > 0 && (
                 <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
                   {filteredTemplates.map((template) => {
                     const kind = classifyTemplate(template)
@@ -736,22 +830,17 @@ export function FromTemplateDialog({
                             {template.name}
                           </span>
                           <Badge
-                            variant={
-                              kind === 'ip'
-                                ? 'default'
-                                : kind === 'auth'
-                                  ? 'secondary'
-                                  : 'outline'
-                            }
+                            variant={templatePresentation[kind].variant}
                             className='shrink-0 text-[10px]'
                           >
-                            {kind === 'ip'
-                              ? 'IP免费层·免Key'
-                              : kind === 'auth'
-                                ? 'Token/OAuth授权'
-                                : kind === 'sub'
-                                  ? '机场订阅'
-                                  : '需API密钥'}
+                            {
+                              {
+                                ip: 'IP免费层·免Key',
+                                auth: 'Token/OAuth授权',
+                                sub: '机场订阅',
+                                api: '需API密钥',
+                              }[kind]
+                            }
                           </Badge>
                         </div>
                         {template.freeNote && (
@@ -759,7 +848,7 @@ export function FromTemplateDialog({
                             {template.freeNote}
                           </div>
                         )}
-                        <div className='mt-1.5 flex items-center justify-between text-xs text-muted-foreground'>
+                        <div className='text-muted-foreground mt-1.5 flex items-center justify-between text-xs'>
                           <span>
                             {template.models && template.models.length > 0
                               ? `${template.models.length} 个预置模型`
@@ -787,18 +876,12 @@ export function FromTemplateDialog({
             <div className='border-border/60 rounded-lg border p-3'>
               <div className='flex items-center justify-between gap-2'>
                 <span className='text-sm font-medium'>{selected.name}</span>
-                <Badge variant={isIpFreeTemplate ? 'default' : isAuthTemplate ? 'secondary' : 'outline'}>
-                  {isIpFreeTemplate
-                    ? '🌐 IP 免费层（免密钥）'
-                    : isAuthTemplate
-                      ? '🛡️ Token / OAuth 账号授权'
-                      : isSubscription
-                        ? '✈️ 机场订阅'
-                        : '🔑 API 密钥免费层（必填 Key）'}
+                <Badge variant={presentation.variant}>
+                  {presentation.badge}
                 </Badge>
               </div>
               {selected.freeNote && (
-                <div className='text-muted-foreground mt-1 whitespace-pre-line text-xs'>
+                <div className='text-muted-foreground mt-1 text-xs whitespace-pre-line'>
                   {selected.freeNote}
                 </div>
               )}
@@ -816,22 +899,16 @@ export function FromTemplateDialog({
             </div>
 
             {/* 区块一：凭据 / Token / OAuth 授权区（与下方代理区严格分离） */}
-            <div className='rounded-xl border border-border/80 bg-card p-3.5 space-y-3'>
+            <div className='border-border/80 bg-card space-y-3 rounded-xl border p-3.5'>
               <div className='flex items-center gap-2 text-xs font-semibold'>
-                <KeyRound className='size-3.5 text-primary' />
+                <KeyRound className='text-primary size-3.5' />
                 <span>
                   第一步：
-                  {isSubscription
-                    ? '填写机场订阅链接'
-                    : isAuthTemplate
-                      ? 'Token / OAuth 授权登录'
-                      : isIpFreeTemplate
-                        ? '免密钥验证说明（IP 免费层）'
-                        : '填写上游 API Key'}
+                  {presentation.step}
                 </span>
               </div>
 
-              {isSubscription ? (
+              {isSubscription && (
                 <div className='space-y-2'>
                   <Input
                     value={subscriptionUrl}
@@ -840,48 +917,81 @@ export function FromTemplateDialog({
                     autoComplete='off'
                   />
                   <p className='text-muted-foreground text-xs'>
-                    自动解析 AnyTLS / VLESS / VMess / Trojan / SS 节点并过滤流量公告假节点，注入共享 mihomo 内核。
+                    自动解析 AnyTLS / VLESS / VMess / Trojan / SS
+                    节点并过滤流量公告假节点，注入共享 mihomo 内核。
                   </p>
                 </div>
-              ) : isAuthTemplate ? (
+              )}
+              {selected.id === 'freepi' && (
+                <FreePiAuthorizationCard
+                  onComplete={() => {
+                    void queryClient.invalidateQueries({
+                      queryKey: channelsQueryKeys.all,
+                    })
+                    onOpenChange(false)
+                  }}
+                />
+              )}
+              {isAuthTemplate && selected.id !== 'freepi' && (
                 <div className='space-y-3'>
                   {/* WorkBuddy 一键设备授权 */}
                   {selected.id === 'workbuddy' && (
-                    <div className='flex flex-wrap items-center gap-2 rounded-lg bg-muted/50 p-2.5 text-xs'>
+                    <div className='bg-muted/50 flex flex-wrap items-center gap-2 rounded-lg p-2.5 text-xs'>
                       <select
-                        className='h-8 rounded-md border bg-background px-2 text-xs'
+                        className='bg-background h-8 rounded-md border px-2 text-xs'
                         value={oauthRealm}
-                        onChange={(e) => setOauthRealm(e.target.value as 'cn' | 'global')}
+                        onChange={(e) =>
+                          setOauthRealm(e.target.value as 'cn' | 'global')
+                        }
                       >
                         <option value='cn'>WorkBuddy 国内版（支持签到）</option>
                         <option value='global'>WorkBuddy 国际版</option>
                       </select>
-                      <Button size='sm' type='button' onClick={() => void startWorkBuddyFlow()}>
-                        {wbSession ? '重新打开设备授权' : '🚀 开始 WorkBuddy OAuth 授权'}
+                      <Button
+                        size='sm'
+                        type='button'
+                        onClick={() => void startWorkBuddyFlow()}
+                      >
+                        {wbSession
+                          ? '重新打开设备授权'
+                          : '🚀 开始 WorkBuddy OAuth 授权'}
                       </Button>
-                      {oauthStatusText && <span className='text-primary'>{oauthStatusText}</span>}
+                      {oauthStatusText && (
+                        <span className='text-primary'>{oauthStatusText}</span>
+                      )}
                     </div>
                   )}
 
                   {/* 小浣熊 一键浏览器授权 */}
                   {selected.id === 'xiaohuanxiong' && (
-                    <div className='flex flex-wrap items-center gap-2 rounded-lg bg-muted/50 p-2.5 text-xs'>
-                      <Button size='sm' type='button' onClick={() => void startRaccoonFlow()}>
-                        {raccoonSession ? '重新打开小浣熊授权' : '🦝 开始小浣熊浏览器 OAuth 授权'}
+                    <div className='bg-muted/50 flex flex-wrap items-center gap-2 rounded-lg p-2.5 text-xs'>
+                      <Button
+                        size='sm'
+                        type='button'
+                        onClick={() => void startRaccoonFlow()}
+                      >
+                        {raccoonSession
+                          ? '重新打开小浣熊授权'
+                          : '🦝 开始小浣熊浏览器 OAuth 授权'}
                       </Button>
                       <span className='text-muted-foreground'>
-                        点击在新窗口登录小浣熊即可自动回跳建渠道，或在下方直接粘贴回调链接 / Token：
+                        点击在新窗口登录小浣熊即可自动回跳建渠道，或在下方直接粘贴回调链接
+                        / Token：
                       </span>
-                      {oauthStatusText && <span className='text-primary'>{oauthStatusText}</span>}
+                      {oauthStatusText && (
+                        <span className='text-primary'>{oauthStatusText}</span>
+                      )}
                     </div>
                   )}
 
                   {/* DS2API 一键生成授权链接 → 复制去浏览器登录 → 自动返回开通渠道 */}
                   {selected.id === 'ds2api' && (
-                    <div className='space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-3 text-xs'>
+                    <div className='border-primary/30 bg-primary/5 space-y-2 rounded-lg border p-3 text-xs'>
                       <div className='flex flex-wrap items-center justify-between gap-2'>
-                        <span className='font-medium text-foreground'>
-                          🔗 方式一：生成专属授权链接 → 复制去浏览器登录，授权后自动返回开通渠道
+                        <span className='text-foreground font-medium'>
+                          {t(
+                            'Create an account login link and sign in with your own DeepSeek account. This is not browser OAuth.'
+                          )}
                         </span>
                         <div className='flex flex-wrap gap-1.5'>
                           <Button
@@ -890,7 +1000,9 @@ export function FromTemplateDialog({
                             className='h-8 text-xs'
                             onClick={() => void startDs2ApiFlow()}
                           >
-                            {ds2apiSession ? '🔄 重新生成并复制链接' : '🔗 生成 DS2API 授权链接'}
+                            {ds2apiSession
+                              ? t('Regenerate account login link')
+                              : t('Create account login link')}
                           </Button>
                           {ds2apiSession && (
                             <>
@@ -914,11 +1026,15 @@ export function FromTemplateDialog({
                                 type='button'
                                 className='h-8 text-xs'
                                 onClick={() =>
-                                  window.open(ds2apiSession.authUrl, '_blank', 'noopener,noreferrer')
+                                  window.open(
+                                    ds2apiSession.authUrl,
+                                    '_blank',
+                                    'noopener,noreferrer'
+                                  )
                                 }
                               >
                                 <ExternalLink className='me-1 size-3.5' />
-                                直接打开授权页
+                                {t('Open account login page')}
                               </Button>
                             </>
                           )}
@@ -928,12 +1044,14 @@ export function FromTemplateDialog({
                         <Input
                           readOnly
                           value={ds2apiSession.authUrl}
-                          onClick={(e) => (e.target as HTMLInputElement).select()}
+                          onClick={(e) =>
+                            (e.target as HTMLInputElement).select()
+                          }
                           className='h-8 font-mono text-xs'
                         />
                       )}
                       {oauthStatusText && (
-                        <div className='flex items-center gap-1.5 text-primary'>
+                        <div className='text-primary flex items-center gap-1.5'>
                           <Loader2 className='size-3.5 animate-spin' />
                           <span>{oauthStatusText}</span>
                         </div>
@@ -947,7 +1065,7 @@ export function FromTemplateDialog({
                     selected.id === 'cline-account' ||
                     selected.id === 'qoder-cn' ||
                     selected.id === 'internlm-inkstone') && (
-                    <div className='flex flex-wrap items-center gap-2 rounded-lg bg-muted/50 p-2.5 text-xs'>
+                    <div className='bg-muted/50 flex flex-wrap items-center gap-2 rounded-lg p-2.5 text-xs'>
                       <Button
                         size='sm'
                         variant='outline'
@@ -955,15 +1073,8 @@ export function FromTemplateDialog({
                         onClick={() =>
                           window.open(
                             selected.signupUrl ||
-                              (selected.id === 'trae-cn'
-                                ? 'https://www.trae.cn'
-                                : selected.id === 'trae-intl'
-                                  ? 'https://www.trae.ai'
-                                  : selected.id === 'cline-account'
-                                    ? 'https://app.cline.bot'
-                                    : selected.id === 'qoder-cn'
-                                      ? 'https://qoder.cn/account/integrations'
-                                      : 'https://discovery.intern-ai.org.cn/'),
+                              authorizationUrls[selected.id] ||
+                              'https://discovery.intern-ai.org.cn/',
                             '_blank',
                             'noopener,noreferrer'
                           )
@@ -983,22 +1094,14 @@ export function FromTemplateDialog({
                     onChange={(e) => setAuthTokensInput(e.target.value)}
                     rows={4}
                     placeholder={
-                      selected.id === 'ds2api'
-                        ? '推荐直接粘贴 DeepSeek Bearer Token（如 SlCmRF5j+IX2LBorDe4nBY5OHI1F8bmSp2HEkCsAX1pPWJ38B7GOPyYhcqGzoCMD）\n或直接把 F12 抓包的整段 Request Headers（含 authorization: Bearer ...）粘贴进来，系统会自动提取 Token！\n也支持 账号----Token 或 账号----密码（每行一个）'
-                        : selected.id === 'trae-cn' || selected.id === 'trae-intl'
-                          ? '粘贴 Trae 登录回调链接 https://...?code=... 或 refreshToken'
-                          : selected.id === 'qoder-cn'
-                            ? '粘贴 Qoder CN 的 Personal Access Token (PAT) 或桌面端登录态 token（每行一个）'
-                            : selected.id === 'cline-account'
-                              ? '粘贴 Cline WorkOS 浏览器授权后的回调链接或 access_token（每行一个）'
-                              : selected.id === 'internlm-inkstone'
-                                ? '粘贴书生·端砚 Token Plan 的 sk-/ink- Key，或控制台 Cookie 中的 uaa-token'
-                                : '粘贴授权 Token（每行一个）'
+                      tokenPlaceholders[selected.id] ??
+                      '粘贴授权 Token（每行一个）'
                     }
                     className='border-input bg-background w-full rounded-md border p-2.5 font-mono text-xs'
                   />
 
-                  {(selected.id === 'trae-cn' || selected.id === 'trae-intl') && (
+                  {(selected.id === 'trae-cn' ||
+                    selected.id === 'trae-intl') && (
                     <Input
                       value={traeUid}
                       onChange={(e) => setTraeUid(e.target.value)}
@@ -1006,37 +1109,29 @@ export function FromTemplateDialog({
                       className='h-8 text-xs'
                     />
                   )}
-
-                  {/* DS2API 每号独立虚拟设备指纹实时预览 */}
-                  {selected.id === 'ds2api' && dsDevicePreviews.length > 0 && (
-                    <div className='rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-2.5 text-xs space-y-1'>
-                      <div className='flex items-center gap-1.5 font-medium text-emerald-600'>
-                        <Cpu className='size-3.5' />
-                        已为当前输入的 {dsDevicePreviews.length} 个账号生成独立虚拟设备指纹与请求头（一账号一设备）：
-                      </div>
-                      {dsDevicePreviews.map((d, i) => (
-                        <div key={i} className='font-mono text-[11px] text-muted-foreground truncate'>
-                          • {d.label} → x-device-id: {d.deviceId} | Cookie: {d.session}
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
-              ) : isIpFreeTemplate ? (
-                <div className='rounded-lg border border-primary/30 bg-primary/5 p-3 text-xs space-y-1'>
-                  <div className='font-medium text-foreground'>
+              )}
+              {isIpFreeTemplate && (
+                <div className='border-primary/30 bg-primary/5 space-y-1 rounded-lg border p-3 text-xs'>
+                  <div className='text-foreground font-medium'>
                     ✅ 该来源属于「IP 免费层」，无需填写 API Key！
                   </div>
                   <div className='text-muted-foreground'>
-                    直接通过下方绑定的出口 IP 池（机场订阅或 Haizhu 7114 公共免费节点池）与虚拟设备指纹轮换调用，遇限流或报错自动熔断切换下一个 IP。
+                    直接通过下方绑定的出口 IP 池（机场订阅或 Haizhu 7114
+                    公共免费节点池）与虚拟设备指纹轮换调用，遇限流或报错自动熔断切换下一个
+                    IP。
                   </div>
                 </div>
-              ) : (
+              )}
+              {isApiKeyTemplate && (
                 /* API 密钥免费层：强制要求 API Key，不提供免 Key 绑 IP 绕过 */
                 <div className='space-y-3'>
                   <div className='space-y-1.5'>
                     <Label htmlFor='from-template-key' className='text-xs'>
-                      上游 API Key <span className='text-destructive'>*（API 免费层必填，不可仅绑 IP 空手创建）</span>
+                      上游 API Key{' '}
+                      <span className='text-destructive'>
+                        *（API 免费层必填，不可仅绑 IP 空手创建）
+                      </span>
                     </Label>
                     <Input
                       id='from-template-key'
@@ -1065,19 +1160,26 @@ export function FromTemplateDialog({
 
               {extraFields.map((field) => (
                 <div key={field} className='space-y-1'>
-                  <Label htmlFor={`from-template-extra-${field}`} className='text-xs'>
+                  <Label
+                    htmlFor={`from-template-extra-${field}`}
+                    className='text-xs'
+                  >
                     {field} <span className='text-destructive'>*</span>
                   </Label>
                   <Input
                     id={`from-template-extra-${field}`}
-                    value={extraValues[field] ?? selected.defaultExtra?.[field] ?? ''}
+                    value={
+                      extraValues[field] ?? selected.defaultExtra?.[field] ?? ''
+                    }
                     onChange={(e) =>
                       setExtraValues((prev) => ({
                         ...prev,
                         [field]: e.target.value,
                       }))
                     }
-                    placeholder={selected.defaultExtra?.[field] ?? `填写 ${field}`}
+                    placeholder={
+                      selected.defaultExtra?.[field] ?? `填写 ${field}`
+                    }
                     autoComplete='off'
                   />
                 </div>
@@ -1086,87 +1188,39 @@ export function FromTemplateDialog({
 
             {/* 区块二：独立分离的「出口代理 & 机场订阅 & 节点选择」区 */}
             {!isSubscription && (
-              <div className='rounded-xl border border-border/80 bg-card p-3.5 space-y-3'>
+              <div className='border-border/80 bg-card space-y-3 rounded-xl border p-3.5'>
                 <div className='flex flex-wrap items-center justify-between gap-2'>
                   <div className='flex items-center gap-2 text-xs font-semibold'>
-                    <Network className='size-3.5 text-primary' />
-                    <span>第二步：出口代理与机场订阅节点选择（独立配置，与上方凭据分离）</span>
+                    <Network className='text-primary size-3.5' />
+                    <span>
+                      第二步：出口代理与机场订阅节点选择（独立配置，与上方凭据分离）
+                    </span>
                   </div>
-                  {proxyMode !== 'free_pool' && ownNodes.length > 0 && (
-                    <Badge variant='secondary' className='font-mono text-[11px]'>
-                      自有订阅/IP: {ownNodes.length} 个 · 预估总额度 ≈ {formatTokenCount(ownEstimatedTokens)} tokens
-                    </Badge>
-                  )}
+                  {proxyPolicy.mode !== 'public_pool' &&
+                    ownNodes.length > 0 && (
+                      <Badge
+                        variant='secondary'
+                        className='font-mono text-[11px]'
+                      >
+                        自有订阅/IP: {ownNodes.length} 个 · 预估总额度 ≈{' '}
+                        {formatTokenCount(ownEstimatedTokens)} tokens
+                      </Badge>
+                    )}
                 </div>
 
-                <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
-                  <select
-                    value={proxyMode}
-                    onChange={(e) =>
-                      setProxyMode(
-                        e.target.value as 'own_pool' | 'free_pool' | 'node' | 'direct' | 'custom'
-                      )
-                    }
-                    className='border-input bg-background h-9 w-full rounded-md border px-3 text-xs'
-                  >
-                    <option value='own_pool'>
-                      🔄 跟随我的自有订阅/出口池轮换（自有节点 {ownNodes.length} 个）
-                    </option>
-                    <option value='free_pool'>
-                      🌐 使用免费公共 IP 池（Haizhu 等公开节点 {publicPoolNodes.length} 个 · 自动熔断）
-                    </option>
-                    <option value='node'>
-                      ⚡ 指定机场订阅/池内单个低延迟节点（优先测速好的节点）
-                    </option>
-                    <option value='direct'>🚫 强制直连（不走代理）</option>
-                    <option value='custom'>🔧 手动填写固定代理 URL (http/socks5)</option>
-                  </select>
-
-                  {proxyMode === 'node' && (
-                    <select
-                      value={selectedNodeName}
-                      onChange={(e) => setSelectedNodeName(e.target.value)}
-                      className='border-input bg-background h-9 w-full rounded-md border px-3 text-xs font-mono'
-                    >
-                      <option value='PUBLIC_FAST'>⚡ 自动测速最快节点 (PUBLIC_FAST)</option>
-                      {endpoints.slice(0, 150).map((ep) => (
-                        <option
-                          key={ep.id}
-                          value={`u${ep.user_id || 1}·${ep.name}`}
-                        >
-                          {ep.is_owner && ep.source !== 'haizhu' ? '[自有] ' : '[公共池] '}
-                          {ep.name} ({ep.region || ep.kind}
-                          {ep.latency_ms ? ` · ${ep.latency_ms}ms` : ''})
-                        </option>
-                      ))}
-                    </select>
-                  )}
-
-                  {proxyMode === 'custom' && (
-                    <Input
-                      value={proxyUrl}
-                      onChange={(e) => setProxyUrl(e.target.value)}
-                      placeholder='http://user:pass@1.2.3.4:8080 或 socks5://127.0.0.1:7897'
-                      className='h-9 text-xs font-mono'
-                    />
-                  )}
-                </div>
-
-                {/* 免费公共 IP 池慢速与不显示剩余 Token 警告（Item 2.3 & 5） */}
-                {proxyMode === 'free_pool' && (
-                  <div className='flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-300'>
-                    <AlertTriangle className='mt-0.5 size-4 shrink-0' />
-                    <div>
-                      <strong>免费公共 IP 源提示：</strong>
-                      使用公共免费 IP 池（含 Haizhu 节点）可能存在速度较慢、延迟波动或偶发连接出错；系统已开启<strong>自动熔断切换</strong>（遇错无感转接下一个 IP）。免费公共 IP 池不计量也不显示剩余 Token 额度。
-                    </div>
-                  </div>
-                )}
+                <ChannelProxySelector
+                  enabled={open}
+                  policy={proxyPolicy}
+                  proxy={proxyUrl}
+                  disabled={isSubmitting}
+                  onPolicyChange={setProxyPolicy}
+                  onProxyChange={setProxyUrl}
+                />
 
                 {/* 在创建渠道弹窗内直接添加机场订阅（Item 2.3 & 2.5） */}
-                <div className='rounded-lg border border-dashed p-2.5 space-y-2'>
+                <div className='space-y-2 rounded-lg border border-dashed p-2.5'>
                   <div className='flex items-center justify-between text-xs'>
-                    <span className='flex items-center gap-1.5 font-medium text-muted-foreground'>
+                    <span className='text-muted-foreground flex items-center gap-1.5 font-medium'>
                       <Rss className='size-3.5' />
                       在此直接添加机场订阅到我的出口池（可选，同步后即可在上方选节点）：
                     </span>
@@ -1206,11 +1260,13 @@ export function FromTemplateDialog({
 
             {/* 区块三：获取模型 + 可选择性勾选加入「我的渠道」与「公共池」（Items 2.3, 2.5） */}
             {!isSubscription && (
-              <div className='rounded-xl border border-border/80 bg-card p-3.5 space-y-3'>
+              <div className='border-border/80 bg-card space-y-3 rounded-xl border p-3.5'>
                 <div className='flex flex-wrap items-center justify-between gap-2'>
                   <div className='flex items-center gap-2 text-xs font-semibold'>
-                    <CheckSquare className='size-3.5 text-primary' />
-                    <span>第三步：获取模型并选择加入「我的渠道」或「公共池」</span>
+                    <CheckSquare className='text-primary size-3.5' />
+                    <span>
+                      第三步：获取模型并选择加入「我的渠道」或「公共池」
+                    </span>
                   </div>
                   <div className='flex items-center gap-2'>
                     <Button
@@ -1231,119 +1287,42 @@ export function FromTemplateDialog({
                   </div>
                 </div>
 
-                {probeInfo && (
-                  <div className='text-[11px] text-emerald-600'>{probeInfo}</div>
+                {!callable && (
+                  <p role='alert' className='text-destructive text-xs'>
+                    {t(
+                      'OpenCode free models are only callable from the OpenCode client, not through this gateway.'
+                    )}
+                  </p>
+                )}
+                {probedCount !== null && (
+                  <p className='text-muted-foreground text-xs'>
+                    {t('Fetched {{count}} upstream models', {
+                      count: probedCount,
+                    })}
+                  </p>
+                )}
+                {probeError != null && (
+                  <p role='alert' className='text-destructive text-xs'>
+                    {getServerErrorMessage(
+                      probeError,
+                      t('Failed to fetch upstream models')
+                    )}
+                  </p>
                 )}
 
-                <div className='flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground'>
-                  <span>
-                    已选加入我的渠道: <strong>{myModels.length}</strong> 个 · 已选公开到公共池:{' '}
-                    <strong>{publicModels.length}</strong> 个
-                  </span>
-                  <div className='flex flex-wrap gap-2'>
-                    <button
-                      type='button'
-                      className='text-primary hover:underline font-medium'
-                      onClick={() => setMyModels([...availableModels])}
-                    >
-                      一键全选（启用在我的渠道）
-                    </button>
-                    <span>·</span>
-                    <button
-                      type='button'
-                      className='text-muted-foreground hover:text-foreground hover:underline'
-                      onClick={() => {
-                        setMyModels([])
-                        setPublicModels([])
-                      }}
-                    >
-                      一键全不选（我的渠道）
-                    </button>
-                    <span>·</span>
-                    <button
-                      type='button'
-                      className='text-emerald-600 hover:underline font-medium'
-                      onClick={() => {
-                        if (publicModels.length === availableModels.length) {
-                          setPublicModels([])
-                        } else {
-                          setMyModels([...availableModels])
-                          setPublicModels([...availableModels])
-                        }
-                      }}
-                    >
-                      {publicModels.length === availableModels.length
-                        ? '全不选公开'
-                        : '全选加入公共池'}
-                    </button>
-                  </div>
-                </div>
+                <ChannelModelSelection
+                  key={selected.id}
+                  models={availableModels}
+                  enabledModels={myModels}
+                  publicModels={publicModels}
+                  disabled={isSubmitting}
+                  onChange={(enabled, published) => {
+                    setMyModels(enabled)
+                    setPublicModels(published)
+                  }}
+                />
 
-                <div className='max-h-48 overflow-y-auto rounded-lg border p-2 space-y-1'>
-                  {availableModels.length === 0 ? (
-                    <div className='py-4 text-center text-xs text-muted-foreground'>
-                      点击右上方「获取模型」按钮拉取可用模型列表
-                    </div>
-                  ) : (
-                    availableModels.map((modelName) => {
-                      const inMine = myModels.includes(modelName)
-                      const inPub = publicModels.includes(modelName)
-                      return (
-                        <div
-                          key={modelName}
-                          className='flex items-center justify-between gap-2 rounded px-2 py-1 hover:bg-muted/60 text-xs'
-                        >
-                          <span className='truncate font-mono'>{modelName}</span>
-                          <div className='flex shrink-0 items-center gap-4'>
-                            <label className='inline-flex cursor-pointer items-center gap-1'>
-                              <input
-                                type='checkbox'
-                                checked={inMine}
-                                onChange={(e) => {
-                                  const checked = e.target.checked
-                                  setMyModels((prev) =>
-                                    checked
-                                      ? [...prev, modelName]
-                                      : prev.filter((m) => m !== modelName)
-                                  )
-                                  if (!checked) {
-                                    setPublicModels((prev) =>
-                                      prev.filter((m) => m !== modelName)
-                                    )
-                                  }
-                                }}
-                                className='size-3.5 accent-primary'
-                              />
-                              <span>加入我的渠道</span>
-                            </label>
-                            <label className='inline-flex cursor-pointer items-center gap-1 text-emerald-600'>
-                              <input
-                                type='checkbox'
-                                checked={inPub}
-                                onChange={(e) => {
-                                  const checked = e.target.checked
-                                  if (checked && !inMine) {
-                                    setMyModels((prev) => [...prev, modelName])
-                                  }
-                                  setPublicModels((prev) =>
-                                    checked
-                                      ? [...prev, modelName]
-                                      : prev.filter((m) => m !== modelName)
-                                  )
-                                }}
-                                className='size-3.5 accent-emerald-600'
-                              />
-                              <Globe className='size-3' />
-                              <span>加入公共池</span>
-                            </label>
-                          </div>
-                        </div>
-                      )
-                    })
-                  )}
-                </div>
-
-                <div className='grid grid-cols-1 gap-2 sm:grid-cols-2 pt-1'>
+                <div className='grid grid-cols-1 gap-2 pt-1 sm:grid-cols-2'>
                   <div className='space-y-1'>
                     <Label htmlFor='from-template-name' className='text-xs'>
                       渠道名称（可选）
@@ -1358,7 +1337,9 @@ export function FromTemplateDialog({
                   </div>
                   {isIpFreeTemplate && (
                     <div className='space-y-1'>
-                      <Label className='text-xs'>入口 IP 白名单（可选，空=不限）</Label>
+                      <Label className='text-xs'>
+                        入口 IP 白名单（可选，空=不限）
+                      </Label>
                       <Input
                         value={allowIps}
                         onChange={(e) => setAllowIps(e.target.value)}
@@ -1394,11 +1375,7 @@ export function FromTemplateDialog({
             >
               {isSubmitting && <Loader2 className='size-4 animate-spin' />}
               <ShieldCheck className='me-1 size-4' />
-              {isSubscription
-                ? '保存并同步订阅'
-                : isAuthTemplate
-                  ? '提交 Token 授权并开通渠道'
-                  : '创建渠道'}
+              {presentation.submit}
             </Button>
           )}
         </DialogFooter>

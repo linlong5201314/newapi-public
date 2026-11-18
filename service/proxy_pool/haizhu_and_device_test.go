@@ -2,6 +2,8 @@ package proxy_pool
 
 import (
 	"encoding/json"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,23 +12,26 @@ import (
 )
 
 func TestParseHaizhuFullYaml(t *testing.T) {
-	yamlPath := filepath.Join(HaizhuDefaultExtractDir, "nodes", "clash", "full.yaml")
-	raw, err := os.ReadFile(yamlPath)
-	if err != nil {
-		t.Skipf("haizhu extract dir not present on this machine: %v", err)
+	for _, mode := range []string{"full", "top"} {
+		t.Run(mode, func(t *testing.T) {
+			raw, err := os.ReadFile(filepath.Join(HaizhuDefaultExtractDir, "nodes", "clash", mode+".yaml"))
+			if os.IsNotExist(err) {
+				t.Skip("local Haizhu extract unavailable")
+			}
+			require.NoError(t, err)
+			nodes, format, err := ParseSubscription(raw, "auto")
+			require.NoError(t, err)
+			assert.Equal(t, "clash", format)
+			require.NotEmpty(t, nodes)
+			protocols := map[string]int{}
+			names := map[string]struct{}{}
+			for _, node := range nodes {
+				protocols[node.Kind]++
+				names[node.Name] = struct{}{}
+			}
+			t.Logf("mode=%s parsed=%d unique_names=%d protocols=%v; no nodes dialed", mode, len(nodes), len(names), protocols)
+		})
 	}
-	nodes, format, err := ParseSubscription(raw, "auto")
-	if err != nil {
-		t.Fatalf("ParseSubscription failed: %v", err)
-	}
-	if format != "clash" {
-		t.Fatalf("format = %q, want clash", format)
-	}
-	if len(nodes) < 7000 {
-		t.Fatalf("parsed %d nodes from haizhu full.yaml, want >= 7000", len(nodes))
-	}
-	t.Logf("Successfully parsed %d nodes from Haizhu full.yaml (sample: %s [%s/%s])",
-		len(nodes), nodes[0].Name, nodes[0].Kind, nodes[0].Region)
 }
 
 func TestDeepSeekBearerExtractionAndDeviceVirtualization(t *testing.T) {

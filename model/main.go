@@ -199,7 +199,9 @@ func InitDB() (err error) {
 		// 放在 SKIP_DB_MIGRATION 早退之前，保证所有节点都注入。
 		InitMailOutbox()
 		// 代理池表与增量字段（latency_ms / public / source）在 SKIP_DB_MIGRATION=true 时也必须就绪。
-		EnsureProxyPoolSchema()
+		if err := EnsureProxyPoolSchema(); err != nil {
+			return fmt.Errorf("initialize proxy pool schema: %w", err)
+		}
 		// MySQL charset/collation startup check: ensure Chinese-capable charset
 		if common.UsingMainDatabase(common.DatabaseTypeMySQL) {
 			if err := checkMySQLChineseSupport(DB); err != nil {

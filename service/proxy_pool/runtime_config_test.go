@@ -1,9 +1,126 @@
 package proxy_pool
 
 import (
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
+
+// controlledPoolProxy ignores the requested destination and tunnels only to a local fixture.
+func controlledPoolProxy(t *testing.T, marker string) *httptest.Server {
+	t.Helper()
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, marker) }))
+	t.Cleanup(origin.Close)
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodConnect {
+			_, _ = io.WriteString(w, marker)
+			return
+		}
+		upstream, err := net.DialTimeout("tcp", origin.Listener.Addr().String(), time.Second)
+		if err != nil {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		downstream, buf, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			_ = upstream.Close()
+			return
+		}
+		defer downstream.Close()
+		defer upstream.Close()
+		_, _ = buf.WriteString("HTTP/1.1 200 Connection Established" + string([]byte{13, 10, 13, 10}))
+		_ = buf.Flush()
+		done := make(chan struct{}, 1)
+		go func() { _, _ = io.Copy(upstream, buf); _ = upstream.Close(); done <- struct{}{} }()
+		_, _ = io.Copy(downstream, upstream)
+		_ = downstream.Close()
+		<-done
+	}))
+	t.Cleanup(proxy.Close)
+	return proxy
+}
+
+func TestMihomoIsolatedPrivateListeners(t *testing.T) {
+	binary := (&Manager{}).BinaryPath()
+	if binary == "" {
+		t.Skip("mihomo binary unavailable")
+	}
+	first := controlledPoolProxy(t, "owner-one")
+	second := controlledPoolProxy(t, "owner-two")
+	base, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	basePort := base.Addr().(*net.TCPAddr).Port
+	require.NoError(t, base.Close())
+	if basePort > 65000 {
+		t.Skip("ephemeral base port too high")
+	}
+	plan, err := BuildRuntimeConfig([]RuntimeUser{
+		{UID: 1, Nodes: []RuntimeNode{{ID: 11, Name: "one", URL: first.URL}}},
+		{UID: 2, Nodes: []RuntimeNode{{ID: 22, Name: "two", URL: second.URL}}},
+	}, RuntimeOptions{BasePort: basePort, Controller: fmt.Sprintf("127.0.0.1:%d", basePort+2), Secret: "local-fixture-only"})
+	require.NoError(t, err)
+	var doc runtimeDoc
+	require.NoError(t, yaml.Unmarshal(plan.YAML, &doc))
+	for _, group := range doc.ProxyGroups {
+		for _, name := range []string{plan.EndpointNodeName[11], plan.EndpointNodeName[22]} {
+			assert.NotContains(t, fmt.Sprint(group["proxies"]), name)
+		}
+	}
+	require.Len(t, doc.Listeners, 2)
+	for _, listener := range doc.Listeners {
+		assert.Equal(t, "127.0.0.1", listener["listen"])
+	}
+	dir := t.TempDir()
+	config := filepath.Join(dir, "config.yaml")
+	require.NoError(t, os.WriteFile(config, plan.YAML, 0o600))
+	cmd := exec.Command(binary, "-f", config, "-d", dir)
+	require.NoError(t, cmd.Start())
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Error("kernel failed to terminate")
+		}
+	})
+	for id, expected := range map[int]string{11: "owner-one", 22: "owner-two"} {
+		proxyURL, err := url.Parse(plan.EndpointURLs[id])
+		require.NoError(t, err)
+		transport := &http.Transport{Proxy: http.ProxyURL(proxyURL)}
+		defer transport.CloseIdleConnections()
+		client := &http.Client{Transport: transport, Timeout: time.Second}
+		var response *http.Response
+		require.Eventually(t, func() bool { response, err = client.Get("http://controlled.example.invalid/test"); return err == nil }, 6*time.Second, 50*time.Millisecond)
+		assert.Equal(t, http.StatusOK, response.StatusCode)
+		body, err := io.ReadAll(response.Body)
+		require.NoError(t, response.Body.Close())
+		require.NoError(t, err)
+		assert.Equal(t, expected, string(body))
+		proxyURL.User = nil
+		unauthTransport := &http.Transport{Proxy: http.ProxyURL(proxyURL)}
+		unauthClient := &http.Client{Transport: unauthTransport, Timeout: time.Second}
+		response, err = unauthClient.Get("http://controlled.example.invalid/test")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusProxyAuthRequired, response.StatusCode)
+		_ = response.Body.Close()
+		unauthTransport.CloseIdleConnections()
+	}
+}
 
 func TestBuildRuntimeConfigSharedPortAndVisibility(t *testing.T) {
 	clashJSON, err := encodeClashJSON(map[string]any{
@@ -65,4 +182,15 @@ func TestBuildRuntimeConfigEmptyUsers(t *testing.T) {
 	if !strings.Contains(string(plan.YAML), "rules:") {
 		t.Fatalf("empty config should still be valid yaml:\n%s", plan.YAML)
 	}
+}
+
+func TestManagerExitedProcessIsNotRunning(t *testing.T) {
+	done := make(chan error, 1)
+	done <- fmt.Errorf("controlled exit")
+	m := &Manager{cmd: &exec.Cmd{Process: &os.Process{Pid: 123}}, processDone: done, ready: true}
+	status := m.Status()
+	assert.False(t, status.Running)
+	assert.Contains(t, status.LastError, "controlled exit")
+	m.Stop()
+	assert.False(t, m.Status().Running)
 }

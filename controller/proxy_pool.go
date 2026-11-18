@@ -216,7 +216,10 @@ func TestProxyEndpoint(c *gin.Context) {
 		if kerr != nil {
 			message := kerr.Error()
 			model.InvalidateProxyPoolCache(userId)
-			_ = model.MarkProxyEndpointLatency(endpoint.Id, false, 0, message)
+			if err := model.MarkProxyEndpointLatency(endpoint.Id, false, 0, message); err != nil {
+				common.ApiError(c, err)
+				return
+			}
 			c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{
 				"ok":         false,
 				"error":      message,
@@ -225,7 +228,10 @@ func TestProxyEndpoint(c *gin.Context) {
 			return
 		}
 		model.InvalidateProxyPoolCache(userId)
-		_ = model.MarkProxyEndpointLatency(endpoint.Id, true, delayMs, "")
+		if err := model.MarkProxyEndpointLatency(endpoint.Id, true, delayMs, ""); err != nil {
+			common.ApiError(c, err)
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{
 			"ok":         true,
 			"ip":         endpoint.Region + " (" + endpoint.Kind + ")",
@@ -609,36 +615,47 @@ func DeleteProxySubscription(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
-// GetProxyPoolSummary GET /api/proxy-pool/summary — 统计卡数据。
+type proxyPoolSummary struct {
+	EndpointTotal         int `json:"endpoint_total"`
+	EndpointEnabled       int `json:"endpoint_enabled"`
+	UsableURLCount        int `json:"usable_url_count"`
+	SubscriptionTotal     int `json:"subscription_total"`
+	ClientNodeCount       int `json:"client_node_count"`
+	PublicNodeCount       int `json:"public_node_count"`
+	HaizhuNodeCount       int `json:"haizhu_node_count"`
+	ConfiguredDirectCount int `json:"configured_direct_count"`
+	ProbedHealthyCount    int `json:"probed_healthy_count"`
+	KernelLoadedCount     int `json:"kernel_loaded_count"`
+}
+
+// GetProxyPoolSummary always includes data; failures remain success=false, never a fake healthy pool.
 func GetProxyPoolSummary(c *gin.Context) {
-	userId := c.GetInt("id")
-	stats, err := model.GetProxyPoolStatsForUser(userId)
+	userID := c.GetInt("id")
+	stats, err := model.GetProxyPoolStatsForUser(userID)
+	var subCount int
+	var usableURLs []string
+	if err == nil {
+		subCount, err = model.CountProxySubscriptions(userID)
+	}
+	if err == nil {
+		usableURLs, err = model.ListUsableProxyUrls(userID)
+	}
 	if err != nil {
-		common.ApiError(c, err)
+		common.SysError("proxy pool summary: " + err.Error())
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Proxy pool unavailable", "data": proxyPoolSummary{}})
 		return
 	}
-	subCount, err := model.CountProxySubscriptions(userId)
-	if err != nil {
-		common.ApiError(c, err)
-		return
+	kernelLoaded := 0
+	for _, raw := range usableURLs {
+		if parsed, parseErr := url.Parse(raw); parseErr == nil && parsed.Hostname() == "127.0.0.1" && parsed.User != nil && parsed.User.Username() == "endpoint" {
+			kernelLoaded++
+		}
 	}
-	usableUrls, err := model.ListUsableProxyUrls(userId)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	usableCount := len(usableUrls)
-	if stats.Enabled > usableCount {
-		usableCount = stats.Enabled
-	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{
-		"endpoint_total":     stats.Total,
-		"endpoint_enabled":   stats.Enabled,
-		"usable_url_count":   usableCount,
-		"subscription_total": subCount,
-		"client_node_count":  stats.ClientNodes,
-		"public_node_count":  stats.PublicNodes,
-		"haizhu_node_count":  stats.HaizhuNodes,
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": proxyPoolSummary{
+		EndpointTotal: stats.Total, EndpointEnabled: stats.Enabled,
+		UsableURLCount: len(usableURLs), SubscriptionTotal: subCount,
+		ClientNodeCount: stats.ClientNodes, PublicNodeCount: stats.PublicNodes, HaizhuNodeCount: stats.HaizhuNodes,
+		ConfiguredDirectCount: stats.DirectNodes, ProbedHealthyCount: stats.HealthyNodes, KernelLoadedCount: kernelLoaded,
 	}})
 }
 

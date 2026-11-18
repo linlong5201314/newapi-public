@@ -211,7 +211,7 @@
     "id": "opencode-2-free",
     "name": "OpenCode 2 Free（IP 轮换扩容插件）",
     "repo": "magpie-opencode-2-free-plug-in",
-    "desc": "免 Key 调用 OpenCode Zen 免费模型（deepseek-v4.1-flash-free / glm-5.3-flash-free 等），联动出口 IP 池与虚拟设备指纹轮换解锁无限免费 Token",
+    "desc": "Source owner or package identity has not been verified. No install command is offered; provider account and usage conditions still apply.",
     "authMode": "ip",
     "stars": 35
   },
@@ -278,5 +278,13 @@
     "desc": "AutoClaw 自动化 Agent 账号授权插件",
     "authMode": "oauth",
     "stars": 11
+  },
+  {
+    "id": "freepi",
+    "name": "FreePi GitHub device authorization",
+    "repo": "pingmike2/freepi-magpie-plugin",
+    "desc": "Install in your own Magpie instance, then choose Sign in with GitHub (device code). GitHub confirmation is required; quotas and provider terms still apply.",
+    "authMode": "oauth",
+    "stars": 0
   }
 ]

@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
-import { getFreeTemplates, type FreeSourceTemplate } from '@/features/my-channels/free-sources'
+import {
+  getFreeTemplates,
+  type FreeSourceTemplate,
+} from '@/features/my-channels/free-sources'
 
 import {
   createBinding,
@@ -15,6 +19,7 @@ import {
   type AccountBinding,
   type OAuthSession,
 } from './api'
+import { FreePiAuthorizationCard } from './freepi-authorization'
 
 const STATUS_TEXT: Record<string, string> = {
   pending: '排队开通',
@@ -24,6 +29,7 @@ const STATUS_TEXT: Record<string, string> = {
 }
 
 export function AccountBindingsCard() {
+  const { t } = useTranslation()
   const [templates, setTemplates] = useState<FreeSourceTemplate[]>([])
   const [provider, setProvider] = useState('')
   const [displayName, setDisplayName] = useState('')
@@ -36,7 +42,9 @@ export function AccountBindingsCard() {
   const [oauthRealm, setOauthRealm] = useState<'cn' | 'global'>('cn')
   const [oauthSession, setOauthSession] = useState<OAuthSession | null>(null)
   const [oauthMsg, setOauthMsg] = useState('')
-  const [raccoonSession, setRaccoonSession] = useState<OAuthSession | null>(null)
+  const [raccoonSession, setRaccoonSession] = useState<OAuthSession | null>(
+    null
+  )
   const [raccoonMsg, setRaccoonMsg] = useState('')
   const [traeInput, setTraeInput] = useState('')
   const [traeUid, setTraeUid] = useState('')
@@ -45,7 +53,12 @@ export function AccountBindingsCard() {
   const accountTemplates = useMemo(
     () =>
       templates.filter(
-        (item) => item.authMode === 'account' || item.authMode === 'oauth' || item.authMode === 'gateway' || item.authMode === 'bridge'
+        (item) =>
+          item.id !== 'freepi' &&
+          (item.authMode === 'account' ||
+            item.authMode === 'oauth' ||
+            item.authMode === 'gateway' ||
+            item.authMode === 'bridge')
       ),
     [templates]
   )
@@ -70,7 +83,12 @@ export function AccountBindingsCard() {
       if (!alive) return
       setTemplates(list)
       const first = list.find(
-        (item) => item.authMode === 'account' || item.authMode === 'oauth' || item.authMode === 'gateway' || item.authMode === 'bridge'
+        (item) =>
+          item.id !== 'freepi' &&
+          (item.authMode === 'account' ||
+            item.authMode === 'oauth' ||
+            item.authMode === 'gateway' ||
+            item.authMode === 'bridge')
       )
       if (first) setProvider(first.id)
     })()
@@ -79,6 +97,24 @@ export function AccountBindingsCard() {
       alive = false
     }
   }, [reload])
+
+  let accountPlaceholder =
+    '账号----密码\n账号----密码（每行一个，可一次粘贴多个）'
+  if (isGateway) {
+    accountPlaceholder =
+      '供应商----密钥\n如 deepseek----sk-xxx（每行一个，可留空先开网关）'
+  } else if (isBridge) {
+    accountPlaceholder =
+      'access_token----refresh_token\n（每行一个账号，来源：小浣熊 auth.json）'
+  } else if (isOAuth && provider === 'internlm-inkstone') {
+    accountPlaceholder =
+      'sk-…（书生 Token Plan 里的 API Key，每行一个）\n也可粘贴控制台 Cookie 里的 uaa-token，由平台代建 Key'
+  } else if (isOAuth) {
+    accountPlaceholder = '浏览器授权后的回调链接或 Token（每行一个）'
+  } else if (provider === 'ds2api') {
+    accountPlaceholder =
+      '账号----密码\n或 账号----会话Token（推荐）\n或 直接粘贴 Token（每行一个）'
+  }
 
   const submit = async () => {
     if (!provider) {
@@ -217,8 +253,11 @@ export function AccountBindingsCard() {
         上游账号授权（账号密码 / 浏览器授权 / 配套网关）
       </div>
       <div className='text-muted-foreground mb-2 text-xs'>
-        只支持你自己的账号：提交后平台为你单独开通（一用户一实例），凭据与实例都不与其他用户共用，也看不到任何部署地址。选「Magpie 配套网关」填上游「供应商----密钥」，平台为你单独起一台网关；小浣熊点「开始授权」用浏览器登录一次即可；书生·端砚直接粘贴 Token Plan 里的 sk- Key（或在控制台复制 Cookie 里的 uaa-token 让平台代建 Key）。
+        {t(
+          'Use only accounts you own. FreePi uses the dedicated GitHub device authorization below. Magpie requires your own running gateway endpoint and gateway key; copying a plugin command does not deploy a gateway.'
+        )}
       </div>
+      <FreePiAuthorizationCard onComplete={reload} />
       <div className='flex flex-wrap gap-2'>
         <select
           className='h-8 rounded-md border bg-transparent px-2 text-sm'
@@ -240,28 +279,15 @@ export function AccountBindingsCard() {
       </div>
       <textarea
         className='mt-2 h-24 w-full rounded-md border bg-transparent p-2 font-mono text-xs'
-        placeholder={
-          isGateway
-            ? '供应商----密钥\n如 deepseek----sk-xxx（每行一个，可留空先开网关）'
-            : isBridge
-              ? 'access_token----refresh_token\n（每行一个账号，来源：小浣熊 auth.json）'
-              : isOAuth
-                ? provider === 'internlm-inkstone'
-                  ? 'sk-…（书生 Token Plan 里的 API Key，每行一个）\n也可粘贴控制台 Cookie 里的 uaa-token，由平台代建 Key'
-                  : '浏览器授权后的回调链接或 Token（每行一个）'
-                : provider === 'ds2api'
-                  ? '账号----密码\n或 账号----会话Token（推荐）\n或 直接粘贴 Token（每行一个）'
-                  : '账号----密码\n账号----密码（每行一个，可一次粘贴多个）'
-        }
+        placeholder={accountPlaceholder}
         value={accounts}
         onChange={(e) => setAccounts(e.target.value)}
       />
       {provider === 'ds2api' && (
         <div className='text-muted-foreground mt-1 text-xs leading-relaxed'>
-          DeepSeek 网页端对服务器 IP 的密码登录会返回 RISK_DEVICE_DETECTED，
-          建议改用会话 Token：浏览器登录 chat.deepseek.com → F12 → Application →
-          Local Storage → 复制 <code>userToken</code> 的值，按「账号----Token」粘贴。
-          Token 有效期数月，过期后重新粘贴即可。
+          {t(
+            'DS2API uses a platform account login link, not upstream OAuth. Use the account login action to submit your own credentials over HTTPS; do not put tokens in callback URLs or run browser-console scripts.'
+          )}
         </div>
       )}
       {!isGateway && (
@@ -303,7 +329,8 @@ export function AccountBindingsCard() {
             WorkBuddy 设备授权（Google / 邮箱登录，仅国内版有签到）
           </div>
           <div className='text-muted-foreground mb-2 text-xs'>
-            点「开始授权」后在新窗口完成登录，回来这里会自动显示结果；不需要填任何 Key。国际版没有签到功能，只用于授权调用。
+            点「开始授权」后在新窗口完成登录，回来这里会自动显示结果；不需要填任何
+            Key。国际版没有签到功能，只用于授权调用。
           </div>
           <div className='flex flex-wrap items-center gap-2'>
             <select
@@ -330,7 +357,8 @@ export function AccountBindingsCard() {
             小浣熊浏览器授权（办公小浣熊客户端）
           </div>
           <div className='text-muted-foreground mb-2 text-xs'>
-            点「开始授权」会打开小浣熊授权页，用你自己的账号登录后浏览器自动回跳，平台直接用返回的授权码换取凭据并开通渠道；不需要填 Key，也看不到任何部署地址。
+            点「开始授权」会打开小浣熊授权页，用你自己的账号登录后浏览器自动回跳，平台直接用返回的授权码换取凭据并开通渠道；不需要填
+            Key，也看不到任何部署地址。
           </div>
           <div className='flex flex-wrap items-center gap-2'>
             <button
@@ -340,9 +368,7 @@ export function AccountBindingsCard() {
             >
               {raccoonSession ? '重新授权' : '开始授权'}
             </button>
-            {raccoonMsg ? (
-              <span className='text-xs'>{raccoonMsg}</span>
-            ) : null}
+            {raccoonMsg ? <span className='text-xs'>{raccoonMsg}</span> : null}
           </div>
         </div>
 
@@ -351,7 +377,8 @@ export function AccountBindingsCard() {
             Trae 授权导入（回调链接或 refreshToken）
           </div>
           <div className='text-muted-foreground mb-2 text-xs'>
-            把 Trae 登录后的回调链接整段粘贴进来即可；刷新令牌会轮换并踢下同账号其他客户端，建议专号专用。
+            把 Trae
+            登录后的回调链接整段粘贴进来即可；刷新令牌会轮换并踢下同账号其他客户端，建议专号专用。
           </div>
           <textarea
             className='h-16 w-full rounded-md border bg-transparent p-2 font-mono text-xs'

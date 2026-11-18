@@ -1,4 +1,5 @@
 import { api, type ApiRequestConfig } from '@/lib/api'
+import { requireServerSuccess } from '@/lib/server-error-message'
 
 export type AccountBinding = {
   id: number
@@ -28,12 +29,25 @@ export async function listBindings(): Promise<AccountBinding[]> {
   return res.data?.data?.items ?? []
 }
 
+export type BindingProxyPolicy = {
+  mode:
+    | 'user_pool'
+    | 'public_pool'
+    | 'subscription'
+    | 'endpoint'
+    | 'direct'
+    | 'fixed'
+  subscription_id?: number
+  endpoint_id?: number
+}
+
 export async function createBinding(payload: {
   provider: string
   accounts: string
   displayName?: string
   public?: boolean
   proxy?: string
+  proxy_policy?: BindingProxyPolicy
 }): Promise<{ ok: boolean; message?: string }> {
   const res = await api.post<{ success: boolean; message?: string }>(
     '/api/channel/self/bindings',
@@ -64,6 +78,8 @@ export type OAuthSession = {
   realm?: string
   callbackUrl?: string
   expiresIn?: number
+  flow?: 'account_login' | 'device_authorization' | (string & {})
+  upstream_oauth?: boolean
 }
 
 // 小浣熊（办公小浣熊 / Raccoon Work）走浏览器授权回跳：
@@ -150,13 +166,23 @@ export async function importTrae(payload: {
   }
 }
 
-// DS2API（DeepSeek 网页端）：生成专属授权链接 → 复制/点击去浏览器登录确认 → 自动回传并开通渠道。
-export async function startDs2ApiOAuth(): Promise<OAuthSession | null> {
+// DS2API uses a platform-owned account login page, not an upstream OAuth grant.
+// The server returns flow=account_login and upstream_oauth=false; credentials never
+// belong in a callback URL or the polling response.
+export async function startDs2ApiOAuth(
+  payload: {
+    proxy?: string
+    proxy_policy?: BindingProxyPolicy
+    models?: string[]
+    all_models?: string[]
+    public_models?: string[]
+  } = {}
+): Promise<OAuthSession | null> {
   const res = await api.post<{
     success: boolean
     data?: OAuthSession
     message?: string
-  }>('/api/channel/self/oauth/ds2api/start', {}, cfg())
+  }>('/api/channel/self/oauth/ds2api/start', payload, cfg())
   return res.data?.success ? (res.data.data ?? null) : null
 }
 
@@ -177,6 +203,82 @@ export async function pollDs2ApiOAuth(
   return res.data.data ?? { done: false }
 }
 
+export type FreePiSession = {
+  state: string
+  userCode: string
+  verificationUri: string
+  interval: number
+  expiresIn: number
+  flow: 'device_authorization'
+}
+
+export type FreePiPollResult = {
+  status:
+    | 'pending'
+    | 'consent_required'
+    | 'done'
+    | 'cancelled'
+    | 'restart_required'
+  done?: boolean
+  interval?: number
+  consentVersion?: string
+  channel?: { id: number }
+  public?: boolean
+}
+
+const freePiConfig = (): ApiRequestConfig =>
+  cfg({
+    singleUseAuthorization: true,
+    headers: { 'X-FreePi-Action': 'authorize' },
+  })
+
+export async function startFreePiOAuth(payload: {
+  displayName?: string
+  public: boolean
+  confirmPublic: boolean
+}): Promise<FreePiSession> {
+  const response = await api.post<{ success: boolean; data: FreePiSession }>(
+    '/api/channel/self/oauth/freepi/start',
+    payload,
+    freePiConfig()
+  )
+  return requireServerSuccess(response.data).data
+}
+
+export async function pollFreePiOAuth(
+  state: string
+): Promise<FreePiPollResult> {
+  const response = await api.post<{ success: boolean; data: FreePiPollResult }>(
+    '/api/channel/self/oauth/freepi/poll',
+    { state },
+    freePiConfig()
+  )
+  return requireServerSuccess(response.data).data
+}
+
+export async function consentFreePiOAuth(
+  state: string,
+  consentVersion: string
+): Promise<FreePiPollResult> {
+  const response = await api.post<{ success: boolean; data: FreePiPollResult }>(
+    '/api/channel/self/oauth/freepi/consent',
+    { state, accepted: true, consentVersion },
+    freePiConfig()
+  )
+  return requireServerSuccess(response.data).data
+}
+
+export async function cancelFreePiOAuth(
+  state: string
+): Promise<FreePiPollResult> {
+  const response = await api.post<{ success: boolean; data: FreePiPollResult }>(
+    '/api/channel/self/oauth/freepi/cancel',
+    { state },
+    freePiConfig()
+  )
+  return requireServerSuccess(response.data).data
+}
+
 export type MagpiePlugin = {
   id: string
   name: string
@@ -186,6 +288,7 @@ export type MagpiePlugin = {
   stars: number
   url: string
   install: string
+  importSource: string
 }
 
 export async function listMagpiePlugins(q?: string): Promise<{
@@ -196,10 +299,14 @@ export async function listMagpiePlugins(q?: string): Promise<{
   const res = await api.get<{
     success: boolean
     data?: { items?: MagpiePlugin[]; total?: number; upstream?: string }
-  }>(`/api/channel/self/magpie_plugins${q ? `?q=${encodeURIComponent(q)}` : ''}`, cfg())
+  }>(
+    `/api/channel/self/magpie_plugins${q ? `?q=${encodeURIComponent(q)}` : ''}`,
+    cfg()
+  )
+  const response = requireServerSuccess(res.data)
   return {
-    items: res.data?.data?.items ?? [],
-    total: res.data?.data?.total ?? 0,
-    upstream: res.data?.data?.upstream,
+    items: response.data?.items ?? [],
+    total: response.data?.total ?? 0,
+    upstream: response.data?.upstream,
   }
 }

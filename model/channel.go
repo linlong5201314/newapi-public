@@ -201,6 +201,9 @@ func (channel *Channel) GetKeys() []string {
 		return channel.Keys
 	}
 	key := DecryptChannelKey(channel.Type, channel.Key)
+	if common.IsEncryptedSecret(channel.Key) && key == "" {
+		return []string{}
+	}
 	trimmed := strings.TrimSpace(key)
 	// If the key starts with '[', try to parse it as a JSON array (e.g., for Vertex AI scenarios)
 	if strings.HasPrefix(trimmed, "[") {
@@ -221,7 +224,11 @@ func (channel *Channel) GetKeys() []string {
 func (channel *Channel) GetNextEnabledKey() (string, int, *types.NewAPIError) {
 	// If not in multi-key mode, return the original key string directly.
 	if !channel.ChannelInfo.IsMultiKey {
-		return DecryptChannelKey(channel.Type, channel.Key), 0, nil
+		key := DecryptChannelKey(channel.Type, channel.Key)
+		if common.IsEncryptedSecret(channel.Key) && key == "" {
+			return "", 0, types.NewError(errors.New("channel credential could not be decrypted"), types.ErrorCodeChannelNoAvailableKey)
+		}
+		return key, 0, nil
 	}
 
 	// Obtain all keys (split by \n)
