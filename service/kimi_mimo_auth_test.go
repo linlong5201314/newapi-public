@@ -25,8 +25,8 @@ func TestMiMoDestinationMetadataRedactsSecrets(t *testing.T) {
 }
 
 func TestMiMoObservedAuthorizationHosts(t *testing.T) {
-	loginHosts := []string{"account.xiaomi.com", "ak.account.xiaomi.com"}
-	pollHosts := []string{"account.xiaomi.com", "ak.lp.account.xiaomi.com"}
+	loginHosts := []string{"account.xiaomi.com", "ak.account.xiaomi.com", "sgp.account.xiaomi.com"}
+	pollHosts := []string{"account.xiaomi.com", "ak.lp.account.xiaomi.com", "sgp.lp.account.xiaomi.com"}
 	for _, tc := range []struct {
 		name      string
 		hosts     []string
@@ -37,12 +37,12 @@ func TestMiMoObservedAuthorizationHosts(t *testing.T) {
 		{"poll", pollHosts, "https://ak.lp.account.xiaomi.com/longPolling/listen?ticket=fixture", "https://ak.account.xiaomi.com/listen"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			for _, target := range []string{tc.valid, "https://account.xiaomi.com/legacy"} {
+			for _, target := range []string{tc.valid, strings.Replace(tc.valid, "//ak.", "//sgp.", 1), "https://account.xiaomi.com/legacy"} {
 				if _, err := miMoURL(target, tc.hosts...); err != nil {
 					t.Fatalf("official host rejected: %v", err)
 				}
 			}
-			for _, target := range []string{tc.wrongRole, "https://attacker.invalid/leak", "https://ak.account.xiaomi.com.attacker.invalid/leak", "https://evil.account.xiaomi.com/leak", "https://ak.lp.account.xiaomi.com.attacker.invalid/leak", "http://account.xiaomi.com/plain", "https://account.xiaomi.com:8443/port", "https://fixture@account.xiaomi.com/userinfo", "https://account.xiaomi.com/path#fragment"} {
+			for _, target := range []string{tc.wrongRole, strings.Replace(tc.wrongRole, "//ak.", "//sgp.", 1), "https://sgp.account.xiaomi.com.attacker.invalid/leak", "https://sgp.lp.account.xiaomi.com.attacker.invalid/leak", "https://attacker.invalid/leak", "https://ak.account.xiaomi.com.attacker.invalid/leak", "https://evil.account.xiaomi.com/leak", "https://ak.lp.account.xiaomi.com.attacker.invalid/leak", "http://account.xiaomi.com/plain", "https://account.xiaomi.com:8443/port", "https://fixture@account.xiaomi.com/userinfo", "https://account.xiaomi.com/path#fragment"} {
 				if _, err := miMoURL(target, tc.hosts...); err == nil {
 					t.Fatalf("unapproved destination accepted: %s", target)
 				}

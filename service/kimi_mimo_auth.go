@@ -283,12 +283,13 @@ func StartMiMoSignIn(ctx context.Context, proxy string) (ticket MiMoTicket, auth
 		return ticket, "", ErrAccountProtocol
 	}
 	stage = "login_destination"
-	if _, err := miMoURL(result.LoginURL, "account.xiaomi.com", "ak.account.xiaomi.com"); err != nil {
+	if _, err := miMoURL(result.LoginURL, "account.xiaomi.com", "ak.account.xiaomi.com", "sgp.account.xiaomi.com"); err != nil {
 		common.SysLog("MiMo rejected login destination: " + miMoDestinationMetadata(result.LoginURL))
 		return ticket, "", err
 	}
 	stage = "poll_destination"
-	if _, err := miMoURL(result.PollURL, "account.xiaomi.com", "ak.lp.account.xiaomi.com"); err != nil {
+	if _, err := miMoURL(result.PollURL, "account.xiaomi.com", "ak.lp.account.xiaomi.com", "sgp.lp.account.xiaomi.com"); err != nil {
+		common.SysLog("MiMo rejected polling destination: " + miMoDestinationMetadata(result.PollURL))
 		return ticket, "", err
 	}
 	stage = "ticket_size"
@@ -308,7 +309,7 @@ func PollMiMoSignIn(ctx context.Context, proxy string, ticket MiMoTicket) (*MiMo
 	if time.Now().Unix() >= ticket.Until {
 		return nil, model.ErrAuthFlowExpired
 	}
-	if _, err := miMoURL(ticket.PollURL, "account.xiaomi.com", "ak.lp.account.xiaomi.com"); err != nil || !HeaderCredential(ticket.DeviceID, 128) {
+	if _, err := miMoURL(ticket.PollURL, "account.xiaomi.com", "ak.lp.account.xiaomi.com", "sgp.lp.account.xiaomi.com"); err != nil || !HeaderCredential(ticket.DeviceID, 128) {
 		return nil, ErrAccountProtocol
 	}
 	pollCtx, cancel := context.WithTimeout(ctx, 6*time.Second)

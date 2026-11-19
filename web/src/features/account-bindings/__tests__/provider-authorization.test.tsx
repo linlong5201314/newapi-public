@@ -20,7 +20,7 @@ vi.mock('@/lib/api', () => ({ api: { get: vi.fn(), post: vi.fn() } }))
 let client: QueryClient
 const mimoSession = {
   sessionId: 'owner-mimo-session',
-  authUrl: 'https://ak.account.xiaomi.com/pass/lp?ticket=synthetic',
+  authUrl: 'https://sgp.account.xiaomi.com/pass/lp?ticket=synthetic',
   expiresIn: 600,
   interval: 2,
 }
@@ -133,14 +133,14 @@ it('reserves a Xiaomi login popup before network and creates a channel only afte
   expect(popup.close).toHaveBeenCalled()
 })
 
-it('still opens the exact legacy Xiaomi account login host', async () => {
+it.each(['account.xiaomi.com', 'ak.account.xiaomi.com'])('still opens the exact supported Xiaomi login host: %s', async (host) => {
   const popup = {
     opener: undefined,
     closed: false,
     location: { href: '' },
     close: vi.fn(),
   }
-  const authUrl = 'https://account.xiaomi.com/longPolling/login?ticket=synthetic'
+  const authUrl = `https://${host}/longPolling/login?ticket=synthetic`
   vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window)
   vi.mocked(api.post).mockResolvedValueOnce({
     data: { success: true, data: { ...mimoSession, authUrl } },
@@ -155,6 +155,8 @@ it('still opens the exact legacy Xiaomi account login host', async () => {
 
 it.each([
   'https://attacker.invalid/leak',
+  'https://sgp.account.xiaomi.com.attacker.invalid/leak',
+  'https://sgp.lp.account.xiaomi.com/longPolling/listen',
   'https://ak.account.xiaomi.com.attacker.invalid/leak',
   'https://evil.account.xiaomi.com/leak',
   'https://ak.lp.account.xiaomi.com/longPolling/listen',

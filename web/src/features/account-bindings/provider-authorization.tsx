@@ -222,7 +222,11 @@ export function ProviderAuthorizationCard(props: Props) {
         const url = new URL(session.authUrl ?? '')
         if (
           url.protocol !== 'https:' ||
-          !['account.xiaomi.com', 'ak.account.xiaomi.com'].includes(url.host) ||
+          ![
+            'account.xiaomi.com',
+            'ak.account.xiaomi.com',
+            'sgp.account.xiaomi.com',
+          ].includes(url.host) ||
           url.username ||
           url.password ||
           url.hash

@@ -135,11 +135,11 @@ func TestDesktopAccountsDatabaseMatrix(t *testing.T) {
 				case "account.xiaomi.com/longPolling/loginUrl":
 					assert.Contains(t, r.Header.Get("Cookie"), "deviceId=pc_")
 					assert.Equal(t, "mimosgp", r.URL.Query().Get("sid"))
-					body = `&&&START&&&{"code":0,"loginUrl":"https://ak.account.xiaomi.com/pass/lp?ticket=public-login-ticket","lp":"https://ak.lp.account.xiaomi.com/longPolling/listen?ticket=private-poll-ticket","timeout":600}`
+					body = `&&&START&&&{"code":0,"loginUrl":"https://sgp.account.xiaomi.com/pass/lp?ticket=public-login-ticket","lp":"https://sgp.lp.account.xiaomi.com/longPolling/listen?ticket=private-poll-ticket","timeout":600}`
 					if badURL {
-						body = strings.ReplaceAll(body, "https://ak.lp.account.xiaomi.com/longPolling/listen", "https://attacker.invalid/leak")
+						body = strings.ReplaceAll(body, "https://sgp.lp.account.xiaomi.com/longPolling/listen", "https://attacker.invalid/leak")
 					}
-				case "ak.lp.account.xiaomi.com/longPolling/listen":
+				case "sgp.lp.account.xiaomi.com/longPolling/listen":
 					pollCount++
 					if pending {
 						body = `&&&START&&&{"code":70016}`
@@ -200,7 +200,7 @@ func TestDesktopAccountsDatabaseMatrix(t *testing.T) {
 			start := func() string {
 				res := request(SelfMiMoOAuthStart, "POST", `{"proxyPolicy":{"mode":"direct"}}`, "https://dashboard.test", identity)
 				data := decode(res)
-				assert.Equal(t, "https://ak.account.xiaomi.com/pass/lp?ticket=public-login-ticket", data["authUrl"])
+				assert.Equal(t, "https://sgp.account.xiaomi.com/pass/lp?ticket=public-login-ticket", data["authUrl"])
 				assert.NotContains(t, res.Body.String(), "private-poll-ticket")
 				token := data["sessionId"].(string)
 				require.Len(t, token, 43)
