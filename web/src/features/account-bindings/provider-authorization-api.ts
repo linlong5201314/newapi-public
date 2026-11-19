@@ -6,7 +6,13 @@ import {
 
 import type { BindingProxyPolicy } from './api'
 
-export type NativeAccountProvider = 'kimi-work' | 'xiaomi-mimo' | 'trae-cn'
+export type NativeAccountProvider =
+  | 'kimi-work'
+  | 'xiaomi-mimo'
+  | 'trae-cn'
+  | 'zcode-bigmodel'
+  | 'zcode-zai'
+export type BrowserAccountProvider = Exclude<NativeAccountProvider, 'kimi-work'>
 export type ProviderAuthorizationOptions = {
   displayName?: string
   public?: boolean
@@ -15,7 +21,7 @@ export type ProviderAuthorizationOptions = {
 }
 export type ProviderCapabilities = {
   provider: string
-  method: 'local_import' | 'xiaomi_qr'
+  method: 'local_import' | 'xiaomi_qr' | 'zcode_cli'
   browserLoginAvailable: boolean
   importAvailable: boolean
   officialUrl: string
@@ -76,15 +82,30 @@ export async function getProviderCapabilities(
   return requireServerSuccess(response.data).data
 }
 
+function browserAccountEndpoint(provider: BrowserAccountProvider) {
+  if (provider === 'trae-cn') return 'trae/bridge'
+  if (provider === 'zcode-bigmodel' || provider === 'zcode-zai') return 'zcode'
+  return 'mimo'
+}
+
 export async function startNativeAuthorization(
-  provider: 'xiaomi-mimo' | 'trae-cn',
+  provider: BrowserAccountProvider,
   options: ProviderAuthorizationOptions
 ): Promise<NativeAuthorizationSession> {
-  const endpoint = provider === 'trae-cn' ? 'trae/bridge' : 'mimo'
-  const payload =
-    provider === 'trae-cn'
-      ? { ...options, realm: 'cn', confirmRotation: true }
-      : options
+  const endpoint = browserAccountEndpoint(provider)
+  let payload: ProviderAuthorizationOptions & {
+    realm?: string
+    confirmRotation?: boolean
+  } = options
+  if (provider === 'trae-cn') {
+    payload = { ...options, realm: 'cn', confirmRotation: true }
+  }
+  if (provider === 'zcode-bigmodel' || provider === 'zcode-zai') {
+    payload = {
+      ...options,
+      realm: provider === 'zcode-bigmodel' ? 'bigmodel' : 'zai',
+    }
+  }
   const response = await api.post<Envelope<NativeAuthorizationSession>>(
     `/api/channel/self/oauth/${endpoint}/start`,
     payload,
@@ -94,7 +115,7 @@ export async function startNativeAuthorization(
 }
 
 export async function pollNativeAuthorization(
-  provider: 'xiaomi-mimo' | 'trae-cn',
+  provider: BrowserAccountProvider,
   sessionId: string
 ): Promise<NativeAuthorizationResult> {
   let response
@@ -105,7 +126,7 @@ export async function pollNativeAuthorization(
     )
   } else {
     response = await api.post<Envelope<NativeAuthorizationResult>>(
-      '/api/channel/self/oauth/mimo/poll',
+      `/api/channel/self/oauth/${provider.startsWith('zcode-') ? 'zcode' : 'mimo'}/poll`,
       { sessionId },
       accountConfig(true)
     )
@@ -114,10 +135,10 @@ export async function pollNativeAuthorization(
 }
 
 export async function cancelNativeAuthorization(
-  provider: 'xiaomi-mimo' | 'trae-cn',
+  provider: BrowserAccountProvider,
   sessionId: string
 ): Promise<void> {
-  const endpoint = provider === 'trae-cn' ? 'trae/bridge' : 'mimo'
+  const endpoint = browserAccountEndpoint(provider)
   const response = await api.post<Envelope<unknown>>(
     `/api/channel/self/oauth/${endpoint}/cancel`,
     { sessionId },
@@ -159,13 +180,15 @@ export async function downloadProviderHelper(
     )
   }
   const blob = response.data
-  if (!(blob instanceof Blob) || blob.size === 0)
-    {throw new Error('Failed to download the authorization helper')}
+  if (!(blob instanceof Blob) || blob.size === 0) {
+    throw new Error('Failed to download the authorization helper')
+  }
   if (blob.type.includes('json')) {
     throw createServerError(JSON.parse(await blob.text()))
   }
-  if (blob.type.includes('html'))
-    {throw new Error('Failed to download the authorization helper')}
+  if (blob.type.includes('html')) {
+    throw new Error('Failed to download the authorization helper')
+  }
   const href = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
   anchor.href = href

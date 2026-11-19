@@ -443,6 +443,8 @@ export function FromTemplateDialog({
   const templateKind = selected ? classifyTemplate(selected) : 'api'
   const isSubscription = templateKind === 'sub'
   const isAuthTemplate = templateKind === 'auth'
+  const isZCodeTemplate =
+    selected?.id === 'zcode-bigmodel' || selected?.id === 'zcode-zai'
   const isIpFreeTemplate = templateKind === 'ip'
   const isApiKeyTemplate = templateKind === 'api'
   const templatePresentation = {
@@ -511,9 +513,16 @@ export function FromTemplateDialog({
     if (
       !selected ||
       !callable ||
-      ['freepi', 'kimi-work', 'xiaomi-mimo'].includes(selected.id)
-    )
-      {return false}
+      [
+        'freepi',
+        'kimi-work',
+        'xiaomi-mimo',
+        'zcode-bigmodel',
+        'zcode-zai',
+      ].includes(selected.id)
+    ) {
+      return false
+    }
     if (
       !isSubscription &&
       !isChannelProxySelectionComplete(proxyPolicy, proxyUrl)
@@ -1138,7 +1147,15 @@ export function FromTemplateDialog({
                   }}
                 />
               )}
-              {(['kimi-work', 'xiaomi-mimo', 'trae-cn'] as const).map(
+              {(
+                [
+                  'kimi-work',
+                  'xiaomi-mimo',
+                  'trae-cn',
+                  'zcode-bigmodel',
+                  'zcode-zai',
+                ] as const
+              ).map(
                 (provider) =>
                   selected.id === provider && (
                     <ProviderAuthorizationCard
@@ -1169,9 +1186,13 @@ export function FromTemplateDialog({
                   )
               )}
               {isAuthTemplate &&
-                !['freepi', 'kimi-work', 'xiaomi-mimo'].includes(
-                  selected.id
-                ) && (
+                ![
+                  'freepi',
+                  'kimi-work',
+                  'xiaomi-mimo',
+                  'zcode-bigmodel',
+                  'zcode-zai',
+                ].includes(selected.id) && (
                   <div className='space-y-3'>
                     {/* WorkBuddy 一键设备授权 */}
                     {selected.id === 'workbuddy' && (
@@ -1581,8 +1602,36 @@ export function FromTemplateDialog({
               </div>
             )}
 
+            {isZCodeTemplate && (
+              <div className='space-y-3 rounded-xl border p-3.5'>
+                <p className='text-muted-foreground text-sm'>
+                  {t(
+                    'ZCode models are discovered securely after login. Edit the channel to select models after connection.'
+                  )}
+                </p>
+                <Label className='flex items-start gap-2'>
+                  <Checkbox
+                    checked={visibility}
+                    disabled={isSubmitting}
+                    onCheckedChange={(checked) =>
+                      setVisibility(checked === true)
+                    }
+                  />
+                  {t(
+                    'I explicitly allow other users to use this ZCode channel and spend my account credits'
+                  )}
+                </Label>
+                <Label htmlFor='zcode-channel-name'>{t('Channel name')}</Label>
+                <Input
+                  id='zcode-channel-name'
+                  value={customName}
+                  onChange={(event) => setCustomName(event.target.value)}
+                  placeholder={selected.name}
+                />
+              </div>
+            )}
             {/* 区块三：获取模型 + 可选择性勾选加入「我的渠道」与「公共池」（Items 2.3, 2.5） */}
-            {!isSubscription && (
+            {!isSubscription && !isZCodeTemplate && (
               <div className='border-border/80 bg-card space-y-3 rounded-xl border p-3.5'>
                 <div className='flex flex-wrap items-center justify-between gap-2'>
                   <div className='flex items-center gap-2 text-xs font-semibold'>
@@ -1691,7 +1740,7 @@ export function FromTemplateDialog({
           <Button variant='outline' onClick={() => onOpenChange(false)}>
             {t('Cancel')}
           </Button>
-          {selected !== null && (
+          {selected !== null && !isZCodeTemplate && (
             <Button
               onClick={() => void handleSubmit()}
               disabled={!canSubmit || isSubmitting}

@@ -115,7 +115,7 @@ func AddSelfChannelFromTemplate(c *gin.Context) {
 		return
 	}
 	switch tpl.Id {
-	case "trae-cn", "kimi-work", "xiaomi-mimo":
+	case "trae-cn", "kimi-work", "xiaomi-mimo", "zcode-bigmodel", "zcode-zai":
 		common.ApiErrorMsg(c, "Use the dedicated account connection flow for this provider")
 		return
 	}

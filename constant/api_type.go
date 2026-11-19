@@ -46,5 +46,6 @@ const (
 	APITypeFreePi
 	APITypeKimiWork
 	APITypeMiMo
+	APITypeZCode
 	APITypeDummy // this one is only for count, do not add any channel after this
 )

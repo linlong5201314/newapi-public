@@ -7814,6 +7814,15 @@
     "Download and review the helper, run this command from its download folder, then sign in. It uploads only this one-time authorization result, not your dashboard session.": "Download and review the helper, run this command from its download folder, then sign in. It uploads only this one-time authorization result, not your dashboard session.",
     "Confirm your identity to link FreePi": "Confirm your identity to link FreePi",
     "Load next inventory page": "Load next inventory page",
-    "Loading inventory...": "Loading inventory..."
+    "Loading inventory...": "Loading inventory...",
+    "Authorize ZCode account": "授权 ZCode 账号",
+    "Complete official ZCode sign-in in the opened window. This page validates Start Plan access before connecting.": "请在新窗口完成 ZCode 官方登录，本页会先验证 Start Plan 权益再连接。",
+    "Connect your own ZCode Start Plan account. Models come from active account entitlements. No quota is claimed or paid key created; sign in again when the login expires.": "连接本人 ZCode Start Plan 账号，模型按账号有效权益发现；不自动领取额度或创建付费密钥，登录到期后需重新授权。",
+    "ZCode Start Plan has no active supported model entitlement with available quota": "ZCode Start Plan 暂无有效且有可用额度的受支持模型权益",
+    "ZCode models are discovered securely after login. Edit the channel to select models after connection.": "ZCode 模型将在登录后安全发现，连接后可在渠道编辑中选择启用模型。",
+    "I explicitly allow other users to use this ZCode channel and spend my account credits": "我明确允许其他用户调用此 ZCode 渠道并消耗本账号额度",
+    "Selected model is not in the authenticated account catalog": "所选模型不在此账号已验证的模型目录中",
+    "Open official account login in your browser": "在系统浏览器打开官方账号登录",
+    "Complete sign-in in your browser, then return to this app before the authorization session expires.": "请在系统浏览器完成登录，并在授权会话到期前返回此应用。"
   }
 }

@@ -55,7 +55,7 @@ func CreateSelfBinding(c *gin.Context) {
 		return
 	}
 	switch provider {
-	case "trae-cn", "kimi-work", "xiaomi-mimo":
+	case "trae-cn", "kimi-work", "xiaomi-mimo", "zcode-bigmodel", "zcode-zai":
 		common.ApiErrorMsg(c, "Use the dedicated account connection flow for this provider")
 		return
 	}

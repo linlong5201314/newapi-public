@@ -12,6 +12,14 @@ vi.mock('@/lib/api', () => ({ api: { get: vi.fn(), post: vi.fn() } }))
 let client: QueryClient
 const templates = [
   {
+    id: 'zcode-bigmodel',
+    name: 'ZCode account fixture',
+    models: [],
+    channelType: 72,
+    authMode: 'oauth',
+    hiddenEndpoint: true,
+  },
+  {
     id: 'xiaohuanxiong',
     name: 'Raccoon auth fixture',
     models: [],
@@ -51,6 +59,18 @@ beforeEach(() => {
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   })
   vi.mocked(api.get).mockImplementation(async (url) => {
+    if (url === '/api/channel/self/account_capabilities') {
+      return {
+        data: {
+          success: true,
+          data: {
+            method: 'zcode_cli',
+            browserLoginAvailable: true,
+            importAvailable: false,
+          },
+        },
+      }
+    }
     if (url === '/api/channel/self/free_templates') {
       return { data: { success: true, data: templates } }
     }
@@ -291,4 +311,26 @@ it('opens the DS2 account login popup on the user gesture and closes it when sta
   await waitFor(() => expect(open).toHaveBeenCalled())
   await waitFor(() => expect(popup.close).toHaveBeenCalled())
   open.mockRestore()
+})
+
+it('uses ZCode native consent without the generic token submit or unauthenticated model fetch', async () => {
+  const user = userEvent.setup()
+  renderDialog()
+  await user.click(
+    await screen.findByRole('button', { name: /ZCode account fixture/ })
+  )
+  expect(
+    await screen.findByRole('button', { name: 'Authorize ZCode account' })
+  ).toBeInTheDocument()
+  expect(
+    screen.queryByRole('button', { name: '提交 Token 授权并开通渠道' })
+  ).not.toBeInTheDocument()
+  expect(
+    screen.queryByRole('button', { name: '获取模型（优先测速快节点）' })
+  ).not.toBeInTheDocument()
+  expect(
+    screen.getByRole('checkbox', {
+      name: 'I explicitly allow other users to use this ZCode channel and spend my account credits',
+    })
+  ).not.toBeChecked()
 })

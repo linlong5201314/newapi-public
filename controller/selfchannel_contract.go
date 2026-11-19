@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 )
@@ -86,6 +87,9 @@ func prepareSelfChannelUpdate(userID int, original *model.Channel, request map[s
 		}
 		current.OtherInfo = string(encoded)
 		fields["allModels"] = mergeModelCatalogs(DefaultModelsForChannel(original), DefaultModelsForChannel(&current))
+		if original.Type == constant.ChannelTypeZCode {
+			fields["allModels"] = originalInfo["allModels"]
+		}
 		// The provider identity is server-owned, not an escape hatch for free filtering.
 		if templateID, ok := originalInfo["templateId"]; ok {
 			fields["templateId"] = templateID

@@ -7927,6 +7927,15 @@
     "Download and review the helper, run this command from its download folder, then sign in. It uploads only this one-time authorization result, not your dashboard session.": "Download and review the helper, run this command from its download folder, then sign in. It uploads only this one-time authorization result, not your dashboard session.",
     "Confirm your identity to link FreePi": "Confirm your identity to link FreePi",
     "Load next inventory page": "Load next inventory page",
-    "Loading inventory...": "Loading inventory..."
+    "Loading inventory...": "Loading inventory...",
+    "Authorize ZCode account": "Authorize ZCode account",
+    "Complete official ZCode sign-in in the opened window. This page validates Start Plan access before connecting.": "Complete official ZCode sign-in in the opened window. This page validates Start Plan access before connecting.",
+    "Connect your own ZCode Start Plan account. Models come from active account entitlements. No quota is claimed or paid key created; sign in again when the login expires.": "Connect your own ZCode Start Plan account. Models come from active account entitlements. No quota is claimed or paid key created; sign in again when the login expires.",
+    "ZCode Start Plan has no active supported model entitlement with available quota": "ZCode Start Plan has no active supported model entitlement with available quota",
+    "ZCode models are discovered securely after login. Edit the channel to select models after connection.": "ZCode models are discovered securely after login. Edit the channel to select models after connection.",
+    "I explicitly allow other users to use this ZCode channel and spend my account credits": "I explicitly allow other users to use this ZCode channel and spend my account credits",
+    "Selected model is not in the authenticated account catalog": "Selected model is not in the authenticated account catalog",
+    "Open official account login in your browser": "Open official account login in your browser",
+    "Complete sign-in in your browser, then return to this app before the authorization session expires.": "Complete sign-in in your browser, then return to this app before the authorization session expires."
   }
 }

@@ -106,13 +106,11 @@ it('reserves a Xiaomi login popup before network and creates a channel only afte
     },
   }))
   const view = renderCard('xiaomi-mimo')
-  await userEvent
-    .setup()
-    .click(
-      await screen.findByRole('button', {
-        name: 'Authorize Xiaomi MiMo account',
-      })
-    )
+  await userEvent.setup().click(
+    await screen.findByRole('button', {
+      name: 'Authorize Xiaomi MiMo account',
+    })
+  )
   await waitFor(() => expect(popup.location.href).toBe(mimoSession.authUrl))
   expect(popup.opener).toBeNull()
   expect(api.post).toHaveBeenCalledWith(
@@ -133,25 +131,30 @@ it('reserves a Xiaomi login popup before network and creates a channel only afte
   expect(popup.close).toHaveBeenCalled()
 })
 
-it.each(['account.xiaomi.com', 'ak.account.xiaomi.com'])('still opens the exact supported Xiaomi login host: %s', async (host) => {
-  const popup = {
-    opener: undefined,
-    closed: false,
-    location: { href: '' },
-    close: vi.fn(),
+it.each(['account.xiaomi.com', 'ak.account.xiaomi.com'])(
+  'still opens the exact supported Xiaomi login host: %s',
+  async (host) => {
+    const popup = {
+      opener: undefined,
+      closed: false,
+      location: { href: '' },
+      close: vi.fn(),
+    }
+    const authUrl = `https://${host}/longPolling/login?ticket=synthetic`
+    vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window)
+    vi.mocked(api.post).mockResolvedValueOnce({
+      data: { success: true, data: { ...mimoSession, authUrl } },
+    })
+    renderCard('xiaomi-mimo')
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'Authorize Xiaomi MiMo account',
+      })
+    )
+    await waitFor(() => expect(popup.location.href).toBe(authUrl))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   }
-  const authUrl = `https://${host}/longPolling/login?ticket=synthetic`
-  vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window)
-  vi.mocked(api.post).mockResolvedValueOnce({
-    data: { success: true, data: { ...mimoSession, authUrl } },
-  })
-  renderCard('xiaomi-mimo')
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Authorize Xiaomi MiMo account' })
-  )
-  await waitFor(() => expect(popup.location.href).toBe(authUrl))
-  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-})
+)
 
 it.each([
   'https://attacker.invalid/leak',
@@ -211,13 +214,11 @@ it('cancels a late Xiaomi session after the card unmounts without navigating the
       })
   )
   const view = renderCard('xiaomi-mimo')
-  await userEvent
-    .setup()
-    .click(
-      await screen.findByRole('button', {
-        name: 'Authorize Xiaomi MiMo account',
-      })
-    )
+  await userEvent.setup().click(
+    await screen.findByRole('button', {
+      name: 'Authorize Xiaomi MiMo account',
+    })
+  )
   view.unmount()
   await act(async () => resolve({ data: { success: true, data: mimoSession } }))
   await waitFor(() =>
@@ -233,13 +234,11 @@ it('cancels a late Xiaomi session after the card unmounts without navigating the
 it('does not create a Xiaomi session when popup is blocked and leaves an actionable error', async () => {
   vi.spyOn(window, 'open').mockReturnValue(null)
   renderCard('xiaomi-mimo')
-  await userEvent
-    .setup()
-    .click(
-      await screen.findByRole('button', {
-        name: 'Authorize Xiaomi MiMo account',
-      })
-    )
+  await userEvent.setup().click(
+    await screen.findByRole('button', {
+      name: 'Authorize Xiaomi MiMo account',
+    })
+  )
   expect(await screen.findByRole('alert')).toHaveTextContent(
     'Your browser blocked the login window. Allow popups and try again.'
   )
@@ -248,14 +247,16 @@ it('does not create a Xiaomi session when popup is blocked and leaves an actiona
 
 it('requires explicit account identity consent after the Trae helper returns before creating a channel', async () => {
   vi.mocked(api.post).mockImplementation(async (url) => {
-    if (url.endsWith('/helper'))
-      {return {
+    if (url.endsWith('/helper')) {
+      return {
         data: new Blob(['# synthetic helper'], { type: 'text/x-python' }),
-      }}
-    if (url.endsWith('/consent'))
-      {return {
+      }
+    }
+    if (url.endsWith('/consent')) {
+      return {
         data: { success: true, data: { done: true, channel: { id: 91 } } },
-      }}
+      }
+    }
     return { data: { success: true, data: traeSession } }
   })
   vi.mocked(api.get).mockResolvedValue({
@@ -414,4 +415,228 @@ it('keeps a protected HTTP403 business error visible and closes a reserved popup
     'Confirm your dashboard session before authorizing Xiaomi'
   )
   expect(popup.close).toHaveBeenCalled()
+})
+
+it.each(['zcode-bigmodel', 'zcode-zai'] as const)(
+  'connects %s through official browser consent without manual tokens',
+  async (provider) => {
+    vi.mocked(api.get).mockResolvedValue({
+      data: {
+        success: true,
+        data: {
+          provider,
+          method: 'zcode_cli',
+          browserLoginAvailable: true,
+          importAvailable: false,
+        },
+      },
+    })
+    const popup = {
+      opener: undefined,
+      closed: false,
+      location: { href: '' },
+      close: vi.fn(),
+    }
+    vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window)
+    const authUrl =
+      provider === 'zcode-bigmodel'
+        ? 'https://bigmodel.cn/login?appId=zcode&state=fixture'
+        : 'https://chat.z.ai/api/oauth/authorize?state=fixture'
+    vi.mocked(api.post).mockImplementation(async (url) => ({
+      data: {
+        success: true,
+        data: url.endsWith('/start')
+          ? {
+              sessionId: 'owner-zcode-session',
+              authUrl,
+              expiresIn: 300,
+              interval: 2,
+            }
+          : { done: true, channel: { id: 94 } },
+      },
+    }))
+    const view = renderCard(provider)
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Authorize ZCode account' })
+    )
+    await waitFor(() => expect(popup.location.href).toBe(authUrl))
+    expect(popup.opener).toBeNull()
+    expect(api.post).toHaveBeenCalledWith(
+      '/api/channel/self/oauth/zcode/start',
+      {
+        public: false,
+        proxyPolicy: { mode: 'direct' },
+        realm: provider === 'zcode-bigmodel' ? 'bigmodel' : 'zai',
+      },
+      expect.objectContaining({ singleUseAuthorization: true })
+    )
+    expect(view.onComplete).not.toHaveBeenCalled()
+    vi.useFakeTimers()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000)
+    })
+    vi.useRealTimers()
+    await waitFor(() => expect(view.onComplete).toHaveBeenCalledWith(94))
+  }
+)
+it.each([
+  'https://bigmodel.cn.attacker.invalid/login',
+  'http://bigmodel.cn/login',
+  'https://bigmodel.cn:8443/login',
+  'https://user:secret@bigmodel.cn/login',
+  'https://bigmodel.cn/login#token',
+  'https://bigmodel.cn/not-login',
+  'https://chat.z.ai/api/oauth/authorize/extra',
+])('rejects unapproved ZCode authorization destination %s', async (authUrl) => {
+  vi.mocked(api.get).mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        method: 'zcode_cli',
+        browserLoginAvailable: true,
+        importAvailable: false,
+      },
+    },
+  })
+  const popup = {
+    opener: undefined,
+    closed: false,
+    location: { href: '' },
+    close: vi.fn(),
+  }
+  vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window)
+  vi.mocked(api.post).mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        sessionId: 'owner-zcode-session',
+        authUrl,
+        expiresIn: 300,
+        interval: 2,
+      },
+    },
+  })
+  renderCard('zcode-bigmodel')
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Authorize ZCode account' })
+  )
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'Invalid authorization session response'
+  )
+  expect(popup.location.href).toBe('')
+  await waitFor(() =>
+    expect(api.post).toHaveBeenCalledWith(
+      '/api/channel/self/oauth/zcode/cancel',
+      { sessionId: 'owner-zcode-session' },
+      expect.anything()
+    )
+  )
+})
+it('does not create a ZCode flow when the login popup is blocked', async () => {
+  vi.mocked(api.get).mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        method: 'zcode_cli',
+        browserLoginAvailable: true,
+        importAvailable: false,
+      },
+    },
+  })
+  vi.spyOn(window, 'open').mockReturnValue(null)
+  renderCard('zcode-bigmodel')
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Authorize ZCode account' })
+  )
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'Your browser blocked the login window'
+  )
+  expect(api.post).not.toHaveBeenCalled()
+})
+
+it('offers an explicit official login link in the Android client without enabling arbitrary popup windows', async () => {
+  vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
+    'Android DeepSeekNewAPIClient/1.1.0'
+  )
+  const open = vi.spyOn(window, 'open').mockReturnValue(null)
+  vi.mocked(api.get).mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        method: 'zcode_cli',
+        browserLoginAvailable: true,
+        importAvailable: false,
+      },
+    },
+  })
+  const authUrl = 'https://bigmodel.cn/login?appId=zcode&state=android-fixture'
+  vi.mocked(api.post).mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        sessionId: 'android-own-flow',
+        authUrl,
+        expiresIn: 300,
+        interval: 2,
+      },
+    },
+  })
+  const view = renderCard('zcode-bigmodel')
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Authorize ZCode account' })
+  )
+  const link = await screen.findByRole('link', {
+    name: 'Open official account login in your browser',
+  })
+  expect(link).toHaveAttribute('href', authUrl)
+  expect(link).toHaveAttribute('target', '_self')
+  expect(link).toHaveAttribute('rel', 'noreferrer')
+  expect(open).not.toHaveBeenCalled()
+  expect(view.onComplete).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel authorization' }))
+  await waitFor(() =>
+    expect(
+      screen.queryByRole('link', {
+        name: 'Open official account login in your browser',
+      })
+    ).not.toBeInTheDocument()
+  )
+})
+it('does not expose unapproved Android login destinations', async () => {
+  vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
+    'Android DeepSeekNewAPIClient/1.1.0'
+  )
+  vi.mocked(api.get).mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        method: 'zcode_cli',
+        browserLoginAvailable: true,
+        importAvailable: false,
+      },
+    },
+  })
+  vi.mocked(api.post).mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        sessionId: 'android-own-flow',
+        authUrl: 'https://attacker.invalid/login',
+        expiresIn: 300,
+        interval: 2,
+      },
+    },
+  })
+  renderCard('zcode-bigmodel')
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Authorize ZCode account' })
+  )
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'Invalid authorization session response'
+  )
+  expect(
+    screen.queryByRole('link', {
+      name: 'Open official account login in your browser',
+    })
+  ).not.toBeInTheDocument()
 })

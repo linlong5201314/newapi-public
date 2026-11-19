@@ -20,6 +20,7 @@ import {
   pollNativeAuthorization,
   startNativeAuthorization,
   type NativeAccountProvider,
+  type BrowserAccountProvider,
   type NativeAuthorizationResult,
   type NativeAuthorizationSession,
   type ProviderAuthorizationOptions,
@@ -32,13 +33,19 @@ type Props = {
   onComplete?: (channelId: number) => void
 }
 type Pending = {
-  provider: 'trae-cn' | 'xiaomi-mimo'
+  provider: BrowserAccountProvider
   session: NativeAuthorizationSession
   expiresAt: number
 }
 
 export function ProviderAuthorizationCard(props: Props) {
   const { t } = useTranslation()
+  const isZCode =
+    props.provider === 'zcode-bigmodel' || props.provider === 'zcode-zai'
+  const nativeBrowser =
+    typeof navigator !== 'undefined' &&
+    navigator.userAgent.includes('DeepSeekNewAPIClient/')
+  const [externalLoginURL, setExternalLoginURL] = useState<string | null>(null)
   const queryClient = useQueryClient()
   const [pending, setPending] = useState<Pending | null>(null)
   const [consent, setConsent] = useState<NativeAuthorizationResult | null>(null)
@@ -70,21 +77,25 @@ export function ProviderAuthorizationCard(props: Props) {
       popup.current?.close()
       const active = pendingRef.current
       pendingRef.current = null
-      if (active)
-        {void cancelNativeAuthorization(
+      if (active) {
+        void cancelNativeAuthorization(
           active.provider,
           active.session.sessionId
-        ).catch(() => undefined)}
+        ).catch(() => undefined)
+      }
     }
   }, [props.provider])
 
   const finish = (result: NativeAuthorizationResult) => {
-    if (!result.done || !result.channel?.id)
-      {throw new Error(t('Authorization did not return a created channel'))}
+    if (!result.done || !result.channel?.id) {
+      throw new Error(t('Authorization did not return a created channel'))
+    }
     pendingRef.current = null
     setPending(null)
+    setExternalLoginURL(null)
     setConsent(null)
     popup.current?.close()
+    setExternalLoginURL(null)
     setCompleted(result.channel.id)
     setImportFile(null)
     void queryClient.invalidateQueries({ queryKey: ['my-channels'] })
@@ -99,8 +110,9 @@ export function ProviderAuthorizationCard(props: Props) {
     let timer: ReturnType<typeof setTimeout>
     const poll = async () => {
       try {
-        if (Date.now() >= pending.expiresAt)
-          {throw new Error(t('Authorization session expired'))}
+        if (Date.now() >= pending.expiresAt) {
+          throw new Error(t('Authorization session expired'))
+        }
         const result = await pollNativeAuthorization(
           pending.provider,
           pending.session.sessionId
@@ -115,8 +127,9 @@ export function ProviderAuthorizationCard(props: Props) {
             pending.provider !== 'trae-cn' ||
             !result.account?.uid ||
             !result.consentToken
-          )
-            {throw new Error(t('Invalid authorization session response'))}
+          ) {
+            throw new Error(t('Invalid authorization session response'))
+          }
           setConsent(result)
           setStatus(t('Verify the account identity below before connecting it'))
           return
@@ -131,6 +144,7 @@ export function ProviderAuthorizationCard(props: Props) {
         if (!active) return
         pendingRef.current = null
         setPending(null)
+        setExternalLoginURL(null)
         popup.current?.close()
         setStatus('')
         setProblem(getServerErrorMessage(error, t('Authorization poll failed')))
@@ -160,6 +174,7 @@ export function ProviderAuthorizationCard(props: Props) {
         generation.current++
         pendingRef.current = null
         setPending(null)
+        setExternalLoginURL(null)
         setConsent(null)
         popup.current?.close()
         setProblem(t('Authorization session expired'))
@@ -174,33 +189,50 @@ export function ProviderAuthorizationCard(props: Props) {
   }, [pending, t])
 
   const begin = async () => {
-    if (inFlight.current || props.disabled || props.provider === 'kimi-work')
-      {return}
+    if (inFlight.current || props.disabled || props.provider === 'kimi-work') {
+      return
+    }
     if (props.provider === 'trae-cn' && !rotationConfirmed) return
     if (
       props.provider === 'xiaomi-mimo' &&
       (capability.data?.method !== 'xiaomi_qr' ||
         !capability.data.browserLoginAvailable)
-    )
-      {return}
+    ) {
+      return
+    }
     const provider = props.provider
     const request = ++generation.current
-    // Only MiMo uses a browser window; Trae's local helper opens official login.
+    if (
+      isZCode &&
+      (capability.data?.method !== 'zcode_cli' ||
+        !capability.data.browserLoginAvailable)
+    ) {
+      return
+    }
+    // Reserve browser-only login synchronously; Trae uses its local helper.
     const reserved =
-      provider === 'xiaomi-mimo' ? window.open('about:blank', '_blank') : null
+      provider !== 'trae-cn' && !nativeBrowser
+        ? window.open('about:blank', '_blank')
+        : null
     if (reserved) reserved.opener = null
     popup.current = reserved
     inFlight.current = true
     setBusy(true)
     setProblem('')
+    setExternalLoginURL(null)
     setStatus(t('Creating authorization session...'))
     try {
-      if (provider === 'xiaomi-mimo' && (!reserved || reserved.closed))
-        {throw new Error(
+      if (
+        provider !== 'trae-cn' &&
+        !nativeBrowser &&
+        (!reserved || reserved.closed)
+      ) {
+        throw new Error(
           t(
             'Your browser blocked the login window. Allow popups and try again.'
           )
-        )}
+        )
+      }
       const session = await startNativeAuthorization(
         provider,
         props.options ?? {}
@@ -216,8 +248,14 @@ export function ProviderAuthorizationCard(props: Props) {
         expiresAt: Date.now() + session.expiresIn * 1000,
       }
       pendingRef.current = current
-      if (!session.sessionId || !(session.expiresIn > 0))
-        {throw new Error(t('Invalid authorization session response'))}
+      if (
+        !session.sessionId ||
+        !Number.isFinite(session.expiresIn) ||
+        !(session.expiresIn > 0) ||
+        session.expiresIn > 600
+      ) {
+        throw new Error(t('Invalid authorization session response'))
+      }
       if (provider === 'xiaomi-mimo') {
         const url = new URL(session.authUrl ?? '')
         if (
@@ -230,12 +268,39 @@ export function ProviderAuthorizationCard(props: Props) {
           url.username ||
           url.password ||
           url.hash
-        )
-          {throw new Error(t('Invalid authorization session response'))}
+        ) {
+          throw new Error(t('Invalid authorization session response'))
+        }
         if (reserved) reserved.location.href = url.href
+        if (nativeBrowser) setExternalLoginURL(url.href)
         setStatus(
           t(
             'Complete Xiaomi sign-in in the opened window. This page creates your channel after approval.'
+          )
+        )
+      } else if (provider === 'zcode-bigmodel' || provider === 'zcode-zai') {
+        const url = new URL(session.authUrl ?? '')
+        const validPath =
+          (url.hostname === 'bigmodel.cn' && url.pathname === '/login') ||
+          (url.hostname === 'chat.z.ai' &&
+            url.pathname === '/api/oauth/authorize') ||
+          (url.hostname === 'zcode.z.ai' && url.pathname === '/app/oauth/login')
+        if (
+          url.protocol !== 'https:' ||
+          url.port ||
+          url.username ||
+          url.password ||
+          url.hash ||
+          !validPath ||
+          /:\d+(?:[/?#]|$)/.test(session.authUrl ?? '')
+        ) {
+          throw new Error(t('Invalid authorization session response'))
+        }
+        if (reserved) reserved.location.href = url.href
+        if (nativeBrowser) setExternalLoginURL(url.href)
+        setStatus(
+          t(
+            'Complete official ZCode sign-in in the opened window. This page validates Start Plan access before connecting.'
           )
         )
       } else {
@@ -253,12 +318,14 @@ export function ProviderAuthorizationCard(props: Props) {
       if (request === generation.current) {
         const current = pendingRef.current
         pendingRef.current = null
-        if (current)
-          {void cancelNativeAuthorization(
+        if (current) {
+          void cancelNativeAuthorization(
             current.provider,
             current.session.sessionId
-          ).catch(() => undefined)}
+          ).catch(() => undefined)
+        }
         setPending(null)
+        setExternalLoginURL(null)
         setProblem(
           getServerErrorMessage(error, t('Failed to start authorization'))
         )
@@ -279,6 +346,7 @@ export function ProviderAuthorizationCard(props: Props) {
     const current = pendingRef.current
     pendingRef.current = null
     setPending(null)
+    setExternalLoginURL(null)
     setConsent(null)
     popup.current?.close()
     setStatus(t('Account login was cancelled. Start again'))
@@ -300,8 +368,9 @@ export function ProviderAuthorizationCard(props: Props) {
       !pending ||
       !consent?.account?.uid ||
       !consent.consentToken
-    )
-      {return}
+    ) {
+      return
+    }
     const request = generation.current
     inFlight.current = true
     setBusy(true)
@@ -314,8 +383,9 @@ export function ProviderAuthorizationCard(props: Props) {
       )
       if (request === generation.current) finish(result)
     } catch (error) {
-      if (request === generation.current)
-        {setProblem(getServerErrorMessage(error))}
+      if (request === generation.current) {
+        setProblem(getServerErrorMessage(error))
+      }
     } finally {
       if (request === generation.current) {
         inFlight.current = false
@@ -325,8 +395,13 @@ export function ProviderAuthorizationCard(props: Props) {
   }
 
   const runKimiAction = async (download: boolean) => {
-    if (inFlight.current || props.disabled || !capability.data?.importAvailable)
-      {return}
+    if (
+      inFlight.current ||
+      props.disabled ||
+      !capability.data?.importAvailable
+    ) {
+      return
+    }
     const request = ++generation.current
     inFlight.current = true
     setBusy(true)
@@ -336,19 +411,21 @@ export function ProviderAuthorizationCard(props: Props) {
         await downloadProviderHelper('kimi-work')
         return
       }
-      if (!importFile || importFile.size > 1024 * 1024)
-        {throw new Error(
+      if (!importFile || importFile.size > 1024 * 1024) {
+        throw new Error(
           t('Choose a Kimi Work export JSON file smaller than 1 MB')
-        )}
+        )
+      }
       const credentials: unknown = JSON.parse(await importFile.text())
       if (
         !credentials ||
         typeof credentials !== 'object' ||
         Array.isArray(credentials)
-      )
-        {throw new Error(
+      ) {
+        throw new Error(
           t('Choose a valid Kimi Work credential export JSON object')
-        )}
+        )
+      }
       if (request !== generation.current) return
       const result = await importKimiWorkCredentials(
         credentials as Record<string, unknown>,
@@ -356,13 +433,14 @@ export function ProviderAuthorizationCard(props: Props) {
       )
       if (request === generation.current) finish(result)
     } catch (error) {
-      if (request === generation.current)
-        {setProblem(
+      if (request === generation.current) {
+        setProblem(
           getServerErrorMessage(
             error,
             t('Failed to import account credentials')
           )
-        )}
+        )
+      }
     } finally {
       if (request === generation.current) {
         inFlight.current = false
@@ -371,15 +449,16 @@ export function ProviderAuthorizationCard(props: Props) {
     }
   }
 
-  if (props.provider !== 'trae-cn' && capability.isPending)
-    {return (
+  if (props.provider !== 'trae-cn' && capability.isPending) {
+    return (
       <LoadingState
         inline
         message={t('Loading authorization capabilities...')}
       />
-    )}
-  if (props.provider !== 'trae-cn' && capability.isError)
-    {return (
+    )
+  }
+  if (props.provider !== 'trae-cn' && capability.isError) {
+    return (
       <ErrorState
         className='min-h-0'
         description={getServerErrorMessage(capability.error)}
@@ -387,7 +466,8 @@ export function ProviderAuthorizationCard(props: Props) {
           void capability.refetch()
         }}
       />
-    )}
+    )
+  }
 
   return (
     <section
@@ -462,7 +542,7 @@ export function ProviderAuthorizationCard(props: Props) {
             </>
           ) : (
             <>
-              {props.provider === 'trae-cn' ? (
+              {props.provider === 'trae-cn' && (
                 <>
                   <p>
                     {t(
@@ -494,7 +574,15 @@ export function ProviderAuthorizationCard(props: Props) {
                     )}
                   </Label>
                 </>
-              ) : (
+              )}
+              {isZCode && (
+                <p>
+                  {t(
+                    'Connect your own ZCode Start Plan account. Models come from active account entitlements. No quota is claimed or paid key created; sign in again when the login expires.'
+                  )}
+                </p>
+              )}
+              {props.provider === 'xiaomi-mimo' && (
                 <p>
                   {t(
                     'Sign in with your own Xiaomi account or scan Xiaomi’s QR code. MiMo app membership and Token Plan permissions remain controlled by Xiaomi.'
@@ -508,16 +596,18 @@ export function ProviderAuthorizationCard(props: Props) {
                     busy ||
                     props.disabled ||
                     (props.provider === 'trae-cn' && !rotationConfirmed) ||
-                    (props.provider === 'xiaomi-mimo' &&
+                    ((props.provider === 'xiaomi-mimo' || isZCode) &&
                       !capability.data?.browserLoginAvailable)
                   }
                   onClick={() => {
                     void begin()
                   }}
                 >
-                  {props.provider === 'trae-cn'
-                    ? t('Download helper and start Trae domestic login')
-                    : t('Authorize Xiaomi MiMo account')}
+                  {props.provider === 'trae-cn' &&
+                    t('Download helper and start Trae domestic login')}
+                  {isZCode && t('Authorize ZCode account')}
+                  {props.provider === 'xiaomi-mimo' &&
+                    t('Authorize Xiaomi MiMo account')}
                 </Button>
               )}
               {props.provider === 'xiaomi-mimo' &&
@@ -528,6 +618,24 @@ export function ProviderAuthorizationCard(props: Props) {
                     )}
                   </p>
                 )}
+              {pending && externalLoginURL && (
+                <div className='space-y-2'>
+                  <a
+                    className='text-primary underline'
+                    href={externalLoginURL}
+                    target='_self'
+                    rel='noreferrer'
+                    referrerPolicy='no-referrer'
+                  >
+                    {t('Open official account login in your browser')}
+                  </a>
+                  <p>
+                    {t(
+                      'Complete sign-in in your browser, then return to this app before the authorization session expires.'
+                    )}
+                  </p>
+                </div>
+              )}
               {consent?.account && (
                 <div className='space-y-2 rounded border p-3'>
                   <p>

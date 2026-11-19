@@ -74,6 +74,9 @@ func registerSelfChannelRoutes(apiRouter *gin.RouterGroup) {
 		selfChannelRoute.POST("/oauth/mimo/start", middleware.CriticalRateLimit(), controller.SelfMiMoOAuthStart)
 		selfChannelRoute.POST("/oauth/mimo/poll", middleware.CriticalRateLimit(), controller.SelfMiMoOAuthPoll)
 		selfChannelRoute.POST("/oauth/mimo/cancel", middleware.CriticalRateLimit(), controller.SelfMiMoOAuthCancel)
+		selfChannelRoute.POST("/oauth/zcode/start", middleware.CriticalRateLimit(), controller.SelfZCodeOAuthStart)
+		selfChannelRoute.POST("/oauth/zcode/poll", middleware.CriticalRateLimit(), controller.SelfZCodeOAuthPoll)
+		selfChannelRoute.POST("/oauth/zcode/cancel", middleware.CriticalRateLimit(), controller.SelfZCodeOAuthCancel)
 	}
 	// The local helper has a one-use encrypted upload capability, never a dashboard session.
 	apiRouter.POST("/channel/self/oauth/trae/bridge/upload", selfChannelEnabledGuard(), middleware.CriticalRateLimit(), controller.SelfTraeBridgeUpload)

@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/raccoon"
 	"github.com/QuantumNous/new-api/relay/channel/trae"
 	"github.com/QuantumNous/new-api/relay/channel/workbuddy"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
@@ -219,6 +220,57 @@ func DefaultModelsForChannel(channel *model.Channel) []string {
 // SelfFetchAccountModels 拉取账号型渠道的实时模型目录（fetch_models 扩展：
 // workbuddy/trae/cline/raccoon 走各自上游模型端点，若上游不可达则回退合并内置完整模型表，绝不报错丢失）。
 func SelfFetchAccountModels(c *gin.Context, channel *model.Channel) ([]string, bool) {
+	if channel.Type == constant.ChannelTypeZCode {
+		// Never merge a global/default catalog into account-specific entitlements.
+		if channel.OwnerId != c.GetInt("id") {
+			writeSelfChannelNotFound(c)
+			return nil, true
+		}
+		var credential service.ZCodeCredential
+		secret := model.DecryptChannelKey(channel.Type, channel.Key)
+		if common.Unmarshal([]byte(secret), &credential) != nil {
+			zcodeAuthorizationError(c, service.ErrAccountProtocol)
+			return nil, true
+		}
+		proxy, err := credential.Egress.Resolve(channel.OwnerId, channel.Id, channel.GetSetting())
+		if err != nil {
+			zcodeAuthorizationError(c, err)
+			return nil, true
+		}
+		models, err := service.ValidateZCodeStartPlan(c.Request.Context(), proxy, &credential)
+		if err != nil {
+			zcodeAuthorizationError(c, err)
+			return nil, true
+		}
+		info := channel.GetOtherInfo()
+		if info == nil {
+			info = map[string]any{}
+		}
+		info["allModels"] = models
+		channel.SetOtherInfo(info)
+		result := model.DB.Model(&model.Channel{}).Where(map[string]any{"id": channel.Id, "owner_id": channel.OwnerId, "key": channel.Key}).Update("other_info", channel.OtherInfo)
+		if result.Error != nil {
+			common.ApiError(c, result.Error)
+			return nil, true
+		}
+		if result.RowsAffected != 1 {
+			// MySQL reports zero changed rows for an unchanged catalog. A
+			// second owner/key match distinguishes this from a stale secret.
+			var matching int64
+			check := model.DB.Model(&model.Channel{}).Where(map[string]any{"id": channel.Id, "owner_id": channel.OwnerId, "key": channel.Key}).Count(&matching)
+			if check.Error != nil {
+				common.ApiError(c, check.Error)
+				return nil, true
+			}
+			if matching != 1 {
+				zcodeAuthorizationError(c, model.ErrAuthFlowConsumed)
+				return nil, true
+			}
+		}
+		common.ApiSuccess(c, models)
+		return models, true
+	}
+
 	key := model.DecryptChannelKey(channel.Type, channel.Key)
 	if channel.ChannelInfo.IsMultiKey {
 		keys := channel.GetKeys()

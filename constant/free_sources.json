@@ -627,30 +627,6 @@
       "authType": "none"
     },
     {
-      "id": "qoder-cn",
-      "name": "Qoder CN（国内版 · 浏览器/PAT 授权）",
-      "baseUrl": "https://openapi.qoder.com.cn/v1",
-      "signupUrl": "https://qoder.cn/account/integrations",
-      "channelType": 1,
-      "authMode": "oauth",
-      "hiddenEndpoint": true,
-      "keyRequired": false,
-      "models": [
-        "qoder-rome-30ba3b",
-        "deepseek-v3",
-        "deepseek-r1",
-        "qwen-coder-plus",
-        "qwen-max",
-        "claude-sonnet-4.5"
-      ],
-      "freeNote": "参考本机 @magpie-community/opencode-qoder-auth：打开 https://qoder.cn/account/integrations 生成 Personal Access Token (PAT) 或复制桌面端登录态 token 粘贴到下方即可授权登录，支持勾选模型加入我的渠道或公开到公共池，并可在「我的签到」领取每日 100 Credits。",
-      "monthlyTokens": 30000000,
-      "freeType": "recurring-daily",
-      "tos": "own-account",
-      "poolKey": "qoder-cn",
-      "authType": "none"
-    },
-    {
       "id": "workbuddy",
       "name": "腾讯 WorkBuddy（设备授权登录）",
       "baseUrl": "https://copilot.tencent.com/v1",
@@ -744,6 +720,40 @@
       "authMode": "oauth",
       "authType": "key",
       "hiddenEndpoint": false
+    },
+    {
+      "id": "zcode-bigmodel",
+      "name": "ZCode 智谱账号（Start Plan）",
+      "baseUrl": "https://zcode.z.ai/api/v1/zcode-plan/anthropic",
+      "signupUrl": "https://zcode.z.ai",
+      "channelType": 72,
+      "authMode": "oauth",
+      "hiddenEndpoint": true,
+      "keyRequired": false,
+      "models": [],
+      "freeNote": "官方网页登录本人账号，服务端核对已有 Start Plan 权益并发现模型；默认私有，公开需明确选择。不领取活动额度或创建付费密钥，登录到期需重新授权。协议适配已回归测试，真实账号推理尚待本人登录验证。",
+      "monthlyTokens": 0,
+      "freeType": "reverse-proxy",
+      "tos": "own-account",
+      "poolKey": "zcode-bigmodel",
+      "authType": "none"
+    },
+    {
+      "id": "zcode-zai",
+      "name": "ZCode Z.AI 账号（Start Plan）",
+      "baseUrl": "https://zcode.z.ai/api/v1/zcode-plan/anthropic",
+      "signupUrl": "https://zcode.z.ai",
+      "channelType": 72,
+      "authMode": "oauth",
+      "hiddenEndpoint": true,
+      "keyRequired": false,
+      "models": [],
+      "freeNote": "官方网页登录本人账号，服务端核对已有 Start Plan 权益并发现模型；默认私有，公开需明确选择。不领取活动额度或创建付费密钥，登录到期需重新授权。协议适配已回归测试，真实账号推理尚待本人登录验证。",
+      "monthlyTokens": 0,
+      "freeType": "reverse-proxy",
+      "tos": "own-account",
+      "poolKey": "zcode-zai",
+      "authType": "none"
     }
   ]
 }

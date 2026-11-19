@@ -48,6 +48,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/workbuddy"
 	"github.com/QuantumNous/new-api/relay/channel/xai"
 	"github.com/QuantumNous/new-api/relay/channel/xunfei"
+	"github.com/QuantumNous/new-api/relay/channel/zcode"
 	"github.com/QuantumNous/new-api/relay/channel/zhipu"
 	"github.com/QuantumNous/new-api/relay/channel/zhipu_4v"
 	"github.com/gin-gonic/gin"
@@ -135,6 +136,8 @@ func GetAdaptor(apiType int) channel.Adaptor {
 		return &trae.Adaptor{}
 	case constant.APITypeCline:
 		return &cline.Adaptor{}
+	case constant.APITypeZCode:
+		return &zcode.Adaptor{}
 	case constant.APITypeKimiWork, constant.APITypeMiMo:
 		return &desktopaccount.Adaptor{}
 	case constant.APITypeFreePi:

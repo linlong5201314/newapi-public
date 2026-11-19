@@ -214,6 +214,11 @@ func AddSelfChannel(c *gin.Context) {
 		return
 	}
 
+	if addChannelRequest.Channel.Type == constant.ChannelTypeZCode {
+		common.ApiErrorMsg(c, "Use the dedicated account connection flow for this provider")
+		return
+	}
+
 	// 与 admin AddChannel 一致的 task plugin 绑定权限校验（普通用户默认无此权限）。
 	if (addChannelRequest.Channel.Type == constant.ChannelTypeTaskPlugin || len(addChannelRequest.Channel.GetSetting().TaskPluginBindings()) > 0) &&
 		!authz.Can(uid, c.GetInt("role"), authz.TaskPluginBind) {
@@ -278,6 +283,47 @@ func UpdateSelfChannel(c *gin.Context) {
 	original, ok := loadSelfOwnedChannel(c, patch.Id, true)
 	if !ok {
 		return
+	}
+	if original.Type == constant.ChannelTypeZCode || patch.Type == constant.ChannelTypeZCode {
+		if original.Type != constant.ChannelTypeZCode {
+			common.ApiErrorMsg(c, "Use the dedicated account connection flow for this provider")
+			return
+		}
+		for key, value := range req {
+			switch strings.ToLower(key) {
+			case "key":
+				if value != "" && value != nil {
+					common.ApiErrorMsg(c, "Use the dedicated account connection flow for this provider")
+					return
+				}
+			case "type":
+				if value != float64(constant.ChannelTypeZCode) {
+					common.ApiErrorT(c, "Invalid parameters")
+					return
+				}
+			case "base_url":
+				if value != nil && value != "" && value != "https://zcode.z.ai/api/v1/zcode-plan/anthropic" {
+					common.ApiErrorT(c, "Invalid parameters")
+					return
+				}
+			}
+		}
+		if _, changing := req["models"]; changing {
+			allowed := map[string]bool{}
+			if list, ok := original.GetOtherInfo()["allModels"].([]any); ok {
+				for _, v := range list {
+					if id, ok := v.(string); ok {
+						allowed[id] = true
+					}
+				}
+			}
+			for _, id := range strings.Split(patch.Models, ",") {
+				if id != "" && !allowed[strings.TrimSpace(id)] {
+					common.ApiErrorMsg(c, "Selected model is not in the authenticated account catalog")
+					return
+				}
+			}
+		}
 	}
 	if err := prepareSelfChannelUpdate(c.GetInt("id"), original, req); err != nil {
 		common.ApiError(c, err)

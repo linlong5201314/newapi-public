@@ -50,6 +50,8 @@ func SelfDesktopAccountCapabilities(c *gin.Context) {
 		return
 	}
 	switch c.Query("provider") {
+	case "zcode-bigmodel", "zcode-zai":
+		common.ApiSuccess(c, gin.H{"provider": c.Query("provider"), "method": "zcode_cli", "browserLoginAvailable": true, "importAvailable": false, "officialUrl": "https://zcode.z.ai"})
 	case "kimi-work":
 		common.ApiSuccess(c, gin.H{"provider": "kimi-work", "method": "local_import", "browserLoginAvailable": false, "importAvailable": true, "officialUrl": "https://www.kimi.com/", "helperUrl": "/api/channel/self/kimi_work/import_helper", "importEndpoint": "/api/channel/self/kimi_work/import", "credentialFormat": "kimi-work-desktop"})
 	case "xiaomi-mimo":
