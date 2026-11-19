@@ -250,10 +250,10 @@ func StartMiMoSignIn(ctx context.Context, proxy string) (MiMoTicket, string, err
 	if status != http.StatusOK || common.Unmarshal([]byte(strings.TrimPrefix(strings.TrimSpace(string(raw)), "&&&START&&&")), &result) != nil || result.Code == nil || *result.Code != 0 {
 		return ticket, "", ErrAccountProtocol
 	}
-	if _, err := miMoURL(result.LoginURL, "account.xiaomi.com"); err != nil {
+	if _, err := miMoURL(result.LoginURL, "account.xiaomi.com", "ak.account.xiaomi.com"); err != nil {
 		return ticket, "", err
 	}
-	if _, err := miMoURL(result.PollURL, "account.xiaomi.com"); err != nil {
+	if _, err := miMoURL(result.PollURL, "account.xiaomi.com", "ak.lp.account.xiaomi.com"); err != nil {
 		return ticket, "", err
 	}
 	if len(result.LoginURL) > 8192 || len(result.PollURL) > 8192 {
@@ -272,7 +272,7 @@ func PollMiMoSignIn(ctx context.Context, proxy string, ticket MiMoTicket) (*MiMo
 	if time.Now().Unix() >= ticket.Until {
 		return nil, model.ErrAuthFlowExpired
 	}
-	if _, err := miMoURL(ticket.PollURL, "account.xiaomi.com"); err != nil || !HeaderCredential(ticket.DeviceID, 128) {
+	if _, err := miMoURL(ticket.PollURL, "account.xiaomi.com", "ak.lp.account.xiaomi.com"); err != nil || !HeaderCredential(ticket.DeviceID, 128) {
 		return nil, ErrAccountProtocol
 	}
 	pollCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
