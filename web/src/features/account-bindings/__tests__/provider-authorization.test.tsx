@@ -20,7 +20,7 @@ vi.mock('@/lib/api', () => ({ api: { get: vi.fn(), post: vi.fn() } }))
 let client: QueryClient
 const mimoSession = {
   sessionId: 'owner-mimo-session',
-  authUrl: 'https://account.xiaomi.com/longPolling/login?ticket=synthetic',
+  authUrl: 'https://ak.account.xiaomi.com/pass/lp?ticket=synthetic',
   expiresIn: 600,
   interval: 2,
 }
@@ -131,6 +131,66 @@ it('reserves a Xiaomi login popup before network and creates a channel only afte
   vi.useRealTimers()
   await waitFor(() => expect(view.onComplete).toHaveBeenCalledWith(73))
   expect(popup.close).toHaveBeenCalled()
+})
+
+it('still opens the exact legacy Xiaomi account login host', async () => {
+  const popup = {
+    opener: undefined,
+    closed: false,
+    location: { href: '' },
+    close: vi.fn(),
+  }
+  const authUrl = 'https://account.xiaomi.com/longPolling/login?ticket=synthetic'
+  vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window)
+  vi.mocked(api.post).mockResolvedValueOnce({
+    data: { success: true, data: { ...mimoSession, authUrl } },
+  })
+  renderCard('xiaomi-mimo')
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Authorize Xiaomi MiMo account' })
+  )
+  await waitFor(() => expect(popup.location.href).toBe(authUrl))
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+})
+
+it.each([
+  'https://attacker.invalid/leak',
+  'https://ak.account.xiaomi.com.attacker.invalid/leak',
+  'https://evil.account.xiaomi.com/leak',
+  'https://ak.lp.account.xiaomi.com/longPolling/listen',
+  'http://ak.account.xiaomi.com/pass/lp',
+  'https://ak.account.xiaomi.com:8443/pass/lp',
+  'https://fixture@ak.account.xiaomi.com/pass/lp',
+  'https://fixture:secret@account.xiaomi.com/pass/lp',
+  'https://ak.account.xiaomi.com/pass/lp#fragment',
+])('rejects an unapproved Xiaomi popup URL: %s', async (authUrl) => {
+  const popup = {
+    opener: undefined,
+    closed: false,
+    location: { href: '' },
+    close: vi.fn(),
+  }
+  vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window)
+  vi.mocked(api.post).mockResolvedValueOnce({
+    data: { success: true, data: { ...mimoSession, authUrl } },
+  })
+  const view = renderCard('xiaomi-mimo')
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Authorize Xiaomi MiMo account' })
+  )
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'Invalid authorization session response'
+  )
+  expect(popup.location.href).toBe('')
+  expect(popup.close).toHaveBeenCalled()
+  expect(view.onComplete).not.toHaveBeenCalled()
+  await waitFor(() =>
+    expect(api.post).toHaveBeenCalledWith(
+      '/api/channel/self/oauth/mimo/cancel',
+      { sessionId: mimoSession.sessionId },
+      expect.objectContaining({ headers: { 'X-Account-Action': 'authorize' } })
+    )
+  )
 })
 
 it('cancels a late Xiaomi session after the card unmounts without navigating the reserved popup', async () => {

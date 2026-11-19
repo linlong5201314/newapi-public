@@ -222,9 +222,10 @@ export function ProviderAuthorizationCard(props: Props) {
         const url = new URL(session.authUrl ?? '')
         if (
           url.protocol !== 'https:' ||
-          url.hostname !== 'account.xiaomi.com' ||
+          !['account.xiaomi.com', 'ak.account.xiaomi.com'].includes(url.host) ||
           url.username ||
-          url.password
+          url.password ||
+          url.hash
         )
           {throw new Error(t('Invalid authorization session response'))}
         if (reserved) reserved.location.href = url.href
