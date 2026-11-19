@@ -210,6 +210,23 @@ func miMoURL(target string, hosts ...string) (*url.URL, error) {
 	return nil, ErrAccountProtocol
 }
 
+// Destination diagnostics exclude paths, queries, userinfo and fragment contents.
+func miMoDestinationMetadata(target string) string {
+	u, err := url.Parse(target)
+	if err != nil {
+		return "parse_error=true"
+	}
+	host := u.Hostname()
+	if len(host) == 0 || len(host) > 253 || strings.Trim(host, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-") != "" {
+		host = "redacted"
+	}
+	scheme := u.Scheme
+	if scheme != "http" && scheme != "https" {
+		scheme = "other"
+	}
+	return fmt.Sprintf("scheme=%s host=%s port=%t userinfo=%t fragment=%t opaque=%t", scheme, host, u.Port() != "", u.User != nil, u.Fragment != "", u.Opaque != "")
+}
+
 func StartMiMoSignIn(ctx context.Context, proxy string) (ticket MiMoTicket, authURL string, resultErr error) {
 	stage, upstreamStatus := "device", 0
 	defer func() {
@@ -267,6 +284,7 @@ func StartMiMoSignIn(ctx context.Context, proxy string) (ticket MiMoTicket, auth
 	}
 	stage = "login_destination"
 	if _, err := miMoURL(result.LoginURL, "account.xiaomi.com", "ak.account.xiaomi.com"); err != nil {
+		common.SysLog("MiMo rejected login destination: " + miMoDestinationMetadata(result.LoginURL))
 		return ticket, "", err
 	}
 	stage = "poll_destination"

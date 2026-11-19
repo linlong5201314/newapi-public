@@ -1,6 +1,28 @@
 package service
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+func TestMiMoDestinationMetadataRedactsSecrets(t *testing.T) {
+	for _, target := range []string{
+		"https://private-user:private-pass@ak.account.xiaomi.com:8443/private-path?ticket=private-query#private-fragment",
+		"https://ak.account.xiaomi.com/another-private-path?passToken=private-token",
+		"custom:private-opaque",
+		"https://%invalid-private-parse",
+	} {
+		metadata := miMoDestinationMetadata(target)
+		if strings.Contains(metadata, "private") || strings.Contains(metadata, "ticket") || strings.Contains(metadata, "passToken") {
+			t.Fatalf("diagnostics leaked URL contents: %s", metadata)
+		}
+	}
+	got := miMoDestinationMetadata("https://ak.account.xiaomi.com/path#secret")
+	want := "scheme=https host=ak.account.xiaomi.com port=false userinfo=false fragment=true opaque=false"
+	if got != want {
+		t.Fatalf("unexpected safe metadata: %s", got)
+	}
+}
 
 func TestMiMoObservedAuthorizationHosts(t *testing.T) {
 	loginHosts := []string{"account.xiaomi.com", "ak.account.xiaomi.com"}
