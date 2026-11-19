@@ -19,7 +19,16 @@ public final class AppPolicyTest {
         check("www/index.html".equals(policy.assetPath("https://gw.ailong.love/demo", true)), "bundled chat route");
         check("www/index.html".equals(policy.assetPath("https://gw.ailong.love/login?redirect=%2Fdemo", true)), "bundled login route");
         check("www/static/js/index.js".equals(policy.assetPath("https://gw.ailong.love/static/js/index.js", false)), "bundled script");
-        for (String path : new String[] {"/api/user/self", "/api/auth/refresh", "/pg/chat/completions", "/v1/models", "/oauth/github"}) {
+        check("www/index.html".equals(policy.assetPath("https://gw.ailong.love/console/my-channels", true)), "own channels route");
+        check("www/index.html".equals(policy.assetPath("https://gw.ailong.love/console/public-pool", true)), "public pool route");
+        check(policy.assetPath("https://gw.ailong.love/deepseek-newapi.apk", true) == null, "app download must use network, not absent bundled APK");
+        check(policy.assetPath("https://gw.ailong.love/deepseek-newapi.apk?v=9", false) == null, "versioned app download must use network");
+        check(policy.isAppDownload("https://gw.ailong.love/deepseek-newapi.apk"), "trusted app update download");
+        check(policy.isAppDownload("https://gw.ailong.love/deepseek-newapi.apk?v=9"), "trusted versioned app update download");
+        for (String url : new String[] {"https://evil.example/deepseek-newapi.apk", "http://gw.ailong.love/deepseek-newapi.apk", "https://gw.ailong.love:8443/deepseek-newapi.apk", "https://user@gw.ailong.love/deepseek-newapi.apk", "https://gw.ailong.love/other.apk", "https://gw.ailong.love/deepseek-newapi.apk/extra", "https://gw.ailong.love/demo", null}) {
+            check(!policy.isAppDownload(url), "reject non-update download: " + url);
+        }
+        for (String path : new String[] {"/api/user/self", "/api/user/login", "/api/auth/refresh", "/pg/chat/completions", "/v1/models", "/oauth/github"}) {
             check(policy.assetPath("https://gw.ailong.love" + path, true) == null, "network passthrough: " + path);
         }
         check(policy.assetPath("https://gw.ailong.love/%2e%2e/private.txt", false) == null, "reject encoded traversal");

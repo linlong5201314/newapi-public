@@ -119,7 +119,7 @@ def main():
         if source.is_file():
             shutil.copy2(source, build / 'assets' / name)
     config = build / 'gen/com/newapi/deepseek/BuildConfig.java'
-    config.write_text('package com.newapi.deepseek;\npublic final class BuildConfig {\n public static final String SITE_ORIGIN = ' + json.dumps(origin) + ';\n}\n', encoding='utf-8')
+    config.write_text('package com.newapi.deepseek;\npublic final class BuildConfig {\n public static final String SITE_ORIGIN = ' + json.dumps(origin) + ';\n public static final String VERSION_NAME = ' + json.dumps(version) + ';\n}\n', encoding='utf-8')
     unsigned = build / 'unsigned.apk'
     run([tools / 'aapt.exe', 'package', '-f', '-M', ROOT / 'AndroidManifest.xml', '-S', ROOT / 'res', '-I', platform, '-A', build / 'assets', '-J', build / 'gen', '-F', unsigned])
     sources = sorted((ROOT / 'src').rglob('*.java')) + sorted((build / 'gen').rglob('*.java'))

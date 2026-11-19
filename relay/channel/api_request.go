@@ -516,7 +516,9 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 
 		resp, err = relayClient.Do(req)
 		if err != nil {
-			model.RecordProxyOutcome(info.UserId, proxyURL, false)
+			if !c.GetBool("model_endpoint_probe") {
+				model.RecordProxyOutcome(info.UserId, proxyURL, false)
+			}
 			if attempt+1 < maxAttempts && proxyURL != "" {
 				logger.LogWarn(c, fmt.Sprintf("proxy pool circuit-breaker: attempt %d via %s failed (%s), switching exit IP", attempt+1, egressProxyLogAddress(proxyURL), "transport error"))
 				continue
@@ -527,7 +529,9 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 
 		// 仅网关故障可触发出口重试；403/429保留上游准入与额度决定，不通过换IP绕过
 		if resp != nil && shouldFailoverProxyStatus(resp.StatusCode) && attempt+1 < maxAttempts && proxyURL != "" {
-			model.RecordProxyOutcome(info.UserId, proxyURL, false)
+			if !c.GetBool("model_endpoint_probe") {
+				model.RecordProxyOutcome(info.UserId, proxyURL, false)
+			}
 			if resp.Body != nil {
 				_ = resp.Body.Close()
 			}
@@ -535,7 +539,9 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 			continue
 		}
 
-		model.RecordProxyOutcome(info.UserId, proxyURL, true)
+		if !c.GetBool("model_endpoint_probe") {
+			model.RecordProxyOutcome(info.UserId, proxyURL, true)
+		}
 		break
 	}
 

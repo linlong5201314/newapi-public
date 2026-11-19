@@ -27,8 +27,10 @@ type zcodeAuthorizationRequest struct {
 
 type zcodePollClaim struct {
 	service.ZCodeTicket
-	Nonce      string `json:"nonce,omitempty"`
-	LeaseUntil int64  `json:"leaseUntil,omitempty"`
+	AuthURL           string `json:"auth_url,omitempty"`
+	BrowserReturnUsed bool   `json:"browser_return_used,omitempty"`
+	Nonce             string `json:"nonce,omitempty"`
+	LeaseUntil        int64  `json:"leaseUntil,omitempty"`
 }
 
 func zcodeAuthorizationError(c *gin.Context, err error) {
@@ -70,7 +72,7 @@ func SelfZCodeOAuthStart(c *gin.Context) {
 			state.Status = "failed"
 			return nil
 		}
-		raw, err := common.Marshal(zcodePollClaim{ZCodeTicket: *ticket})
+		raw, err := common.Marshal(zcodePollClaim{ZCodeTicket: *ticket, AuthURL: authURL})
 		if err != nil {
 			return err
 		}
@@ -87,7 +89,7 @@ func SelfZCodeOAuthStart(c *gin.Context) {
 		zcodeAuthorizationError(c, providerErr)
 		return
 	}
-	common.ApiSuccess(c, gin.H{"sessionId": token, "authUrl": authURL, "expiresIn": max(1, int(ticket.Until-time.Now().Unix())), "interval": ticket.Interval})
+	common.ApiSuccess(c, gin.H{"sessionId": token, "authUrl": authURL, "expiresIn": max(1, int(ticket.Until-time.Now().Unix())), "interval": ticket.Interval, "automaticCallbackSupported": true, "manualCallbackSupported": true})
 }
 
 func withZCodeClaim(token string, identity model.AuthSessionIdentity, nonce string, action func(*gorm.DB, *model.WorkBuddyAuthState, *zcodePollClaim) error) error {

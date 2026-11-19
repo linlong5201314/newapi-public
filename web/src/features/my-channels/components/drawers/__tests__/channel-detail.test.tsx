@@ -139,6 +139,123 @@ it('keeps a viewport-bounded drawer with a keyboard focusable vertical scroll re
   ).toBeVisible()
 })
 
+it('enables only explicitly chosen passing models and retains untested catalog entries', async () => {
+  const user = userEvent.setup()
+  const get = vi.mocked(api.get).getMockImplementation()
+  if (!get) throw new Error('Channel detail GET fixture is required')
+  vi.mocked(api.get).mockImplementation(async (url, config) => {
+    if (url === '/api/channel/self/model_probe/7') {
+      return {
+        data: {
+          success: true,
+          data: { channel_id: 7, endpoints: [], results: [] },
+        },
+      }
+    }
+    return get(url, config)
+  })
+  const now = Math.floor(Date.now() / 1000)
+  vi.mocked(api.post).mockImplementation(async (url) => {
+    if (url === '/api/channel/self/model_probe/7') {
+      return {
+        data: {
+          success: true,
+          data: {
+            channel_id: 7,
+            passed_models: ['qwen-coder'],
+            results: [
+              {
+                model: 'qwen-coder',
+                endpoint_id: 0,
+                status: 'available',
+                reason: 'passed',
+                checked_at: now,
+                expires_at: now + 600,
+                latency_ms: 12,
+                recent_passes: 1,
+                recent_sample_count: 1,
+              },
+              {
+                model: 'deepseek-chat',
+                endpoint_id: 0,
+                status: 'unavailable',
+                reason: 'upstream_rejected',
+                checked_at: now,
+                expires_at: now + 600,
+                latency_ms: 12,
+                recent_passes: 0,
+                recent_sample_count: 1,
+              },
+            ],
+          },
+        },
+      }
+    }
+    return { data: { success: true } }
+  })
+  await renderDrawer()
+  await screen.findByText('qwen-coder')
+  await user.click(screen.getByRole('button', { name: 'Test models' }))
+  expect(api.post).not.toHaveBeenCalled()
+  const runTests = await screen.findByRole('button', {
+    name: 'Run selected tests',
+  })
+  await waitFor(() => expect(runTests).toBeEnabled())
+  await user.click(runTests)
+  await waitFor(() =>
+    expect(api.post).toHaveBeenCalledWith(
+      '/api/channel/self/model_probe/7',
+      expect.objectContaining({ models: ['deepseek-chat', 'qwen-coder'] }),
+      expect.anything()
+    )
+  )
+  const useModel = await screen.findByRole('checkbox', {
+    name: /^Use qwen-coder/,
+  })
+  expect(
+    screen.queryByRole('checkbox', { name: /^Use deepseek-chat/ })
+  ).not.toBeInTheDocument()
+  expect(
+    screen.getByRole('button', { name: 'Use selected passing models' })
+  ).toBeDisabled()
+  await user.click(useModel)
+  await user.click(
+    screen.getByRole('button', { name: 'Use selected passing models' })
+  )
+  expect(
+    screen.getByRole('checkbox', { name: 'Enable qwen-coder in my channels' })
+  ).toBeChecked()
+  expect(
+    screen.getByRole('checkbox', {
+      name: 'Enable deepseek-chat in my channels',
+    })
+  ).toBeChecked()
+  expect(
+    screen.getByRole('checkbox', {
+      name: 'Publish qwen-coder to the public pool',
+    })
+  ).not.toBeChecked()
+  await user.click(
+    screen.getByRole('button', { name: 'Save model configuration' })
+  )
+  await waitFor(() =>
+    expect(api.put).toHaveBeenCalledWith(
+      '/api/channel/self/',
+      expect.objectContaining({ id: 7, models: 'deepseek-chat,qwen-coder' }),
+      expect.anything()
+    )
+  )
+  expect(api.post).toHaveBeenCalledWith(
+    '/api/channel/self/visibility',
+    expect.objectContaining({
+      channelId: 7,
+      allModels: ['deepseek-chat', 'qwen-coder'],
+      publicModels: [],
+    }),
+    expect.anything()
+  )
+})
+
 it('asks before deleting a channel from the detail drawer', async () => {
   const user = userEvent.setup()
   await renderDrawer()

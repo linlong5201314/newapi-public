@@ -271,6 +271,73 @@ func SelfFetchAccountModels(c *gin.Context, channel *model.Channel) ([]string, b
 		return models, true
 	}
 
+	if channel.Type == constant.ChannelTypeQoder || ((channel.Type == constant.ChannelTypeCline || channel.Type == constant.ChannelTypeRaccoon) && strings.HasPrefix(strings.TrimSpace(model.DecryptChannelKey(channel.Type, channel.Key)), "{")) {
+		if channel.OwnerId != c.GetInt("id") {
+			writeSelfChannelNotFound(c)
+			return nil, true
+		}
+		secret := model.DecryptChannelKey(channel.Type, channel.Key)
+		var egress service.AccountEgress
+		var models []string
+		var err error
+		switch channel.Type {
+		case constant.ChannelTypeQoder:
+			var cred service.QoderCredential
+			if common.Unmarshal([]byte(secret), &cred) != nil {
+				accountAuthorizationError(c, service.ErrAccountProtocol)
+				return nil, true
+			}
+			egress = cred.Egress
+			proxy, e := egress.Resolve(channel.OwnerId, channel.Id, channel.GetSetting())
+			if e != nil {
+				err = e
+			} else {
+				models, err = service.FetchQoderModels(c.Request.Context(), proxy, &cred)
+			}
+		case constant.ChannelTypeCline:
+			var cred service.ClineCredential
+			if common.Unmarshal([]byte(secret), &cred) != nil {
+				accountAuthorizationError(c, service.ErrAccountProtocol)
+				return nil, true
+			}
+			egress = cred.Egress
+			proxy, e := egress.Resolve(channel.OwnerId, channel.Id, channel.GetSetting())
+			if e != nil {
+				err = e
+			} else {
+				models, err = service.FetchClineModels(c.Request.Context(), proxy, &cred)
+			}
+		case constant.ChannelTypeRaccoon:
+			var cred service.RaccoonCredential
+			if common.Unmarshal([]byte(secret), &cred) != nil {
+				accountAuthorizationError(c, service.ErrAccountProtocol)
+				return nil, true
+			}
+			egress = cred.Egress
+			proxy, e := egress.Resolve(channel.OwnerId, channel.Id, channel.GetSetting())
+			if e != nil {
+				err = e
+			} else {
+				models, err = service.RaccoonLiveModels(c.Request.Context(), proxy, cred.Token)
+			}
+		}
+		if err != nil {
+			accountAuthorizationError(c, err)
+			return nil, true
+		}
+		info := channel.GetOtherInfo()
+		if info == nil {
+			info = map[string]any{}
+		}
+		info["allModels"] = models
+		channel.SetOtherInfo(info)
+		if err := model.DB.Model(&model.Channel{}).Where(map[string]any{"id": channel.Id, "owner_id": channel.OwnerId, "key": channel.Key}).Update("other_info", channel.OtherInfo).Error; err != nil {
+			common.ApiError(c, err)
+			return nil, true
+		}
+		common.ApiSuccess(c, models)
+		return models, true
+	}
 	key := model.DecryptChannelKey(channel.Type, channel.Key)
 	if channel.ChannelInfo.IsMultiKey {
 		keys := channel.GetKeys()

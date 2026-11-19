@@ -20,8 +20,9 @@ func zcodeTestJWT(until int64) string {
 	return "eyJhbGciOiJIUzI1NiJ9." + base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf(`{"exp":%d}`, until))) + ".fixture-signature"
 }
 func TestZCodeOfficialLoginTransport(t *testing.T) {
-	InitHttpClient()
-	client := GetHttpClient()
+	isolateAccountAuthTestCache(t)
+	client, err := GetAccountAuthHTTPClient("", "")
+	require.NoError(t, err)
 	old := *client
 	t.Cleanup(func() { *client = old })
 	var pollToken string
@@ -78,8 +79,9 @@ func TestZCodeAuthorizationDestinations(t *testing.T) {
 	}
 }
 func TestZCodeLoginRejectsRedirectAndMalformedResults(t *testing.T) {
-	InitHttpClient()
-	client := GetHttpClient()
+	isolateAccountAuthTestCache(t)
+	client, err := GetAccountAuthHTTPClient("", "")
+	require.NoError(t, err)
 	old := *client
 	t.Cleanup(func() { *client = old })
 	for _, fixture := range []struct {

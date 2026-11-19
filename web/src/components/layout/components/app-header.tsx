@@ -27,6 +27,7 @@ import { useTopNavLinks } from '@/hooks/use-top-nav-links'
 
 import { defaultTopNavLinks } from '../config/top-nav.config'
 import type { TopNavLink } from '../types'
+import { AppDownload } from './app-download'
 import { Header } from './header'
 import { SystemBrand } from './system-brand'
 import { TopNav } from './top-nav'
@@ -129,6 +130,7 @@ export function AppHeader({
               <TopNav links={links} />
             </div>
           )}
+          <AppDownload />
           {showSearch && (
             <Search className='w-8 flex-none [&>span]:hidden sm:[&>span]:inline' />
           )}

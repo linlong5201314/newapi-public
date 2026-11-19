@@ -15,7 +15,7 @@ import (
 // IsEncryptedChannelType 判断渠道类型是否使用加密凭据存储。
 func IsEncryptedChannelType(channelType int) bool {
 	switch channelType {
-	case constant.ChannelTypeWorkBuddy, constant.ChannelTypeTrae, constant.ChannelTypeCline, constant.ChannelTypeRaccoon, constant.ChannelTypeFreePi, constant.ChannelTypeKimiWork, constant.ChannelTypeMiMo, constant.ChannelTypeZCode:
+	case constant.ChannelTypeWorkBuddy, constant.ChannelTypeTrae, constant.ChannelTypeCline, constant.ChannelTypeRaccoon, constant.ChannelTypeFreePi, constant.ChannelTypeKimiWork, constant.ChannelTypeMiMo, constant.ChannelTypeZCode, constant.ChannelTypeQoder:
 		return true
 	default:
 		return false

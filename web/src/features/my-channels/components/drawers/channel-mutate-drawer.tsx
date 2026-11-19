@@ -106,6 +106,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { SecureVerificationDialog } from '@/features/auth/secure-verification'
+import { ModelTestButton } from '@/features/model-testing'
 import { PluginIcon } from '@/features/task-plugins/components/plugin-icon'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { useHiddenClickUnlock } from '@/hooks/use-hidden-click-unlock'
@@ -3466,6 +3467,34 @@ export function ChannelMutateDrawer({
                       </span>
                     )}
                   </>
+                )}
+                <ModelTestButton
+                  key={channelId ?? 0}
+                  channelId={
+                    channelData?.data?.id === channelId ? channelId ?? 0 : 0
+                  }
+                  models={[
+                    ...new Set([...currentModelsArray, ...upstreamModelList]),
+                  ]}
+                  disabled={
+                    !isEditing ||
+                    !channelData?.data ||
+                    !canOperateChannel ||
+                    discovery.status === 'loading'
+                  }
+                  onPassedModels={(passed) => {
+                    const available = passed.filter(
+                      (model) =>
+                        currentModelsArray.includes(model) ||
+                        upstreamModelList.includes(model)
+                    )
+                    if (available.length > 0) updateModels(available, true)
+                  }}
+                />
+                {!isEditing && (
+                  <p className='text-muted-foreground basis-full text-xs'>
+                    {t('Save or connect the channel before testing models.')}
+                  </p>
                 )}
                 <Button
                   type='button'

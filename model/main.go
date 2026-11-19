@@ -202,6 +202,10 @@ func InitDB() (err error) {
 		if err := EnsureProxyPoolSchema(); err != nil {
 			return fmt.Errorf("initialize proxy pool schema: %w", err)
 		}
+		// Probe requests never migrate; install their schema even when full migration is skipped.
+		if err := DB.AutoMigrate(&ModelEndpointHealth{}); err != nil {
+			return fmt.Errorf("initialize model endpoint health schema: %w", err)
+		}
 		// MySQL charset/collation startup check: ensure Chinese-capable charset
 		if common.UsingMainDatabase(common.DatabaseTypeMySQL) {
 			if err := checkMySQLChineseSupport(DB); err != nil {
@@ -401,6 +405,7 @@ func migrateDB() error {
 		&FreeSourcePoolRating{},
 		&ProxyEndpoint{},
 		&ProxySubscription{},
+		&ModelEndpointHealth{},
 	)
 	if err != nil {
 		return err

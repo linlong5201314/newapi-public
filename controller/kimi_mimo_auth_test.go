@@ -116,6 +116,13 @@ func TestDesktopAccountsDatabaseMatrix(t *testing.T) {
 			client := service.GetHttpClient()
 			oldClient := *client
 			t.Cleanup(func() { *client = oldClient })
+			strictClient, strictErr := service.GetAccountAuthHTTPClient("", "")
+			require.NoError(t, strictErr)
+			previousStrictTransport := strictClient.Transport
+			strictClient.Transport = workBuddyTestTransport(func(request *http.Request) (*http.Response, error) {
+				return client.Transport.RoundTrip(request)
+			})
+			t.Cleanup(func() { strictClient.Transport = previousStrictTransport })
 			pollCount, meCount, modelCount, relayCount := 0, 0, 0, 0
 			pending, badURL, badRedirect, badKimi, failSession := false, false, false, false, false
 			client.Transport = workBuddyTestTransport(func(r *http.Request) (*http.Response, error) {

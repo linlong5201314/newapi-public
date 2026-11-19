@@ -35,6 +35,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/openai"
 	"github.com/QuantumNous/new-api/relay/channel/palm"
 	"github.com/QuantumNous/new-api/relay/channel/perplexity"
+	"github.com/QuantumNous/new-api/relay/channel/qoder"
 	"github.com/QuantumNous/new-api/relay/channel/raccoon"
 	"github.com/QuantumNous/new-api/relay/channel/replicate"
 	"github.com/QuantumNous/new-api/relay/channel/siliconflow"
@@ -136,6 +137,8 @@ func GetAdaptor(apiType int) channel.Adaptor {
 		return &trae.Adaptor{}
 	case constant.APITypeCline:
 		return &cline.Adaptor{}
+	case constant.APITypeQoder:
+		return &qoder.Adaptor{}
 	case constant.APITypeZCode:
 		return &zcode.Adaptor{}
 	case constant.APITypeKimiWork, constant.APITypeMiMo:

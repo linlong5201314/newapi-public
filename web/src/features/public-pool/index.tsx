@@ -3,8 +3,15 @@ import { useTranslation } from 'react-i18next'
 
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { PublicModelCatalog } from './components/public-model-catalog'
+
+const PublicPoolAdminChannels = lazy(() =>
+  import('./components/admin-channels').then((module) => ({
+    default: module.PublicPoolAdminChannels,
+  }))
+)
 
 const PublicExitPool = lazy(() =>
   import('./components/public-exit-pool').then((module) => ({
@@ -19,6 +26,7 @@ const SharingSettings = lazy(() =>
 
 export function PublicPoolPage() {
   const { t } = useTranslation()
+  const isRoot = useAuthStore((state) => state.auth.user?.role === 100)
   return (
     <div className='min-h-0 min-w-0 flex-1 space-y-5 overflow-y-auto p-4 sm:p-6'>
       <header className='space-y-2'>
@@ -37,6 +45,11 @@ export function PublicPoolPage() {
           <TabsTrigger value='models'>{t('AI models')}</TabsTrigger>
           <TabsTrigger value='ips'>{t('Proxy exit IPs')}</TabsTrigger>
           <TabsTrigger value='settings'>{t('My sharing settings')}</TabsTrigger>
+          {isRoot && (
+            <TabsTrigger value='admin'>
+              {t('Manage public free channels')}
+            </TabsTrigger>
+          )}
         </TabsList>
         <TabsContent value='models' className='min-w-0'>
           <PublicModelCatalog />
@@ -51,6 +64,13 @@ export function PublicPoolPage() {
             <SharingSettings />
           </Suspense>
         </TabsContent>
+        {isRoot && (
+          <TabsContent value='admin' className='min-w-0'>
+            <Suspense fallback={<Skeleton className='h-40 w-full' />}>
+              <PublicPoolAdminChannels />
+            </Suspense>
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   )

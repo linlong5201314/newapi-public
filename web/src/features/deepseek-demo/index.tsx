@@ -21,6 +21,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { ErrorState } from '@/components/error-state'
+import { AppDownload } from '@/components/layout/components/app-download'
 import { Button } from '@/components/ui/button'
 import {
   Sheet,
@@ -166,6 +167,7 @@ function DemoSession(props: { userId: number }) {
           >
             {chat.activeConversation?.title}
           </span>
+          <AppDownload />
           {chat.activeConversation && (
             <Button
               variant='ghost'

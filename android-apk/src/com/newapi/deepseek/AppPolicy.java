@@ -32,8 +32,17 @@ public final class AppPolicy {
         }
     }
 
+    public boolean isAppDownload(String url) {
+        if (!isTrusted(url)) return false;
+        try {
+            return "/deepseek-newapi.apk".equals(new URI(url).getPath());
+        } catch (URISyntaxException error) {
+            return false;
+        }
+    }
+
     public String assetPath(String url, boolean mainFrame) {
-        if (!isTrusted(url)) return null;
+        if (!isTrusted(url) || isAppDownload(url)) return null;
         try {
             String path = new URI(url).getPath();
             if (path == null || path.contains("\\") || path.contains("\u0000")) return null;

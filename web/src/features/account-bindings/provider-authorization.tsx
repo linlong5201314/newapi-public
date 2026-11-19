@@ -222,17 +222,6 @@ export function ProviderAuthorizationCard(props: Props) {
     setExternalLoginURL(null)
     setStatus(t('Creating authorization session...'))
     try {
-      if (
-        provider !== 'trae-cn' &&
-        !nativeBrowser &&
-        (!reserved || reserved.closed)
-      ) {
-        throw new Error(
-          t(
-            'Your browser blocked the login window. Allow popups and try again.'
-          )
-        )
-      }
       const session = await startNativeAuthorization(
         provider,
         props.options ?? {}
@@ -272,7 +261,7 @@ export function ProviderAuthorizationCard(props: Props) {
           throw new Error(t('Invalid authorization session response'))
         }
         if (reserved) reserved.location.href = url.href
-        if (nativeBrowser) setExternalLoginURL(url.href)
+        setExternalLoginURL(url.href)
         setStatus(
           t(
             'Complete Xiaomi sign-in in the opened window. This page creates your channel after approval.'
@@ -297,7 +286,7 @@ export function ProviderAuthorizationCard(props: Props) {
           throw new Error(t('Invalid authorization session response'))
         }
         if (reserved) reserved.location.href = url.href
-        if (nativeBrowser) setExternalLoginURL(url.href)
+        setExternalLoginURL(url.href)
         setStatus(
           t(
             'Complete official ZCode sign-in in the opened window. This page validates Start Plan access before connecting.'
@@ -623,12 +612,16 @@ export function ProviderAuthorizationCard(props: Props) {
                   <a
                     className='text-primary underline'
                     href={externalLoginURL}
-                    target='_self'
+                    target={nativeBrowser ? '_self' : '_blank'}
                     rel='noreferrer'
                     referrerPolicy='no-referrer'
                   >
                     {t('Open official account login in your browser')}
                   </a>
+                  <CopyButton
+                    value={externalLoginURL}
+                    aria-label={t('Copy authorization URL')}
+                  />
                   <p>
                     {t(
                       'Complete sign-in in your browser, then return to this app before the authorization session expires.'

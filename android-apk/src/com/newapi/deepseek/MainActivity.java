@@ -76,7 +76,14 @@ public class MainActivity extends Activity {
         settings.setGeolocationEnabled(false);
         settings.setSupportMultipleWindows(false);
         settings.setJavaScriptCanOpenWindowsAutomatically(false);
-        settings.setUserAgentString(settings.getUserAgentString() + " DeepSeekNewAPIClient/1.1.0");
+        settings.setUserAgentString(settings.getUserAgentString() + " DeepSeekNewAPIClient/" + BuildConfig.VERSION_NAME);
+        webView.setDownloadListener(new android.webkit.DownloadListener() {
+            @Override public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimetype, long contentLength) {
+                if (!policy.isAppDownload(url)) return;
+                try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE)); }
+                catch (ActivityNotFoundException ignored) { showError(); }
+            }
+        });
         if (Build.VERSION.SDK_INT >= 26) settings.setSafeBrowsingEnabled(true);
         CookieManager cookies = CookieManager.getInstance();
         cookies.setAcceptCookie(true);

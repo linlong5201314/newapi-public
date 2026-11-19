@@ -20,6 +20,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { ModelTestButton } from '@/features/model-testing'
 import { getChannelDetail, getChannels } from '@/features/my-channels/api'
 import { ChannelDeleteDialog } from '@/features/my-channels/components/channel-delete-dialog'
 import { ChannelModelEditor } from '@/features/my-channels/components/channel-model-editor'
@@ -260,24 +261,30 @@ function ChannelModelDrilldownCard(props: {
               detail={detailQuery.data.data}
               saveLabel={t('Save channel models')}
               renderModelAction={(model) => (
-                <Button
-                  size='sm'
-                  variant='ghost'
-                  onClick={() => {
-                    try {
-                      window.localStorage.setItem(
-                        'ds-demo:preferred-model',
-                        model
-                      )
-                    } catch {
-                      /* storage may be unavailable */
-                    }
-                    void navigate({ to: '/demo' })
-                  }}
-                >
-                  <Sparkles className='me-1 size-3' aria-hidden='true' />
-                  {t('Chat')}
-                </Button>
+                <div className='flex shrink-0 items-center gap-2'>
+                  <ModelTestButton
+                    channelId={props.channel.id}
+                    models={[model]}
+                  />
+                  <Button
+                    size='sm'
+                    variant='ghost'
+                    onClick={() => {
+                      try {
+                        window.localStorage.setItem(
+                          'ds-demo:preferred-model',
+                          model
+                        )
+                      } catch {
+                        /* storage may be unavailable */
+                      }
+                      void navigate({ to: '/demo' })
+                    }}
+                  >
+                    <Sparkles className='me-1 size-3' aria-hidden='true' />
+                    {t('Chat')}
+                  </Button>
+                </div>
               )}
             />
           )}

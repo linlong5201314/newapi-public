@@ -444,19 +444,8 @@
       "baseUrl": "https://api.cline.bot/api/v1",
       "signupUrl": "https://cline.bot",
       "keyRequired": false,
-      "models": [
-        "cline-free/nemotron-3.5-super-vl",
-        "cline-free/mimo-v2.6-flash",
-        "cline-free/muse-spark-1.3-contributor",
-        "cline-free/solar-mini4",
-        "deepseek/deepseek-v4-flash",
-        "poolside/laguna-s-2.1:free",
-        "zai/glm-5.3-flash",
-        "cline-pass/glm-5.2",
-        "cline-pass/deepseek-v4-flash",
-        "cline-pass/qwen3.7-max"
-      ],
-      "freeNote": "Cline 走浏览器授权登录（Google/GitHub → Cline 账号），授权后把回调链接粘贴进来即可；平台为你单独建渠道，不会显示任何部署地址。",
+      "models": [],
+      "freeNote": "生成 Cline 官方设备授权链接，网页登录后本页自动轮询并验证账号；可复制链接在其他浏览器打开，不需要下载助手。",
       "monthlyTokens": 0,
       "freeType": "reverse-proxy",
       "tos": "own-account",
@@ -479,7 +468,7 @@
         "deepseek-v3.1",
         "kimi-k2"
       ],
-      "freeNote": "通过本机登录助手打开 Trae 国内官网，确认账号后完成绑定；也可导入官方本地回调。账号权限与额度由上游决定。",
+      "freeNote": "生成 Trae 国内官网授权链接。官方只回到本机地址；无需下载助手，登录后将完整返回 URL 粘贴回本页，再确认已验证账号。",
       "monthlyTokens": 0,
       "freeType": "reverse-proxy",
       "tos": "own-account",
@@ -600,17 +589,17 @@
       "modelsList": [],
       "extraFields": [],
       "homepageUrl": "https://xiaohuanxiong.com/",
-      "freeNote": "不需要 API Key，也不需要自己部署任何东西。\n① 点这个链接登录并同意授权：https://xiaohuanxiong.com/code/authorize?login_source=desktop&appname=%E5%8A%9E%E5%85%AC%E5%B0%8F%E6%B5%A3%E7%86%8A%E5%AE%A2%E6%88%B7%E7%AB%AF&state=0000000000000000000000000000000000000000000000000000000000000000&desktop_callback=loopback&redirect=http%3A%2F%2F127.0.0.1%3A64650%2Fauth%2Fcallback\n② 浏览器会跳到 http://127.0.0.1:64650/auth/callback?code=...（页面打不开是正常的，因为本机没有监听），把地址栏那一整段复制下来；\n③ 在下面「账号授权」里粘贴这段地址（含 code=），或直接粘贴 access_token。\n平台会用你给的 code 换票、直连官方网页接口，并把模型挂到你的账号下；不会显示任何部署地址。同一时刻小浣熊只允许一个桌面会话，登录第二个账号会顶掉第一个。⚠️ 登录态等同账号，建议用小号。",
+      "freeNote": "生成本次专属小浣熊官网授权链接。网页登录后复制完整回调 URL 回填，本页核验账号并连接，不下载助手。",
       "authType": "none"
     },
     {
       "id": "internlm-inkstone",
-      "name": "书生·端砚（Token Plan 授权）",
+      "name": "书生·端砚（官方 Token Plan API Key）",
       "baseUrl": "https://discovery-api.intern-ai.org.cn/v1",
       "channelType": 1,
-      "authMode": "oauth",
-      "hiddenEndpoint": true,
-      "keyRequired": false,
+      "authMode": "key",
+      "hiddenEndpoint": false,
+      "keyRequired": true,
       "models": [
         "Intern-S2",
         "internlm3-8b-instruct",
@@ -623,8 +612,9 @@
       ],
       "extraFields": [],
       "homepageUrl": "https://discovery.intern-ai.org.cn/",
-      "freeNote": "不需要 API Key：打开 https://discovery.intern-ai.org.cn/ 登录，\n按 F12 → Application/存储 → Cookies → 复制 uaa-token 的值，或直接粘贴 Token Plan 里的 sk-/ink- Key。",
-      "authType": "none"
+      "freeNote": "打开官方控制台网页登录并创建或复制本人的 Token Plan API Key。官方 SSO 仅允许其注册域名回调，第三方网关未获注册，不能自动接收官网登录态；不需要 F12 或浏览器 Cookie。",
+      "authType": "key",
+      "signupUrl": "https://discovery.intern-ai.org.cn/"
     },
     {
       "id": "workbuddy",
@@ -753,6 +743,40 @@
       "freeType": "reverse-proxy",
       "tos": "own-account",
       "poolKey": "zcode-zai",
+      "authType": "none"
+    },
+    {
+      "id": "qoder-cn",
+      "name": "Qoder 国内账号（浏览器授权）",
+      "channelType": 73,
+      "baseUrl": "",
+      "signupUrl": "https://qoder.com.cn",
+      "keyRequired": false,
+      "models": [],
+      "freeNote": "生成官方网页登录链接，S256 PKCE 设备授权后自动轮询；凭据加密且默认私有，账号、区域、额度和可用模型由上游决定，不领取活动或轮换账号。",
+      "monthlyTokens": 0,
+      "freeType": "reverse-proxy",
+      "tos": "own-account",
+      "poolKey": "qoder-cn",
+      "authMode": "oauth",
+      "hiddenEndpoint": true,
+      "authType": "none"
+    },
+    {
+      "id": "qoder-global",
+      "name": "Qoder 国际账号（浏览器授权）",
+      "channelType": 73,
+      "baseUrl": "",
+      "signupUrl": "https://qoder.com",
+      "keyRequired": false,
+      "models": [],
+      "freeNote": "生成官方网页登录链接，S256 PKCE 设备授权后自动轮询；凭据加密且默认私有，账号、区域、额度和可用模型由上游决定，不领取活动或轮换账号。",
+      "monthlyTokens": 0,
+      "freeType": "reverse-proxy",
+      "tos": "own-account",
+      "poolKey": "qoder-global",
+      "authMode": "oauth",
+      "hiddenEndpoint": true,
       "authType": "none"
     }
   ]

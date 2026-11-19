@@ -94,6 +94,7 @@ import {
   testEndpoint,
   updateEndpoint,
 } from './api'
+import { NodeModelAvailability } from './node-model-availability'
 import { kindLabel, type ProxyEndpoint, type ProxySubscription } from './types'
 
 const QUERY_KEY = ['proxy-pool'] as const
@@ -912,7 +913,12 @@ function EndpointRow(props: EndpointRowProps) {
         </div>
       </TableCell>
       <TableCell className='text-end'>
-        <div className='flex items-center justify-end gap-1'>
+        <div className='flex flex-wrap items-center justify-end gap-1'>
+          <NodeModelAvailability
+            endpointId={endpoint.id}
+            subscriptionId={endpoint.subscription_id}
+            disabled={props.busy || !endpoint.dialable}
+          />
           <Button
             size='sm'
             variant='ghost'

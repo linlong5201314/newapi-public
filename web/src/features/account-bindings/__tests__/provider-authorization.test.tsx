@@ -231,18 +231,20 @@ it('cancels a late Xiaomi session after the card unmounts without navigating the
   expect(popup.location.href).toBe('')
 })
 
-it('does not create a Xiaomi session when popup is blocked and leaves an actionable error', async () => {
+it('keeps Xiaomi official login available when the popup is blocked', async () => {
   vi.spyOn(window, 'open').mockReturnValue(null)
+  vi.mocked(api.post).mockResolvedValueOnce({
+    data: { success: true, data: mimoSession },
+  })
   renderCard('xiaomi-mimo')
-  await userEvent.setup().click(
-    await screen.findByRole('button', {
-      name: 'Authorize Xiaomi MiMo account',
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Authorize Xiaomi MiMo account' })
+  )
+  expect(
+    await screen.findByRole('link', {
+      name: 'Open official account login in your browser',
     })
-  )
-  expect(await screen.findByRole('alert')).toHaveTextContent(
-    'Your browser blocked the login window. Allow popups and try again.'
-  )
-  expect(api.post).not.toHaveBeenCalled()
+  ).toHaveAttribute('href', mimoSession.authUrl)
 })
 
 it('requires explicit account identity consent after the Trae helper returns before creating a channel', async () => {
@@ -532,28 +534,6 @@ it.each([
     )
   )
 })
-it('does not create a ZCode flow when the login popup is blocked', async () => {
-  vi.mocked(api.get).mockResolvedValue({
-    data: {
-      success: true,
-      data: {
-        method: 'zcode_cli',
-        browserLoginAvailable: true,
-        importAvailable: false,
-      },
-    },
-  })
-  vi.spyOn(window, 'open').mockReturnValue(null)
-  renderCard('zcode-bigmodel')
-  fireEvent.click(
-    await screen.findByRole('button', { name: 'Authorize ZCode account' })
-  )
-  expect(await screen.findByRole('alert')).toHaveTextContent(
-    'Your browser blocked the login window'
-  )
-  expect(api.post).not.toHaveBeenCalled()
-})
-
 it('offers an explicit official login link in the Android client without enabling arbitrary popup windows', async () => {
   vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
     'Android DeepSeekNewAPIClient/1.1.0'
@@ -638,5 +618,48 @@ it('does not expose unapproved Android login destinations', async () => {
     screen.queryByRole('link', {
       name: 'Open official account login in your browser',
     })
+  ).not.toBeInTheDocument()
+})
+
+it('keeps the generated official login URL usable when a desktop browser blocks the popup', async () => {
+  vi.spyOn(window, 'open').mockReturnValue(null)
+  vi.mocked(api.get).mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        method: 'zcode_cli',
+        browserLoginAvailable: true,
+        importAvailable: false,
+      },
+    },
+  })
+  const authUrl = 'https://bigmodel.cn/login?appId=zcode&state=copyable-fixture'
+  vi.mocked(api.post).mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        sessionId: 'own-copyable-flow',
+        authUrl,
+        expiresIn: 300,
+        interval: 2,
+      },
+    },
+  })
+  const view = renderCard('zcode-bigmodel')
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Authorize ZCode account' })
+  )
+  const link = await screen.findByRole('link', {
+    name: 'Open official account login in your browser',
+  })
+  expect(link).toHaveAttribute('href', authUrl)
+  expect(
+    screen.getByRole('button', { name: 'Copy authorization URL' })
+  ).toBeInTheDocument()
+  expect(view.onComplete).not.toHaveBeenCalled()
+  expect(
+    screen.queryByText(
+      'Your browser blocked the login window. Allow popups and try again.'
+    )
   ).not.toBeInTheDocument()
 })

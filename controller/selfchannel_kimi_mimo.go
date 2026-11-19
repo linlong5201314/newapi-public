@@ -50,6 +50,10 @@ func SelfDesktopAccountCapabilities(c *gin.Context) {
 		return
 	}
 	switch c.Query("provider") {
+	case "cline-account", "qoder-cn", "qoder-global":
+		common.ApiSuccess(c, gin.H{"provider": c.Query("provider"), "method": "device_poll", "browserLoginAvailable": true, "importAvailable": false})
+	case "raccoon", "trae-cn":
+		common.ApiSuccess(c, gin.H{"provider": c.Query("provider"), "method": "callback_url", "browserLoginAvailable": true, "importAvailable": false})
 	case "zcode-bigmodel", "zcode-zai":
 		common.ApiSuccess(c, gin.H{"provider": c.Query("provider"), "method": "zcode_cli", "browserLoginAvailable": true, "importAvailable": false, "officialUrl": "https://zcode.z.ai"})
 	case "kimi-work":

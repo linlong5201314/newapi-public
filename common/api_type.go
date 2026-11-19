@@ -91,6 +91,8 @@ func ChannelType2APIType(channelType int) (int, bool) {
 		apiType = constant.APITypeKimiWork
 	case constant.ChannelTypeMiMo:
 		apiType = constant.APITypeMiMo
+	case constant.ChannelTypeQoder:
+		apiType = constant.APITypeQoder
 	case constant.ChannelTypeZCode:
 		apiType = constant.APITypeZCode
 	case constant.ChannelTypeFreePi:

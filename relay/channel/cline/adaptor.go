@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/relay/channel"
+	"github.com/QuantumNous/new-api/relay/channel/browseraccount"
 	"github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/gin-gonic/gin"
@@ -90,6 +91,9 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, header *http.Header, info *
 // GetRequestURL / SetupRequestHeader 走 OpenAI 版本 —— 覆写全部失效：
 // URL 多出 /v1（被上游 404），Cline 必需的客户端指纹头也不会被设置。
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
+	if strings.HasPrefix(strings.TrimSpace(info.ApiKey), "{") {
+		return (&browseraccount.Adaptor{}).DoRequest(c, info, requestBody)
+	}
 	return channel.DoApiRequest(a, c, info, requestBody)
 }
 

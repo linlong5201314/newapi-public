@@ -134,7 +134,7 @@ func MiMoHeaders() http.Header {
 // validate every destination before sending any credential. Body/errors are bounded
 // and never rendered or logged, because polling URLs contain bearer tickets.
 func desktopAccountRequest(ctx context.Context, proxy, target string, headers http.Header) (int, http.Header, []byte, error) {
-	client, err := GetHttpClientWithProxy(proxy)
+	client, err := GetAccountAuthHTTPClient(proxy, "")
 	if err != nil || client == nil {
 		return 0, nil, nil, ErrAccountEgress
 	}

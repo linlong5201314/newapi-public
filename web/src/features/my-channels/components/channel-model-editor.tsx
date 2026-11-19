@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { ModelTestButton } from '@/features/model-testing'
 import { handleServerError } from '@/lib/handle-server-error'
 import { requireServerSuccess } from '@/lib/server-error-message'
 
@@ -109,15 +110,32 @@ export function ChannelModelEditor(props: ChannelModelEditorProps) {
   return (
     <div className='space-y-3'>
       <div className='flex flex-wrap justify-between gap-2'>
-        <Button
-          type='button'
-          size='sm'
-          variant='outline'
-          disabled={busy}
-          onClick={() => fetchMutation.mutate()}
-        >
-          {t('Fetch latest upstream models')}
-        </Button>
+        <div className='flex flex-wrap gap-2'>
+          <Button
+            type='button'
+            size='sm'
+            variant='outline'
+            disabled={busy}
+            onClick={() => fetchMutation.mutate()}
+          >
+            {t('Fetch latest upstream models')}
+          </Button>
+          <ModelTestButton
+            key={channelId}
+            channelId={channelId}
+            models={models}
+            disabled={busy || channelId <= 0}
+            onPassedModels={(passed) => {
+              if (!mounted.current || busy) return
+              const available = passed.filter((model) => models.includes(model))
+              if (available.length === 0) return
+              dirty.current = true
+              setEnabled((previous) => [
+                ...new Set([...previous, ...available]),
+              ])
+            }}
+          />
+        </div>
         <Button
           type='button'
           size='sm'

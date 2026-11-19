@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/relay/channel"
+	"github.com/QuantumNous/new-api/relay/channel/browseraccount"
 	"github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/gin-gonic/gin"
@@ -65,6 +66,9 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 // 我们覆写的方法根本不会被调用 —— 表现为请求 URL 里多出 /v1、上游返回 404，
 // 同时 Authorization 也没被改写成小浣熊 JWT。这里显式传入 a，才会用本包的实现。
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
+	if strings.HasPrefix(strings.TrimSpace(info.ApiKey), "{") {
+		return (&browseraccount.Adaptor{}).DoRequest(c, info, requestBody)
+	}
 	return channel.DoApiRequest(a, c, info, requestBody)
 }
 

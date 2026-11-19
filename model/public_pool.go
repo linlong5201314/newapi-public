@@ -11,6 +11,53 @@ import (
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )
 
+// PublicPoolAdminChannel deliberately excludes credentials, endpoint URLs, provider
+// settings and free-form metadata. Those fields can contain reusable secrets.
+type PublicPoolAdminChannel struct {
+	Id           int    `json:"id"`
+	Name         string `json:"name"`
+	Type         int    `json:"type"`
+	Status       int    `json:"status"`
+	Models       string `json:"models"`
+	Group        string `json:"group"`
+	Priority     *int64 `json:"priority"`
+	Weight       *uint  `json:"weight"`
+	OwnerId      int    `json:"owner_id"`
+	Tier         string `json:"tier"`
+	CreatedTime  int64  `json:"created_time"`
+	ResponseTime int    `json:"response_time"`
+}
+
+var publicPoolAdminColumns = []string{
+	"id", "name", "type", "status", "models", "group", "priority", "weight",
+	"owner_id", "tier", "created_time", "response_time",
+}
+
+// ListPublicPoolAdminChannels includes disabled rows so root can repair them.
+// The owner/tier predicate is mandatory and cannot be widened by caller input.
+func ListPublicPoolAdminChannels(keyword string, status, start, limit int) ([]PublicPoolAdminChannel, int64, error) {
+	items := make([]PublicPoolAdminChannel, 0)
+	query := DB.Model(&Channel{}).Where("owner_id = ? AND tier = ?", 0, "free")
+	if keyword = strings.TrimSpace(keyword); keyword != "" {
+		query = query.Where("name LIKE ? OR models LIKE ?", "%"+keyword+"%", "%"+keyword+"%")
+	}
+	if status > 0 {
+		query = query.Where("status = ?", status)
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	err := query.Select(publicPoolAdminColumns).Order("id DESC").Offset(max(0, start)).Limit(min(max(1, limit), 100)).Find(&items).Error
+	return items, total, err
+}
+
+func GetPublicPoolAdminChannel(id int) (*PublicPoolAdminChannel, error) {
+	channel := &PublicPoolAdminChannel{}
+	err := DB.Model(&Channel{}).Select(publicPoolAdminColumns).Where("id = ? AND owner_id = ? AND tier = ?", id, 0, "free").First(channel).Error
+	return channel, err
+}
+
 // PublicPoolComment 公共池模型评论。
 // 存的是评论时的昵称/头像快照：用户后来改名或换头像，历史评论的署名不会跟着变，
 // 也避免每次列表都多一次 users 表联查。

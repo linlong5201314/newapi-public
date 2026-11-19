@@ -12,7 +12,6 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/relaykit/dto"
 	"gorm.io/gorm"
 )
 
@@ -71,13 +70,10 @@ func LoginDS2Account(ctx context.Context, account, password, proxy string) (stri
 	if err != nil {
 		return "", errors.New("Unable to start upstream login")
 	}
-	client, err := GetHttpClientWithProxySettings(proxy, dto.ChannelSettings{})
+	boundedClient, err := ds2LoginClient(proxy)
 	if err != nil {
-		return "", errors.New("Unable to connect to the configured proxy")
+		return "", err
 	}
-	boundedClient := *client
-	boundedClient.Timeout = 20 * time.Second
-	boundedClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://chat.deepseek.com/api/v0/users/login", bytes.NewReader(raw))
 	if err != nil {
 		return "", errors.New("Unable to start upstream login")
@@ -90,7 +86,9 @@ func LoginDS2Account(ctx context.Context, account, password, proxy string) (stri
 	request.Header.Set("x-client-locale", "zh_CN")
 	response, err := boundedClient.Do(request)
 	if err != nil {
-		return "", errors.New("Upstream login is unavailable. Please try again later")
+		failure := ds2TransportFailure(err)
+		common.SysLog("DS2 login transport failed: class=" + failure.Kind)
+		return "", failure
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {

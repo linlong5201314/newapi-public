@@ -62,6 +62,7 @@ import {
 } from '@/features/account-bindings/api'
 import { FreePiAuthorizationCard } from '@/features/account-bindings/freepi-authorization'
 import { ProviderAuthorizationCard } from '@/features/account-bindings/provider-authorization'
+import {BrowserAccountConnection,type WebAccountProvider} from '@/features/account-bindings/browser-account-connection'
 import { createSubscription, listEndpoints } from '@/features/proxy-pool/api'
 import { handleServerError } from '@/lib/handle-server-error'
 import {
@@ -443,8 +444,12 @@ export function FromTemplateDialog({
   const templateKind = selected ? classifyTemplate(selected) : 'api'
   const isSubscription = templateKind === 'sub'
   const isAuthTemplate = templateKind === 'auth'
-  const isZCodeTemplate =
-    selected?.id === 'zcode-bigmodel' || selected?.id === 'zcode-zai'
+  const webAccountProvider = (() : WebAccountProvider | null => {
+    if (selected?.id === 'xiaohuanxiong') return 'raccoon'
+    if (['trae-cn','cline-account','qoder-cn','qoder-global','zcode-bigmodel','zcode-zai'].includes(selected?.id ?? '')) return selected?.id as WebAccountProvider
+    return null
+  })()
+  const isZCodeTemplate = Boolean(webAccountProvider)
   const isIpFreeTemplate = templateKind === 'ip'
   const isApiKeyTemplate = templateKind === 'api'
   const templatePresentation = {
@@ -1147,45 +1152,11 @@ export function FromTemplateDialog({
                   }}
                 />
               )}
-              {(
-                [
-                  'kimi-work',
-                  'xiaomi-mimo',
-                  'trae-cn',
-                  'zcode-bigmodel',
-                  'zcode-zai',
-                ] as const
-              ).map(
-                (provider) =>
-                  selected.id === provider && (
-                    <ProviderAuthorizationCard
-                      key={provider}
-                      provider={provider}
-                      options={{
-                        displayName: customName.trim() || undefined,
-                        public: visibility || publicModels.length > 0,
-                        proxy: proxySelectionTouched
-                          ? resolveOutboundProxy()
-                          : undefined,
-                        proxyPolicy:
-                          proxySelectionTouched || provider !== 'trae-cn'
-                            ? proxyPolicy
-                            : undefined,
-                      }}
-                      disabled={
-                        isSubmitting ||
-                        !isChannelProxySelectionComplete(proxyPolicy, proxyUrl)
-                      }
-                      onComplete={() => {
-                        void queryClient.invalidateQueries({
-                          queryKey: channelsQueryKeys.all,
-                        })
-                        onOpenChange(false)
-                      }}
-                    />
-                  )
+              {webAccountProvider && (
+                <BrowserAccountConnection key={webAccountProvider} provider={webAccountProvider} options={{displayName:customName.trim()||undefined,public:visibility,proxy:proxySelectionTouched?resolveOutboundProxy():undefined,proxyPolicy}} disabled={isSubmitting || !isChannelProxySelectionComplete(proxyPolicy,proxyUrl)} onComplete={()=>{void queryClient.invalidateQueries({queryKey:channelsQueryKeys.all});onOpenChange(false)}}/>
               )}
-              {isAuthTemplate &&
+              {(['kimi-work','xiaomi-mimo'] as const).map((provider)=> selected.id===provider && <ProviderAuthorizationCard key={provider} provider={provider} options={{displayName:customName.trim()||undefined,public:visibility,proxy:proxySelectionTouched?resolveOutboundProxy():undefined,proxyPolicy}} disabled={isSubmitting||!isChannelProxySelectionComplete(proxyPolicy,proxyUrl)} onComplete={()=>{void queryClient.invalidateQueries({queryKey:channelsQueryKeys.all});onOpenChange(false)}}/>)}
+              {isAuthTemplate && !webAccountProvider &&
                 ![
                   'freepi',
                   'kimi-work',
@@ -1606,7 +1577,7 @@ export function FromTemplateDialog({
               <div className='space-y-3 rounded-xl border p-3.5'>
                 <p className='text-muted-foreground text-sm'>
                   {t(
-                    'ZCode models are discovered securely after login. Edit the channel to select models after connection.'
+                    'Account models are discovered securely after login. Edit the channel to select models after connection.'
                   )}
                 </p>
                 <Label className='flex items-start gap-2'>
@@ -1618,7 +1589,7 @@ export function FromTemplateDialog({
                     }
                   />
                   {t(
-                    'I explicitly allow other users to use this ZCode channel and spend my account credits'
+                    'I explicitly allow other users to use this channel and spend my account credits'
                   )}
                 </Label>
                 <Label htmlFor='zcode-channel-name'>{t('Channel name')}</Label>

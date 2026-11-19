@@ -34,11 +34,30 @@ func (f selfContractTransport) RoundTrip(r *http.Request) (*http.Response, error
 
 func setSelfContractTransport(t *testing.T, transport selfContractTransport) {
 	t.Helper()
-	client, err := service.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
-	require.NoError(t, err)
-	previous := client.Transport
-	client.Transport = transport
-	t.Cleanup(func() { client.Transport = previous })
+	setSelfContractProxyTransport(t, "", transport)
+}
+
+func setSelfContractProxyTransport(t *testing.T, proxy string, transport selfContractTransport) {
+	t.Helper()
+	// Isolate generic and strict account caches, including DS2 HTTP/1.1, so
+	// fixture credentials never escape through a real provider connection.
+	seen := make(map[*http.Client]bool)
+	install := func(client *http.Client, err error) {
+		require.NoError(t, err)
+		if seen[client] {
+			return
+		}
+		seen[client] = true
+		previous := client.Transport
+		client.Transport = transport
+		t.Cleanup(func() { client.Transport = previous })
+	}
+	for _, settings := range []dto.ChannelSettings{{}, {HTTPProtocol: "http1"}} {
+		install(service.GetHttpClientWithProxySettings(proxy, settings))
+	}
+	for _, protocol := range []string{"", "http1"} {
+		install(service.GetAccountAuthHTTPClient(proxy, protocol))
+	}
 }
 func selfContractResponse(status int, body string) (*http.Response, error) {
 	return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
@@ -247,7 +266,7 @@ func selfContractDS2Session(t *testing.T, uid int) *model.UserSession {
 	t.Helper()
 	require.NoError(t, model.DB.AutoMigrate(&model.UserSession{}))
 	require.NoError(t, model.DB.Model(&model.User{}).Where("id = ?", uid).Update("auth_version", 1).Error)
-	session := &model.UserSession{SID: "e5d45474-96bf-4ae0-9364-8d70dcfe5e34", UserID: uid, Version: 1, UserAuthVersion: 1, Status: model.UserSessionStatusActive, RefreshHash: common.GenerateHMACWithKey(func() []byte {
+	session := &model.UserSession{SID: common.GetUUID(), UserID: uid, Version: 1, UserAuthVersion: 1, Status: model.UserSessionStatusActive, RefreshHash: common.GenerateHMACWithKey(func() []byte {
 		mac := hmac.New(sha256.New, []byte(common.SessionSecret))
 		_, _ = mac.Write([]byte("new-api/auth/refresh/v1"))
 		return mac.Sum(nil)
@@ -742,16 +761,12 @@ func TestDS2PoolActivationPreservesOwnerManualDisable(t *testing.T) {
 	require.NoError(t, model.DB.Model(&flow).Update("refresh", encrypted).Error)
 	proxy, err := model.ResolveStableChannelProxy(uid, 0, options.EgressKey, dto.ChannelSettings{Proxy: options.Proxy, ProxyPolicy: options.ProxyPolicy})
 	require.NoError(t, err)
-	client, err := service.GetHttpClientWithProxy(proxy)
-	require.NoError(t, err)
-	oldTransport := client.Transport
-	client.Transport = selfContractTransport(func(r *http.Request) (*http.Response, error) {
+	setSelfContractProxyTransport(t, proxy, func(r *http.Request) (*http.Response, error) {
 		if r.URL.Host == "chat.deepseek.com" {
 			return selfContractResponse(200, `{"code":0,"data":{"biz_code":0,"biz_data":{"user":{"token":"owner-disable-token"}}}}`)
 		}
 		return selfContractResponse(200, `{"data":[{"id":"deepseek-chat"}]}`)
 	})
-	t.Cleanup(func() { client.Transport = oldTransport })
 	intercepted := false
 	const hook = "test:ds2-owner-disable-at-bind"
 	require.NoError(t, model.DB.Callback().Query().After("gorm:query").Register(hook, func(tx *gorm.DB) {

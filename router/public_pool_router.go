@@ -17,4 +17,14 @@ func registerPublicPoolRoutes(apiRouter *gin.RouterGroup) {
 		pool.GET("/comments", controller.GetPublicPoolComments)
 		pool.POST("/comments", middleware.CriticalRateLimit(), controller.AddPublicPoolComment)
 	}
+	admin := pool.Group("/admin/channels", middleware.RootAuth(), middleware.DisableCache())
+	{
+		admin.GET("", controller.ListPublicPoolAdminChannels)
+		admin.GET("/:id", controller.GetPublicPoolAdminChannel)
+		admin.POST("", middleware.CriticalRateLimit(), controller.AddPublicPoolAdminChannel)
+		admin.PUT("/:id", middleware.CriticalRateLimit(), controller.UpdatePublicPoolAdminChannel)
+		admin.DELETE("/:id", controller.DeletePublicPoolAdminChannel)
+		admin.POST("/:id/copy", middleware.CriticalRateLimit(), controller.CopyPublicPoolAdminChannel)
+		admin.POST("/:id/status", controller.SetPublicPoolAdminChannelStatus)
+	}
 }

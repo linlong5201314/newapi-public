@@ -107,6 +107,10 @@ describe('demo-only authenticated shell', () => {
       ).toBeVisible()
       expect(screen.getAllByRole('banner')).toHaveLength(1)
       expect(screen.getByRole('banner')).toHaveClass('ds-demo-header')
+      expect(screen.getByRole('link', { name: 'Download App' })).toBeVisible()
+      expect(
+        screen.getByRole('link', { name: 'Download App' })
+      ).toHaveAttribute('href', '/deepseek-newapi.apk')
       expect(
         document.querySelector('[data-slot=sidebar]')
       ).not.toBeInTheDocument()

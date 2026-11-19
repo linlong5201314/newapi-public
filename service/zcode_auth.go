@@ -62,7 +62,7 @@ func ValidZCodeAuthorizationURL(target string) bool {
 func zcodeProvider(provider string) bool { return provider == "bigmodel" || provider == "zai" }
 
 func zcodeLoginRequest(ctx context.Context, proxy, method, path, token string, body []byte) ([]byte, error) {
-	client, err := GetHttpClientWithProxy(proxy)
+	client, err := GetAccountAuthHTTPClient(proxy, "")
 	if err != nil || client == nil {
 		return nil, ErrAccountEgress
 	}
@@ -74,6 +74,7 @@ func zcodeLoginRequest(ctx context.Context, proxy, method, path, token string, b
 	if err != nil {
 		return nil, ErrAccountProtocol
 	}
+	req.GetBody = nil // Never replay credential-bearing authorization requests.
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json")
 	if body != nil {

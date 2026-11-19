@@ -13,8 +13,9 @@ import (
 )
 
 func TestZCodeStartPlanEntitlements(t *testing.T) {
-	InitHttpClient()
-	client := GetHttpClient()
+	isolateAccountAuthTestCache(t)
+	client, err := GetAccountAuthHTTPClient("", "")
+	require.NoError(t, err)
 	old := *client
 	t.Cleanup(func() { *client = old })
 	now := time.Now().Unix()
@@ -66,13 +67,14 @@ func TestZCodeStartPlanEntitlements(t *testing.T) {
 		h.Set("Date", time.Unix(now+4000, 0).UTC().Format(http.TimeFormat))
 		return &http.Response{StatusCode: 200, Header: h, Body: io.NopCloser(strings.NewReader(valid)), Request: req}, nil
 	})
-	_, err := ValidateZCodeStartPlan(context.Background(), "", &ZCodeCredential{Provider: "zai", UserID: "owner", Token: "private-plan-fixture", ExpiresAt: now + 7200})
+	_, err = ValidateZCodeStartPlan(context.Background(), "", &ZCodeCredential{Provider: "zai", UserID: "owner", Token: "private-plan-fixture", ExpiresAt: now + 7200})
 	require.ErrorIs(t, err, ErrZCodePlanUnavailable)
 }
 
 func TestZCodeStartPlanRejectsAuthenticationAndRedirect(t *testing.T) {
-	InitHttpClient()
-	client := GetHttpClient()
+	isolateAccountAuthTestCache(t)
+	client, err := GetAccountAuthHTTPClient("", "")
+	require.NoError(t, err)
 	old := *client
 	t.Cleanup(func() { *client = old })
 	for _, status := range []int{302, 401, 403, 429, 503} {

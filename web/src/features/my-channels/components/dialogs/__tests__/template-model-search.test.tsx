@@ -268,25 +268,12 @@ it('keeps manual model choices when the interface language changes', async () =>
   }
 })
 
-it('does not offer unavailable Raccoon browser authorization and explains official client credentials', async () => {
-  const user = userEvent.setup()
-  renderDialog()
-  await user.click(
-    await screen.findByRole('button', { name: /Raccoon auth fixture/ })
-  )
-  expect(
-    screen.queryByRole('button', { name: /浏览器 OAuth 授权/ })
-  ).not.toBeInTheDocument()
-  expect(
-    screen.getByText(
-      'Raccoon browser authorization only supports an official local client. Gateway callbacks are not supported'
-    )
-  ).toBeVisible()
-  expect(api.post).not.toHaveBeenCalledWith(
-    '/api/channel/self/oauth/raccoon/start',
-    expect.anything(),
-    expect.anything()
-  )
+it('offers generated Raccoon browser authorization without helper downloads',async()=>{
+ const user=userEvent.setup();renderDialog()
+ await user.click(await screen.findByRole('button',{name:/Raccoon auth fixture/}))
+ expect(screen.getByRole('button',{name:'Generate authorization URL'})).toBeInTheDocument()
+ expect(screen.queryByText(/F12/)).not.toBeInTheDocument()
+ expect(api.post).not.toHaveBeenCalled()
 })
 
 it('opens the DS2 account login popup on the user gesture and closes it when start fails', async () => {
@@ -320,7 +307,7 @@ it('uses ZCode native consent without the generic token submit or unauthenticate
     await screen.findByRole('button', { name: /ZCode account fixture/ })
   )
   expect(
-    await screen.findByRole('button', { name: 'Authorize ZCode account' })
+    await screen.findByRole('button', { name: 'Generate authorization URL' })
   ).toBeInTheDocument()
   expect(
     screen.queryByRole('button', { name: '提交 Token 授权并开通渠道' })
@@ -330,7 +317,7 @@ it('uses ZCode native consent without the generic token submit or unauthenticate
   ).not.toBeInTheDocument()
   expect(
     screen.getByRole('checkbox', {
-      name: 'I explicitly allow other users to use this ZCode channel and spend my account credits',
+      name: 'I explicitly allow other users to use this channel and spend my account credits',
     })
   ).not.toBeChecked()
 })

@@ -58,7 +58,9 @@ func encryptWorkBuddyState(state *WorkBuddyAuthState) (string, error) {
 }
 
 func CreateWorkBuddyAuthFlow(state WorkBuddyAuthState) (string, error) {
-	if (state.Provider != "workbuddy" && state.Provider != "trae" && state.Provider != "kimi-work" && state.Provider != "xiaomi-mimo" && state.Provider != "zcode") || (len(state.Models) == 0 && state.Provider != "zcode") || state.EgressKey == "" {
+	providerAllowed := state.Provider == "workbuddy" || state.Provider == "trae" || state.Provider == "kimi-work" || state.Provider == "xiaomi-mimo" || state.Provider == "zcode" || state.Provider == "qoder" || state.Provider == "cline" || state.Provider == "raccoon"
+	discoversModels := state.Provider == "zcode" || state.Provider == "qoder" || state.Provider == "cline" || state.Provider == "raccoon"
+	if !providerAllowed || len(state.Models) == 0 && !discoversModels || state.EgressKey == "" {
 		return "", ErrAuthFlowInvalid
 	}
 	payload, err := encryptWorkBuddyState(&state)

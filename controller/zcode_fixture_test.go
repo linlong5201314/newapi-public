@@ -108,6 +108,13 @@ func zcodeControllerFixture(t *testing.T, dialect string) (*gorm.DB, model.AuthS
 	client := service.GetHttpClient()
 	oldClient := *client
 	t.Cleanup(func() { *client = oldClient })
+	strictClient, strictErr := service.GetAccountAuthHTTPClient("", "")
+	require.NoError(t, strictErr)
+	previousStrictTransport := strictClient.Transport
+	strictClient.Transport = workBuddyTestTransport(func(request *http.Request) (*http.Response, error) {
+		return client.Transport.RoundTrip(request)
+	})
+	t.Cleanup(func() { strictClient.Transport = previousStrictTransport })
 
 	return db, identity, request, client
 }

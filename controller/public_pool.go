@@ -1,15 +1,301 @@
 package controller
 
 import (
+	"bytes"
+	"io"
+	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 )
+
+// requirePublicPoolRoot is also checked in handlers so future route registration
+// cannot accidentally turn this platform-wide surface into an admin/user API.
+func requirePublicPoolRoot(c *gin.Context) bool {
+	if c.GetInt("role") != common.RoleRootUser || c.GetInt("id") <= 0 {
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"success": false, "message": "Unauthorized, insufficient privileges"})
+		return false
+	}
+	return true
+}
+
+func loadPublicPoolAdminChannel(c *gin.Context) (*model.PublicPoolAdminChannel, bool) {
+	if !requirePublicPoolRoot(c) {
+		return nil, false
+	}
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"success": false, "message": "Public free channel not found"})
+		return nil, false
+	}
+	channel, err := model.GetPublicPoolAdminChannel(id)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"success": false, "message": "Public free channel not found"})
+		return nil, false
+	}
+	return channel, true
+}
+
+func ListPublicPoolAdminChannels(c *gin.Context) {
+	if !requirePublicPoolRoot(c) {
+		return
+	}
+	page := min(1000000, parseLimitOrDefault(c.Query("page"), 1))
+	limit := min(100, parseLimitOrDefault(c.Query("page_size"), 20))
+	status := 0
+	if raw := c.Query("status"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > 3 {
+			common.ApiErrorT(c, "Invalid parameters")
+			return
+		}
+		status = parsed
+	}
+	items, total, err := model.ListPublicPoolAdminChannels(c.Query("keyword"), status, (page-1)*limit, limit)
+	if err != nil {
+		common.ApiErrorT(c, "Failed to fetch channels. Please try again later")
+		return
+	}
+	common.ApiSuccess(c, gin.H{"items": items, "total": total, "page": page, "page_size": limit})
+}
+
+func GetPublicPoolAdminChannel(c *gin.Context) {
+	channel, ok := loadPublicPoolAdminChannel(c)
+	if ok {
+		common.ApiSuccess(c, channel)
+	}
+}
+
+// publicPoolAdminMutationWriter buffers only the existing synchronous JSON
+// management handler response. Its full Channel payload must never reach a
+// browser: URL/query, provider settings and metadata may all hold credentials.
+type publicPoolAdminMutationWriter struct {
+	gin.ResponseWriter
+	body bytes.Buffer
+}
+
+func (writer *publicPoolAdminMutationWriter) Write(data []byte) (int, error) {
+	return writer.body.Write(data)
+}
+
+func (writer *publicPoolAdminMutationWriter) WriteString(data string) (int, error) {
+	return writer.body.WriteString(data)
+}
+
+func runPublicPoolAdminMutation(c *gin.Context, execute gin.HandlerFunc) {
+	originalWriter := c.Writer
+	buffer := &publicPoolAdminMutationWriter{ResponseWriter: originalWriter}
+	c.Writer = buffer
+	defer func() { c.Writer = originalWriter }()
+	execute(c)
+	c.Writer = originalWriter
+	var response struct {
+		Success bool `json:"success"`
+		Data    struct {
+			ID int `json:"id"`
+		} `json:"data"`
+	}
+	if common.Unmarshal(buffer.body.Bytes(), &response) != nil || !response.Success {
+		// Driver/validator errors can embed key, URL or provider configuration.
+		common.ApiErrorT(c, "Unable to save public free channel. Check the channel settings")
+		return
+	}
+	common.ApiSuccess(c, gin.H{"id": response.Data.ID})
+}
+
+// bindPublicPoolAdminFields keeps ownership, tier, status, metadata and provider
+// settings outside this deliberately narrow management form. Credentials/URLs
+// are write-only; blank replacements on edit mean preserve the saved value.
+func bindPublicPoolAdminFields(c *gin.Context, isAdd bool) (map[string]any, bool) {
+	var fields map[string]any
+	if c.ShouldBindJSON(&fields) != nil || len(fields) == 0 {
+		common.ApiErrorT(c, "Invalid parameters")
+		return nil, false
+	}
+	for name := range fields {
+		switch name {
+		case "name", "type", "models", "group", "key", "base_url", "priority", "weight":
+		default:
+			common.ApiErrorT(c, "Invalid parameters")
+			return nil, false
+		}
+	}
+	for _, name := range []string{"name", "models", "group"} {
+		value, ok := fields[name].(string)
+		if !ok || strings.TrimSpace(value) == "" {
+			common.ApiErrorT(c, "Invalid parameters")
+			return nil, false
+		}
+		fields[name] = strings.TrimSpace(value)
+	}
+	if len([]rune(fields["name"].(string))) > 128 || len(fields["group"].(string)) > 64 {
+		common.ApiErrorT(c, "Invalid parameters")
+		return nil, false
+	}
+	for _, field := range []string{"models", "group"} {
+		parts := strings.Split(fields[field].(string), ",")
+		for i, part := range parts {
+			parts[i] = strings.TrimSpace(part)
+			if parts[i] == "" || len(parts[i]) > 255 {
+				common.ApiErrorT(c, "Invalid parameters")
+				return nil, false
+			}
+		}
+		fields[field] = strings.Join(parts, ",")
+	}
+	if kind, exists := fields["type"]; exists {
+		number, ok := kind.(float64)
+		if !ok || number <= 0 || number >= constant.ChannelTypeDummy || number != float64(int(number)) {
+			common.ApiErrorT(c, "Invalid parameters")
+			return nil, false
+		}
+		if _, known := constant.ChannelTypeNames[int(number)]; !known {
+			common.ApiErrorT(c, "Invalid parameters")
+			return nil, false
+		}
+	}
+	for _, field := range []string{"priority", "weight"} {
+		if value, exists := fields[field]; exists {
+			number, ok := value.(float64)
+			if !ok || number < 0 || number > 2147483647 || number != float64(int64(number)) {
+				common.ApiErrorT(c, "Invalid parameters")
+				return nil, false
+			}
+		}
+	}
+	for name := range fields {
+		if name != "key" && name != "base_url" {
+			continue
+		}
+		value, ok := fields[name].(string)
+		if !ok {
+			common.ApiErrorT(c, "Invalid parameters")
+			return nil, false
+		}
+		if !isAdd && strings.TrimSpace(value) == "" {
+			delete(fields, name)
+			continue
+		}
+		if name == "base_url" && value != "" {
+			parsed, err := url.Parse(value)
+			if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+				common.ApiErrorT(c, "Invalid parameters")
+				return nil, false
+			}
+		}
+	}
+	if isAdd {
+		if key, ok := fields["key"].(string); !ok || strings.TrimSpace(key) == "" {
+			common.ApiErrorT(c, "Invalid parameters")
+			return nil, false
+		}
+	}
+	return fields, true
+}
+
+func AddPublicPoolAdminChannel(c *gin.Context) {
+	if !requirePublicPoolRoot(c) {
+		return
+	}
+	fields, ok := bindPublicPoolAdminFields(c, true)
+	if !ok {
+		return
+	}
+	raw, err := common.Marshal(fields)
+	if err != nil {
+		common.ApiErrorT(c, "Invalid parameters")
+		return
+	}
+	channel := &model.Channel{}
+	if common.Unmarshal(raw, channel) != nil || channel.Type <= 0 {
+		common.ApiErrorT(c, "Invalid parameters")
+		return
+	}
+	channel.OwnerId, channel.Tier, channel.Visibility = 0, "free", 1
+	channel.Status = common.ChannelStatusManuallyDisabled
+	request := AddChannelRequest{Mode: "single", Channel: channel}
+	// Use the supported admin controller for plugin permissions, validation,
+	// abilities, encryption, cache refresh and audit; do not duplicate DB writes.
+	raw, err = common.Marshal(request)
+	if err != nil {
+		common.ApiErrorT(c, "Invalid parameters")
+		return
+	}
+	c.Request.Body = io.NopCloser(bytes.NewReader(raw))
+	c.Request.ContentLength = int64(len(raw))
+	runPublicPoolAdminMutation(c, AddChannel)
+}
+
+func UpdatePublicPoolAdminChannel(c *gin.Context) {
+	public, ok := loadPublicPoolAdminChannel(c)
+	if !ok {
+		return
+	}
+	fields, ok := bindPublicPoolAdminFields(c, false)
+	if !ok {
+		return
+	}
+	original, err := model.GetChannelById(public.Id, false)
+	if err != nil || original.OwnerId != 0 || original.Tier != "free" {
+		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"success": false, "message": "Public free channel not found"})
+		return
+	}
+	if kind, exists := fields["type"]; exists && kind != float64(original.Type) {
+		common.ApiErrorT(c, "Invalid parameters")
+		return
+	}
+	fields["id"], fields["type"] = original.Id, original.Type
+	fields["other"], fields["settings"] = original.Other, original.OtherSettings
+	if _, exists := fields["base_url"]; !exists {
+		fields["base_url"] = original.BaseURL
+	}
+	if original.Setting != nil {
+		fields["setting"] = original.Setting
+	}
+	raw, err := common.Marshal(fields)
+	if err != nil {
+		common.ApiErrorT(c, "Invalid parameters")
+		return
+	}
+	c.Request.Body = io.NopCloser(bytes.NewReader(raw))
+	c.Request.ContentLength = int64(len(raw))
+	runPublicPoolAdminMutation(c, UpdateChannel)
+}
+
+func DeletePublicPoolAdminChannel(c *gin.Context) {
+	channel, ok := loadPublicPoolAdminChannel(c)
+	if ok {
+		deleteChannelById(c, channel.Id)
+	}
+}
+
+func CopyPublicPoolAdminChannel(c *gin.Context) {
+	public, ok := loadPublicPoolAdminChannel(c)
+	if !ok {
+		return
+	}
+	original, err := model.GetChannelById(public.Id, true)
+	if err != nil || original.OwnerId != 0 || original.Tier != "free" {
+		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"success": false, "message": "Public free channel not found"})
+		return
+	}
+	// A newly copied public channel also requires an explicit enable after test.
+	original.Status = common.ChannelStatusManuallyDisabled
+	copyChannelExecute(c, original)
+}
+
+func SetPublicPoolAdminChannelStatus(c *gin.Context) {
+	if _, ok := loadPublicPoolAdminChannel(c); ok {
+		UpdateChannelStatus(c)
+	}
+}
 
 type publicOwner struct {
 	UserId int    `json:"user_id"`
