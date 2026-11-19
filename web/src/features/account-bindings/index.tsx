@@ -23,6 +23,7 @@ import {
   type OAuthSession,
 } from './api'
 import { FreePiAuthorizationCard } from './freepi-authorization'
+import { ProviderAuthorizationCard } from './provider-authorization'
 
 const STATUS_TEXT: Record<string, string> = {
   pending: '排队开通',
@@ -70,6 +71,7 @@ export function AccountBindingsCard() {
       templates.filter(
         (item) =>
           item.id !== 'freepi' &&
+          item.id !== 'trae-intl' &&
           (item.authMode === 'account' ||
             item.authMode === 'oauth' ||
             item.authMode === 'gateway' ||
@@ -100,6 +102,7 @@ export function AccountBindingsCard() {
       const first = list.find(
         (item) =>
           item.id !== 'freepi' &&
+          item.id !== 'trae-intl' &&
           (item.authMode === 'account' ||
             item.authMode === 'oauth' ||
             item.authMode === 'gateway' ||
@@ -144,7 +147,7 @@ export function AccountBindingsCard() {
       )
       return
     }
-    if (provider === 'trae-cn' || provider === 'trae-intl') {
+    if (provider === 'trae-cn') {
       await submitTrae(accounts)
       return
     }
@@ -382,12 +385,33 @@ export function AccountBindingsCard() {
           onChange={(e) => setDisplayName(e.target.value)}
         />
       </div>
-      <textarea
-        className='mt-2 h-24 w-full rounded-md border bg-transparent p-2 font-mono text-xs'
-        placeholder={accountPlaceholder}
-        value={accounts}
-        onChange={(e) => setAccounts(e.target.value)}
-      />
+      {(['kimi-work', 'xiaomi-mimo', 'trae-cn'] as const).map(
+        (nativeProvider) =>
+          provider === nativeProvider && (
+            <ProviderAuthorizationCard
+              key={nativeProvider}
+              provider={nativeProvider}
+              options={{
+                displayName: displayName.trim() || undefined,
+                public: isPublic,
+                proxy: proxy.trim() || undefined,
+                proxyPolicy: proxy.trim() ? { mode: 'fixed' } : undefined,
+              }}
+              disabled={busy}
+              onComplete={() => {
+                void reload()
+              }}
+            />
+          )
+      )}
+      {!['kimi-work', 'xiaomi-mimo'].includes(provider) && (
+        <textarea
+          className='mt-2 h-24 w-full rounded-md border bg-transparent p-2 font-mono text-xs'
+          placeholder={accountPlaceholder}
+          value={accounts}
+          onChange={(e) => setAccounts(e.target.value)}
+        />
+      )}
       {provider === 'ds2api' && (
         <div className='text-muted-foreground mt-1 text-xs leading-relaxed'>
           {t(
@@ -421,8 +445,8 @@ export function AccountBindingsCard() {
           type='button'
           disabled={
             busy ||
-            ((provider === 'trae-cn' || provider === 'trae-intl') &&
-              !traeConfirmed)
+            ['kimi-work', 'xiaomi-mimo'].includes(provider) ||
+            (provider === 'trae-cn' && !traeConfirmed)
           }
           className='h-8 rounded-md border px-3 text-sm disabled:opacity-50'
           onClick={submit}
@@ -506,7 +530,7 @@ export function AccountBindingsCard() {
 
         <div className='rounded border p-2'>
           <div className='mb-1 text-xs font-medium'>
-            Trae 授权导入（回调链接或 refreshToken）
+            {t('Trae domestic credential import fallback')}
           </div>
           <div className='text-muted-foreground mb-2 text-xs'>
             {t(

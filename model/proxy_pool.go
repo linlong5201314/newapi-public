@@ -128,18 +128,34 @@ func EnsureProxyPoolSchema() error {
 	return nil
 }
 
-// ListProxyEndpoints 列出某用户可见的出口节点：自己的全部节点优先 + 已公开进池的低延迟节点（上限 600 条防止跨区超大包阻塞）。
+const ProxyEndpointListLimit = 600
+
+// ListProxyEndpoints preserves the bounded legacy list contract.
 func ListProxyEndpoints(userId int) ([]ProxyEndpoint, error) {
+	list, _, err := ListProxyEndpointsPage(userId, 0, ProxyEndpointListLimit)
+	return list, err
+}
+
+// ListProxyEndpointsPage bounds response size, not inventory or scheduling.
+// One look-ahead row reports hasMore without an extra full inventory count.
+func ListProxyEndpointsPage(userId, offset, limit int) ([]ProxyEndpoint, bool, error) {
+	if offset < 0 || limit <= 0 || limit > ProxyEndpointListLimit {
+		return nil, false, fmt.Errorf("invalid proxy endpoint pagination")
+	}
 	if err := EnsureProxyPoolSchema(); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	var list []ProxyEndpoint
 	err := DB.Select("id, user_id, name, kind, url, CASE WHEN raw_uri <> '' THEN substr(raw_uri, 1, 20) ELSE '' END AS raw_uri, region, subscription_id, source, enabled, public, weight, latency_ms, fail_count, last_ok_at, last_error, created_at, updated_at").
 		Where("user_id = ? OR public = ?", userId, true).
 		Order("CASE WHEN user_id = " + itoaSafe(userId) + " AND source <> 'haizhu' THEN 0 ELSE 1 END ASC, fail_count ASC, CASE WHEN latency_ms > 0 THEN latency_ms ELSE 99999 END ASC, weight DESC, id ASC").
-		Limit(600).
+		Offset(offset).Limit(limit + 1).
 		Find(&list).Error
-	return list, err
+	hasMore := len(list) > limit
+	if hasMore {
+		list = list[:limit]
+	}
+	return list, hasMore, err
 }
 
 // ProxyPoolStats 代理池聚合统计。
@@ -650,32 +666,22 @@ func ResolveStableChannelProxy(ownerID, channelID int, accountKey string, settin
 	if err := query.Order("id ASC").Find(&endpoints).Error; err != nil {
 		return "", fmt.Errorf("resolve proxy policy: %w", err)
 	}
-	urls := make(map[string]string)
+	// Rank inventory IDs before resolving a listener. Eager resolution would
+	// either exclude everything outside preload or load thousands of listeners.
+	candidates := make(map[string]ProxyEndpoint, len(endpoints))
 	best, bestRank := "", -1
 	var bestScore [32]byte
 	for _, endpoint := range endpoints {
-		proxyURL := endpoint.Url
-		if proxyURL == "" && endpoint.RawUri != "" {
-			proxyURL, err = endpointProxyURLProvider(endpoint)
-			if err != nil {
-				if strconv.Itoa(endpoint.Id) == bound {
-					return "", fmt.Errorf("account proxy is not loaded in this process; reload its bounded runtime")
-				}
+		if endpoint.Url == "" && endpoint.RawUri == "" {
+			continue
+		}
+		if endpoint.Url != "" {
+			if parsed, parseErr := common.ParseProxyURLStrict(endpoint.Url); parseErr != nil || parsed == nil {
 				continue
 			}
 		}
-		if proxyURL == "" {
-			continue
-		}
-		if parsed, parseErr := common.ParseProxyURLStrict(proxyURL); parseErr != nil || parsed == nil {
-			continue
-		}
 		id := strconv.Itoa(endpoint.Id)
-		stableProxyEndpoints.Store(sha256.Sum256([]byte(proxyURL)), stableProxyEndpoint{id: endpoint.Id, fingerprint: sha256.Sum256([]byte(endpoint.Url + "\x00" + endpoint.RawUri))})
-		urls[id] = proxyURL
-		if id == bound {
-			return proxyURL, nil
-		}
+		candidates[id] = endpoint
 		rank := 0
 		region := strings.ToUpper(endpoint.Region + " " + endpoint.Name)
 		if strings.HasPrefix(identity, "hk-tw:") && (strings.Contains(region, "HK") || strings.Contains(region, "TW") || strings.Contains(region, "香港") || strings.Contains(region, "台湾") || strings.Contains(region, "台灣")) {
@@ -692,14 +698,30 @@ func ResolveStableChannelProxy(ownerID, channelID int, accountKey string, settin
 	if best == "" {
 		return "", fmt.Errorf("no usable proxy in selected scope; direct fallback is disabled")
 	}
-	selected, err := proxyStickyValue(key, &bound, best)
-	if err != nil {
-		return "", err
+	selected := bound
+	if _, ok := candidates[selected]; !ok {
+		selected, err = proxyStickyValue(key, &bound, best)
+		if err != nil {
+			return "", err
+		}
 	}
-	if proxyURL := urls[selected]; proxyURL != "" {
-		return proxyURL, nil
+	endpoint, ok := candidates[selected]
+	if !ok {
+		return "", fmt.Errorf("proxy binding changed concurrently; retry the request")
 	}
-	return "", fmt.Errorf("proxy binding changed concurrently; retry the request")
+	proxyURL := endpoint.Url
+	if proxyURL == "" {
+		proxyURL, err = selectedEndpointProxyURLProvider(endpoint)
+		if err != nil {
+			// Runtime capacity/outages must not rotate an otherwise valid binding.
+			return "", fmt.Errorf("account proxy endpoint unavailable in this process: %w", err)
+		}
+	}
+	if parsed, parseErr := common.ParseProxyURLStrict(proxyURL); parseErr != nil || parsed == nil {
+		return "", fmt.Errorf("account proxy endpoint returned an invalid listener URL")
+	}
+	stableProxyEndpoints.Store(sha256.Sum256([]byte(proxyURL)), stableProxyEndpoint{id: endpoint.Id, fingerprint: sha256.Sum256([]byte(endpoint.Url + "\x00" + endpoint.RawUri))})
+	return proxyURL, nil
 }
 
 type stableProxyEndpoint struct {
@@ -736,10 +758,23 @@ var endpointProxyURLProvider = func(ProxyEndpoint) (string, error) {
 	return "", fmt.Errorf("mihomo endpoint listener is unavailable; reload the kernel")
 }
 
+// selectedEndpointProxyURLProvider may load ONE already authorized endpoint.
+// Passive pool enumeration must keep using endpointProxyURLProvider.
+var selectedEndpointProxyURLProvider = func(endpoint ProxyEndpoint) (string, error) {
+	return endpointProxyURLProvider(endpoint)
+}
+
 // SetEndpointProxyURLProvider registers the loaded, fixed-node listener resolver at startup.
 func SetEndpointProxyURLProvider(fn func(ProxyEndpoint) (string, error)) {
 	if fn != nil {
 		endpointProxyURLProvider = fn
+	}
+}
+
+// SetSelectedEndpointProxyURLProvider registers bounded, on-demand resolution.
+func SetSelectedEndpointProxyURLProvider(fn func(ProxyEndpoint) (string, error)) {
+	if fn != nil {
+		selectedEndpointProxyURLProvider = fn
 	}
 }
 
@@ -767,8 +802,8 @@ func SetKernelFailoverProvider(fn func(userId int, proxyURL string) bool) {
 	kernelFailoverProvider = fn
 }
 
-// ProxyRuntimePreloadLimit bounds per-process listeners, not database inventory.
-// Unloaded inventory is not claimed as usable or loaded on another instance.
+// ProxyRuntimePreloadLimit bounds initial per-process listeners, not inventory.
+// Selected endpoints can load on demand up to the separate runtime hard bound.
 func ProxyRuntimePreloadLimit() int {
 	return min(max(common.GetEnvOrDefault("PROXY_POOL_PRELOAD_LIMIT", 300), 1), 1500)
 }

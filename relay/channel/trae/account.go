@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/QuantumNous/new-api/common"
 )
 
 // Cred Trae 渠道凭据（channels.key 的 JSON 内容；M5 统一做落库加密）。
@@ -21,8 +23,9 @@ type Cred struct {
 	MachineID    string `json:"machineId,omitempty"` // hex32
 	DeviceID     string `json:"deviceId,omitempty"`  // hex32
 	Nickname     string `json:"nickname,omitempty"`
-	Domain       string `json:"domain,omitempty"`  // "trae.cn"
-	ApiHost      string `json:"apiHost,omitempty"` // ExchangeToken host，空=默认 api.trae.com.cn
+	Domain       string `json:"domain,omitempty"`   // "trae.cn"
+	ApiHost      string `json:"apiHost,omitempty"`  // Empty preserves the legacy OAuthHost for existing channels.
+	ClientID     string `json:"clientId,omitempty"` // Empty preserves the legacy SOLO client.
 	EnterpriseID string `json:"enterpriseId,omitempty"`
 
 	// BaseOverride 测试/mock 用：非空时三 host 全部改走该 base（生产留空）。
@@ -39,7 +42,7 @@ func ParseCred(raw string) (*Cred, error) {
 		return nil, fmt.Errorf("trae channel key must be a credential JSON object")
 	}
 	var probe map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(raw), &probe); err != nil {
+	if err := common.Unmarshal([]byte(raw), &probe); err != nil {
 		return nil, fmt.Errorf("trae credential parse: %w", err)
 	}
 	var c Cred
@@ -51,6 +54,7 @@ func ParseCred(raw string) (*Cred, error) {
 				ExpiresAt    int64  `json:"expiresAt"`
 				Domain       string `json:"domain"`
 				ApiHost      string `json:"apiHost"`
+				ClientID     string `json:"clientId"`
 				MachineID    string `json:"machineId"`
 				DeviceID     string `json:"deviceId"`
 			} `json:"auth"`
@@ -61,7 +65,7 @@ func ParseCred(raw string) (*Cred, error) {
 			} `json:"account"`
 			BaseOverride string `json:"baseOverride"`
 		}
-		if err := json.Unmarshal([]byte(raw), &n); err != nil {
+		if err := common.Unmarshal([]byte(raw), &n); err != nil {
 			return nil, fmt.Errorf("trae credential parse: %w", err)
 		}
 		c = Cred{
@@ -70,6 +74,7 @@ func ParseCred(raw string) (*Cred, error) {
 			ExpiresAt:    n.Auth.ExpiresAt,
 			Domain:       n.Auth.Domain,
 			ApiHost:      n.Auth.ApiHost,
+			ClientID:     n.Auth.ClientID,
 			MachineID:    n.Auth.MachineID,
 			DeviceID:     n.Auth.DeviceID,
 			UID:          n.Account.UID,
@@ -78,7 +83,7 @@ func ParseCred(raw string) (*Cred, error) {
 			BaseOverride: n.BaseOverride,
 		}
 	} else {
-		if err := json.Unmarshal([]byte(raw), &c); err != nil {
+		if err := common.Unmarshal([]byte(raw), &c); err != nil {
 			return nil, fmt.Errorf("trae credential parse: %w", err)
 		}
 	}
@@ -90,7 +95,7 @@ func ParseCred(raw string) (*Cred, error) {
 
 // Marshal 序列化回扁平 JSON（写回 channels.key）。
 func (c *Cred) Marshal() string {
-	raw, err := json.Marshal(c)
+	raw, err := common.Marshal(c)
 	if err != nil {
 		return ""
 	}

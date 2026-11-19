@@ -29,7 +29,16 @@ const freePiConsentVersion = "4" // Verified from freepi-gw v1.0.0; never auto-a
 var freePiVersionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
 
 func freePiError(c *gin.Context, status int, message string) {
-	c.JSON(status, gin.H{"success": false, "message": common.NewMessage(message)})
+	freePiErrorWithCode(c, status, message, "")
+}
+
+func freePiErrorWithCode(c *gin.Context, status int, message, code string) {
+	response := gin.H{"success": false, "message": common.NewMessage(message)}
+	if code != "" {
+		response["code"] = code
+		c.Set("security_error_code", code)
+	}
+	c.JSON(status, response)
 }
 
 // These handlers require UserAuth at routing and independently require a live
@@ -133,10 +142,26 @@ func StartFreePiOAuth(c *gin.Context) {
 		freePiError(c, http.StatusBadRequest, "Invalid FreePi authorization parameters or missing public sharing confirmation")
 		return
 	}
-	var session model.UserSession
-	if err := model.DB.Where("sid = ? AND user_id = ?", identity.SessionID, identity.UserID).First(&session).Error; err != nil || session.CreatedAt <= 0 || time.Since(time.Unix(session.CreatedAt, 0)) > 10*time.Minute {
-		freePiError(c, http.StatusForbidden, "Sign in again before linking a FreePi account")
-		return
+	// A supplied proof must always be consumed, even for a recent login, so it
+	// cannot be retained and replayed after the recent-auth window closes. Proofs
+	// are accepted only in the shared header, never callback URLs or JSON fields.
+	if strings.TrimSpace(c.GetHeader("X-Security-Proof")) != "" {
+		operation := service.VerificationOperation{
+			Scope: service.VerificationScopeUpstreamAccountBind, Context: []byte(`{"provider":"freepi"}`),
+		}
+		if middleware.RequireSecurityProof(c, operation) == nil {
+			return
+		}
+	} else {
+		var session model.UserSession
+		if err := model.DB.Where("sid = ? AND user_id = ?", identity.SessionID, identity.UserID).First(&session).Error; err != nil {
+			freePiError(c, http.StatusUnauthorized, "FreePi authorization login session is no longer active")
+			return
+		}
+		if session.CreatedAt <= 0 || time.Since(time.Unix(session.CreatedAt, 0)) > 10*time.Minute {
+			freePiErrorWithCode(c, http.StatusForbidden, "Verify your identity to continue linking a FreePi account.", "FREEPI_REAUTH_REQUIRED")
+			return
+		}
 	}
 	if !common.CryptoSecretConfigured || strings.TrimSpace(common.CryptoSecret) == "" {
 		freePiError(c, http.StatusServiceUnavailable, "FreePi authorization requires encrypted credential storage")

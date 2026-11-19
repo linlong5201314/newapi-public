@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relay/channel/trae"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -18,6 +20,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -103,7 +106,7 @@ func TestWorkBuddyDurableAuthorization(t *testing.T) {
 	mode, accountFail, tokenCalls, calls := "pending", false, 0, 0
 	client.Transport = workBuddyTestTransport(func(r *http.Request) (*http.Response, error) {
 		calls++
-		assert.Contains(t, []string{"copilot.tencent.com", "api.trae.com.cn"}, r.URL.Host)
+		assert.Contains(t, []string{"copilot.tencent.com", "api.trae.cn"}, r.URL.Host)
 		body, status := "", 200
 		switch r.URL.Path {
 		case "/v2/plugin/auth/state":
@@ -266,6 +269,143 @@ func TestWorkBuddyDurableAuthorization(t *testing.T) {
 	assert.True(t, common.IsEncryptedSecret(channel.Key))
 	_, err = ImportTraeAuthorization(context.Background(), identity, "", "source-token", "trae-owner", "", "", "Trae", false, true, settings)
 	assert.ErrorIs(t, err, model.ErrAuthFlowConsumed)
+
+	t.Run("Trae current official callback and dashboard boundary", func(t *testing.T) {
+		callback := "http://127.0.0.1:18080/authorize?" + url.Values{
+			"userJwt":  {`{"Token":"official-private-access","RefreshToken":"official-private-refresh","TokenExpireAt":1900000000000,"ClientID":"ono9krqynydwx5"}`},
+			"userInfo": {`{"UserID":"trae-owner","ScreenName":"Trae","Region":"CN","Host":"https://api.trae.cn"}`},
+		}.Encode()
+		raw, err := common.Marshal(map[string]any{"realm": "cn", "callbackUrl": callback, "confirmRotation": true, "mode": "preview"})
+		require.NoError(t, err)
+		request := func(body, origin, fetchSite string, pat bool, version int64) *httptest.ResponseRecorder {
+			router := gin.New()
+			router.Use(func(c *gin.Context) {
+				c.Set("id", identity.UserID)
+				c.Set("session_id", identity.SessionID)
+				c.Set("auth_version", identity.UserAuthVersion)
+				c.Set("session_version", version)
+				c.Set("use_access_token", pat)
+			})
+			router.POST("/auth", SelfImportTrae)
+			req := httptest.NewRequest(http.MethodPost, "https://dashboard.test/auth", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			if origin != "" {
+				req.Header.Set("Origin", origin)
+			}
+			if fetchSite != "" {
+				req.Header.Set("Sec-Fetch-Site", fetchSite)
+			}
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, req)
+			return response
+		}
+		for _, failure := range []struct {
+			name, origin, site string
+			pat                bool
+			version            int64
+			status             int
+		}{
+			{"cross-origin", "https://attacker.invalid", "", false, 1, http.StatusForbidden},
+			{"cross-site metadata", "https://dashboard.test", "cross-site", false, 1, http.StatusForbidden},
+			{"missing origin and opt-in", "", "", false, 1, http.StatusForbidden},
+			{"access token cannot authorize", "https://dashboard.test", "same-origin", true, 1, http.StatusUnauthorized},
+			{"stale session", "https://dashboard.test", "same-origin", false, 2, http.StatusUnauthorized},
+		} {
+			t.Run(failure.name, func(t *testing.T) {
+				before := calls
+				response := request(string(raw), failure.origin, failure.site, failure.pat, failure.version)
+				assert.Equal(t, failure.status, response.Code)
+				assert.Equal(t, before, calls)
+				assert.NotContains(t, response.Body.String(), "official-private")
+			})
+		}
+		for _, realm := range []string{"global", "international", "us"} {
+			before := calls
+			body := strings.Replace(string(raw), `"realm":"cn"`, `"realm":"`+realm+`"`, 1)
+			response := request(body, "https://dashboard.test", "same-origin", false, 1)
+			assert.Equal(t, http.StatusBadRequest, response.Code)
+			assert.Equal(t, before, calls)
+		}
+		before := calls
+		response := request(string(raw), "https://dashboard.test", "same-origin", false, 1)
+		require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+		assert.Equal(t, before+1, calls, "fresh pair must be verified, not gratuitously exchanged")
+		assert.Equal(t, "no-store", response.Header().Get("Cache-Control"))
+		assert.NotContains(t, response.Body.String(), "official-private")
+		var envelope struct {
+			Data struct {
+				SessionID string `json:"sessionId"`
+				Ready     bool   `json:"ready"`
+				Browser   bool   `json:"browserLoginAvailable"`
+			} `json:"data"`
+		}
+		require.NoError(t, common.Unmarshal(response.Body.Bytes(), &envelope))
+		require.NotEmpty(t, envelope.Data.SessionID)
+		assert.True(t, envelope.Data.Ready)
+		assert.False(t, envelope.Data.Browser)
+		require.NoError(t, model.WithWorkBuddyAuthFlow(envelope.Data.SessionID, identity, func(_ *gorm.DB, state *model.WorkBuddyAuthState) error {
+			credential, err := trae.ParseCred(state.Credential)
+			require.NoError(t, err)
+			assert.Equal(t, "official-private-access", credential.AccessToken)
+			assert.Equal(t, "official-private-refresh", credential.RefreshToken)
+			assert.Equal(t, trae.IDEClientID, credential.ClientID)
+			assert.Equal(t, trae.DomesticAuthHost, credential.ApiHost)
+			assert.Equal(t, int64(1900000000), credential.ExpiresAt)
+			return nil
+		}))
+		wrong := identity
+		wrong.SessionID = second.SID
+		_, err = PollAccountAuthorization(context.Background(), wrong, envelope.Data.SessionID)
+		assert.ErrorIs(t, err, model.ErrAuthFlowInvalid)
+		_, err = PollAccountAuthorization(context.Background(), identity, "forged-flow-state")
+		assert.ErrorIs(t, err, model.ErrAuthFlowInvalid)
+		bound, err := PollAccountAuthorization(context.Background(), identity, envelope.Data.SessionID)
+		require.NoError(t, err)
+		require.NotNil(t, bound)
+		assert.Equal(t, constant.ChannelTypeTrae, bound.Type)
+		assert.True(t, common.IsEncryptedSecret(bound.Key))
+		for _, replay := range []string{callback, "http://127.0.0.1:18080/authorize?userJwt=" + url.QueryEscape(`{"Token":"official-private-access","TokenExpireAt":1900000000}`), "http://127.0.0.1:18080/authorize?refreshToken=official-private-refresh"} {
+			before = calls
+			_, err = ImportTraeAuthorization(context.Background(), identity, replay, "", "", "", "", "", false, true, settings)
+			assert.ErrorIs(t, err, model.ErrAuthFlowConsumed)
+			assert.Equal(t, before, calls)
+		}
+		for _, bridgeStatus := range []string{"bridge_pending", "bridge_uploaded", "bridge_consent"} {
+			var channelsBefore, channelsAfter int64
+			require.NoError(t, db.Model(&model.Channel{}).Count(&channelsBefore).Error)
+			flow, err := newAccountFlow(identity, "trae", "cn", "Needs explicit consent", false, settings, (&trae.Adaptor{}).GetModelList())
+			require.NoError(t, err)
+			require.NoError(t, model.WithWorkBuddyAuthFlow(flow, identity, func(_ *gorm.DB, state *model.WorkBuddyAuthState) error {
+				state.Status = bridgeStatus
+				// A verified credential cannot substitute for dashboard consent.
+				state.Credential = `{"accessToken":"unconsented-private-access","refreshToken":"unconsented-private-refresh","uid":"trae-owner","expiresAt":1900000000}`
+				return nil
+			}))
+			before = calls
+			unconsented, err := PollAccountAuthorization(context.Background(), identity, flow)
+			assert.ErrorIs(t, err, model.ErrAuthFlowInvalid, bridgeStatus)
+			assert.Nil(t, unconsented)
+			assert.Equal(t, before, calls)
+			require.NoError(t, db.Model(&model.Channel{}).Count(&channelsAfter).Error)
+			assert.Equal(t, channelsBefore, channelsAfter, bridgeStatus)
+			require.NoError(t, model.WithWorkBuddyAuthFlow(flow, identity, func(_ *gorm.DB, state *model.WorkBuddyAuthState) error {
+				assert.Equal(t, bridgeStatus, state.Status)
+				assert.Zero(t, state.ChannelID)
+				return nil
+			}))
+			require.NoError(t, CancelAccountAuthorization(identity, flow))
+		}
+		before = calls
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		client.Transport = workBuddyTestTransport(func(r *http.Request) (*http.Response, error) {
+			assert.ErrorIs(t, r.Context().Err(), context.Canceled)
+			return nil, r.Context().Err()
+		})
+		_, err = RedeemTraeAuthorization(ctx, "", &trae.CallbackInfo{AccessToken: "cancelled-access", ExpiresAt: 1900000000}, "", "")
+		assert.ErrorIs(t, err, service.ErrAccountUpstream)
+		assert.Equal(t, before, calls)
+	})
 }
 
 func TestAccountLoginProxyDefaultsPreserveExplicitChoice(t *testing.T) {

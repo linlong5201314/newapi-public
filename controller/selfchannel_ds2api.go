@@ -153,6 +153,9 @@ func SelfDs2ApiOAuthAuthorizePage(c *gin.Context) {
 	if !ok {
 		return
 	}
+	// Native form POSTs use an opaque Origin under no-referrer. Preserve the
+	// origin for CSRF validation without disclosing the path or state query.
+	c.Header("Referrer-Policy", "strict-origin")
 	c.Header("Content-Type", "text/html; charset=utf-8")
 	if err := ds2LoginPage.Execute(c.Writer, map[string]string{"State": c.Query("state"), "CSRF": options.CSRF}); err != nil {
 		c.Abort()

@@ -479,34 +479,11 @@
         "deepseek-v3.1",
         "kimi-k2"
       ],
-      "freeNote": "凭据 JSON 里写 {\"domain\":\"trae.cn\"} 走国内域；上游四端点 Remote/Work/Solo/IDE⚠️ 反代账号有风险，建议用小号（小号被风控/封禁不影响主号）。",
+      "freeNote": "通过本机登录助手打开 Trae 国内官网，确认账号后完成绑定；也可导入官方本地回调。账号权限与额度由上游决定。",
       "monthlyTokens": 0,
       "freeType": "reverse-proxy",
       "tos": "own-account",
       "poolKey": "trae-cn",
-      "authMode": "account",
-      "hiddenEndpoint": true,
-      "authType": "none"
-    },
-    {
-      "id": "trae-intl",
-      "name": "Trae 国际版",
-      "channelType": 66,
-      "baseUrl": "https://api.trae.ai",
-      "signupUrl": "https://www.trae.ai",
-      "keyRequired": true,
-      "models": [
-        "claude-sonnet-4.5",
-        "gpt-5",
-        "gemini-2.5-pro",
-        "deepseek-v3.1",
-        "kimi-k2"
-      ],
-      "freeNote": "凭据 JSON 里写 {\"domain\":\"trae.ai\"} 走国际域⚠️ 反代账号有风险，建议用小号（小号被风控/封禁不影响主号）。",
-      "monthlyTokens": 0,
-      "freeType": "reverse-proxy",
-      "tos": "own-account",
-      "poolKey": "trae-intl",
       "authMode": "account",
       "hiddenEndpoint": true,
       "authType": "none"
@@ -699,18 +676,14 @@
     {
       "id": "kimi-work",
       "name": "Kimi 办公版（@magpie-community 插件授权）",
-      "baseUrl": "https://kimi.moonshot.cn/api/v1",
-      "signupUrl": "https://kimi.moonshot.cn",
-      "channelType": 1,
+      "baseUrl": "https://agent-gw.kimi.com/coding/v1",
+      "signupUrl": "https://www.kimi.com",
+      "channelType": 70,
       "authMode": "oauth",
       "hiddenEndpoint": true,
       "keyRequired": false,
-      "models": [
-        "kimi-k2.5",
-        "kimi-k2-thinking",
-        "moonshot-v1-128k"
-      ],
-      "freeNote": "参考本机 @magpie-community/opencode-kimi-work-auth：粘贴 Kimi Web / 办公端 Bearer Token 即可授权接入。",
+      "models": [],
+      "freeNote": "从本人已登录的 Kimi 桌面端导出办公凭据并导入；不接受 Kimi Web Bearer Token，也不是云端 OAuth 授权。",
       "monthlyTokens": 0,
       "freeType": "reverse-proxy",
       "tos": "own-account",
@@ -720,17 +693,17 @@
     {
       "id": "xiaomi-mimo",
       "name": "小米 MiMo（@magpie-community 插件授权）",
-      "baseUrl": "https://api.xiaomimimo.com/v1",
-      "signupUrl": "https://xiaomimimo.com",
-      "channelType": 1,
+      "baseUrl": "https://sgp.mimo.xiaomi.com",
+      "signupUrl": "https://mimo.xiaomi.com",
+      "channelType": 71,
       "authMode": "oauth",
       "hiddenEndpoint": true,
       "keyRequired": false,
       "models": [
-        "mimo-v2.6-flash",
-        "mimo-7b-rl"
+        "mimo-pro",
+        "mimo-flash"
       ],
-      "freeNote": "参考本机 @magpie-community/opencode-mimo-auth：粘贴小米 MiMo 授权 Token 即可调用免费推理模型。",
+      "freeNote": "点击小米账号扫码登录，由服务端安全绑定 MiMo 会话；账号区域、会员资格和额度由上游决定，不需要手工粘贴 Token。",
       "monthlyTokens": 0,
       "freeType": "reverse-proxy",
       "tos": "own-account",

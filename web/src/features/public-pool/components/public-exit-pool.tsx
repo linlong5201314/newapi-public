@@ -10,16 +10,19 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatLatency } from '@/features/performance-metrics/lib/format'
-import { importHaizhuNodes, listEndpoints } from '@/features/proxy-pool/api'
+import { importHaizhuNodes, listEndpointPage } from '@/features/proxy-pool/api'
 import { kindLabel } from '@/features/proxy-pool/types'
+import { toIntlLocale } from '@/i18n/languages'
+import { formatNumber } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
 import { requireServerSuccess } from '@/lib/server-error-message'
 
 export function PublicExitPool() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const query = useQuery({
-    queryKey: ['public-pool', 'exit-ips'],
-    queryFn: listEndpoints,
+    queryKey: ['public-pool', 'exit-inventory-preview'],
+    queryFn: () => listEndpointPage(),
     meta: { errorToast: false },
   })
   const mutation = useMutation({
@@ -36,9 +39,10 @@ export function PublicExitPool() {
     onError: (error: unknown) =>
       handleServerError(error, t('Unable to import proxy exits')),
   })
-  const endpoints = (query.data ?? []).filter(
+  const endpoints = (query.data?.data ?? []).filter(
     (endpoint) => endpoint.public === true
   )
+  const preview = endpoints.slice(0, 90)
   return (
     <Card className='min-w-0'>
       <CardHeader>
@@ -58,8 +62,12 @@ export function PublicExitPool() {
               ? t('Importing...')
               : t('Sync Haizhu proxy exits')}
           </Button>
-          <Button variant='outline' render={<Link to='/proxy-pool' />}>
-            {t('Manage proxy exit IPs')}
+          <Button
+            variant='outline'
+            role='link'
+            render={<Link to='/proxy-pool' />}
+          >
+            {t('Browse all proxy inventory')}
           </Button>
         </div>
       </CardHeader>
@@ -76,21 +84,34 @@ export function PublicExitPool() {
             onRetry={() => void query.refetch()}
           />
         )}
+        {query.isSuccess && (
+          <p className='text-muted-foreground text-xs'>
+            {t(
+              'Previewing {{shown}} public nodes from {{fetched}} fetched inventory records. This is not the complete pool or a health count.',
+              {
+                shown: formatNumber(preview.length, locale),
+                fetched: formatNumber(query.data.data.length, locale),
+              }
+            )}
+          </p>
+        )}
+        {query.isSuccess && query.data.pagination.has_more && (
+          <p className='text-muted-foreground text-xs'>
+            {t(
+              'More inventory is available. Open proxy management to load additional pages.'
+            )}
+          </p>
+        )}
         {query.isSuccess &&
           (endpoints.length === 0 ? (
             <EmptyState
-              title={t('No public proxy exits are published.')}
+              title={t('No public nodes in the fetched preview.')}
               bordered
             />
           ) : (
             <>
-              <p className='text-muted-foreground text-xs'>
-                {t('{{count}} published proxy exits', {
-                  count: endpoints.length,
-                })}
-              </p>
               <div className='grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3'>
-                {endpoints.slice(0, 90).map((endpoint) => (
+                {preview.map((endpoint) => (
                   <div
                     key={endpoint.id}
                     className='flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-lg border p-3 text-xs'
@@ -118,8 +139,8 @@ export function PublicExitPool() {
               {endpoints.length > 90 && (
                 <p className='text-muted-foreground text-xs'>
                   {t(
-                    'Showing the first {{count}} proxy exits. Open proxy management for all nodes.',
-                    { count: 90 }
+                    'This preview shows at most {{count}} public nodes. Browse inventory to view and load more records.',
+                    { count: formatNumber(preview.length, locale) }
                   )}
                 </p>
               )}

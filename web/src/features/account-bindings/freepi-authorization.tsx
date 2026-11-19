@@ -7,7 +7,15 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  SecureVerificationDialog,
+  useSecureVerification,
+} from '@/features/auth/secure-verification'
 import { handleServerError } from '@/lib/handle-server-error'
+import {
+  getServerErrorMessage,
+  getServerErrorSources,
+} from '@/lib/server-error-message'
 
 import {
   cancelFreePiOAuth,
@@ -52,6 +60,7 @@ function completeVerificationUri(session: FreePiSession): string | undefined {
 export function FreePiAuthorizationCard(props: FreePiAuthorizationProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const verification = useSecureVerification()
   const [displayName, setDisplayName] = useState('')
   const [isPublic, setIsPublic] = useState(false)
   const [accepted, setAccepted] = useState(false)
@@ -84,16 +93,35 @@ export function FreePiAuthorizationCard(props: FreePiAuthorizationProps) {
   }, [session, completedID, t])
 
   const start = useMutation({
-    mutationFn: () =>
-      startFreePiOAuth({
+    mutationFn: async () => {
+      const payload = {
         displayName,
         public: isPublic,
         confirmPublic: isPublic,
         ...(props.proxy !== undefined ? { proxy: props.proxy } : {}),
         ...(props.proxyPolicy ? { proxy_policy: props.proxyPolicy } : {}),
-      }),
+      }
+      try {
+        return await startFreePiOAuth(payload)
+      } catch (error) {
+        if (
+          !getServerErrorSources(error).some(
+            (source) => source.code === 'FREEPI_REAUTH_REQUIRED'
+          )
+        )
+          {throw error}
+        const proof = await verification.requestVerification({
+          scope: 'upstream.account.bind',
+          context: { provider: 'freepi' },
+          title: t('Confirm your identity to link FreePi'),
+        })
+        if (!proof) return null
+        return startFreePiOAuth(payload, proof.proof_token)
+      }
+    },
     retry: false,
     onSuccess: (data) => {
+      if (!data) return
       if (
         data.verificationUri !== 'https://github.com/login/device' ||
         !data.state ||
@@ -112,7 +140,10 @@ export function FreePiAuthorizationCard(props: FreePiAuthorizationProps) {
     },
     onError: (error) => {
       setProblem(
-        t('FreePi authorization could not be started. Try again later')
+        getServerErrorMessage(
+          error,
+          t('FreePi authorization could not be started. Try again later')
+        )
       )
       handleServerError(error)
     },
@@ -131,7 +162,9 @@ export function FreePiAuthorizationCard(props: FreePiAuthorizationProps) {
       setAccepted(false)
     },
     onError: (error) => {
-      setProblem(t('FreePi consent request failed'))
+      setProblem(
+        getServerErrorMessage(error, t('FreePi consent request failed'))
+      )
       handleServerError(error)
     },
   })
@@ -149,7 +182,10 @@ export function FreePiAuthorizationCard(props: FreePiAuthorizationProps) {
     },
     onError: (error) => {
       setProblem(
-        t('FreePi cancellation failed. Authorization expires automatically')
+        getServerErrorMessage(
+          error,
+          t('FreePi cancellation failed. Authorization expires automatically')
+        )
       )
       handleServerError(error)
     },
@@ -189,8 +225,11 @@ export function FreePiAuthorizationCard(props: FreePiAuthorizationProps) {
       } catch (error) {
         if (!active) return
         setProblem(
-          t(
-            'FreePi authorization stopped. Start again after checking your login session'
+          getServerErrorMessage(
+            error,
+            t(
+              'FreePi authorization stopped. Start again after checking your login session'
+            )
           )
         )
         setSession(null)
@@ -217,7 +256,7 @@ export function FreePiAuthorizationCard(props: FreePiAuthorizationProps) {
       <h2 className='font-semibold'>{t('FreePi GitHub authorization')}</h2>
       <p className='text-muted-foreground text-sm'>
         {t(
-          'Use your own GitHub account. GitHub confirmation is required in your browser; this page cannot complete it for you. Sign in again here if your dashboard login is older than ten minutes.'
+          'Use your own GitHub account and confirm in your browser. If your dashboard login is older than ten minutes, confirm your identity here before linking FreePi.'
         )}
       </p>
       <p className='text-muted-foreground text-sm'>
@@ -371,6 +410,7 @@ export function FreePiAuthorizationCard(props: FreePiAuthorizationProps) {
           {problem}
         </p>
       )}
+      <SecureVerificationDialog {...verification.dialogProps} />
     </section>
   )
 }

@@ -191,7 +191,7 @@ export async function importTrae(payload: {
     message?: string
   }>(
     '/api/channel/self/import_trae',
-    { ...credentials, proxyPolicy: proxy_policy, mode: 'create' },
+    { ...credentials, realm: 'cn', proxyPolicy: proxy_policy, mode: 'create' },
     cfg({
       singleUseAuthorization: true,
       headers: { 'X-Account-Action': 'authorize' },
@@ -281,17 +281,24 @@ const freePiConfig = (): ApiRequestConfig =>
     headers: { 'X-FreePi-Action': 'authorize' },
   })
 
-export async function startFreePiOAuth(payload: {
-  displayName?: string
-  public: boolean
-  confirmPublic: boolean
-  proxy?: string
-  proxy_policy?: BindingProxyPolicy
-}): Promise<FreePiSession> {
+export async function startFreePiOAuth(
+  payload: {
+    displayName?: string
+    public: boolean
+    confirmPublic: boolean
+    proxy?: string
+    proxy_policy?: BindingProxyPolicy
+  },
+  proofToken?: string
+): Promise<FreePiSession> {
+  const config = freePiConfig()
+  if (proofToken) {
+    config.headers = { ...config.headers, 'X-Security-Proof': proofToken }
+  }
   const response = await api.post<{ success: boolean; data: FreePiSession }>(
     '/api/channel/self/oauth/freepi/start',
     payload,
-    freePiConfig()
+    config
   )
   return requireServerSuccess(response.data).data
 }

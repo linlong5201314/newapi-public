@@ -54,6 +54,11 @@ func CreateSelfBinding(c *gin.Context) {
 		common.ApiErrorMsg(c, "Use GitHub device authorization to connect FreePi")
 		return
 	}
+	switch provider {
+	case "trae-cn", "kimi-work", "xiaomi-mimo":
+		common.ApiErrorMsg(c, "Use the dedicated account connection flow for this provider")
+		return
+	}
 	kind := "password"
 	var creds []model.SelfAccountCred
 	switch {

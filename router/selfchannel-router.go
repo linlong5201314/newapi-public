@@ -63,7 +63,20 @@ func registerSelfChannelRoutes(apiRouter *gin.RouterGroup) {
 		selfChannelRoute.POST("/oauth/freepi/consent", middleware.CriticalRateLimit(), controller.ConsentFreePiOAuth)
 		selfChannelRoute.POST("/oauth/freepi/cancel", middleware.CriticalRateLimit(), controller.CancelFreePiOAuth)
 		selfChannelRoute.POST("/import_trae", controller.SelfImportTrae)
+		selfChannelRoute.POST("/oauth/trae/bridge/start", middleware.CriticalRateLimit(), controller.SelfTraeBridgeStart)
+		selfChannelRoute.POST("/oauth/trae/bridge/helper", middleware.CriticalRateLimit(), controller.SelfTraeBridgeHelper)
+		selfChannelRoute.GET("/oauth/trae/bridge/poll", controller.SelfTraeBridgePoll)
+		selfChannelRoute.POST("/oauth/trae/bridge/consent", middleware.CriticalRateLimit(), controller.SelfTraeBridgeConsent)
+		selfChannelRoute.POST("/oauth/trae/bridge/cancel", middleware.CriticalRateLimit(), controller.SelfTraeBridgeCancel)
+		selfChannelRoute.GET("/account_capabilities", controller.SelfDesktopAccountCapabilities)
+		selfChannelRoute.GET("/kimi_work/import_helper", controller.SelfKimiWorkImportHelper)
+		selfChannelRoute.POST("/kimi_work/import", middleware.CriticalRateLimit(), controller.SelfImportKimiWork)
+		selfChannelRoute.POST("/oauth/mimo/start", middleware.CriticalRateLimit(), controller.SelfMiMoOAuthStart)
+		selfChannelRoute.POST("/oauth/mimo/poll", middleware.CriticalRateLimit(), controller.SelfMiMoOAuthPoll)
+		selfChannelRoute.POST("/oauth/mimo/cancel", middleware.CriticalRateLimit(), controller.SelfMiMoOAuthCancel)
 	}
+	// The local helper has a one-use encrypted upload capability, never a dashboard session.
+	apiRouter.POST("/channel/self/oauth/trae/bridge/upload", selfChannelEnabledGuard(), middleware.CriticalRateLimit(), controller.SelfTraeBridgeUpload)
 	// 授权回跳与引导页由浏览器直接访问，不能挂 UserAuth。
 	apiRouter.GET("/channel/self/oauth/raccoon/callback", selfChannelEnabledGuard(), controller.SelfRaccoonOAuthCallback)
 	// Refresh cookies are scoped to /api/user/auth; the browser ceremony must

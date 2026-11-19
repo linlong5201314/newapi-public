@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"fmt"
 	"github.com/QuantumNous/new-api/common"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/go-redis/redis/v8"
@@ -403,4 +404,64 @@ func TestStableProxyEndpointIdentitySurvivesListenerRelocation(t *testing.T) {
 	require.NoError(t, db.Model(&endpoint).Update("raw_uri", "changed-real-exit").Error)
 	_, _, err = ResolveProxyEndpointIdentity(1, next)
 	require.Error(t, err, "real endpoint configuration change must invalidate the fingerprint")
+}
+
+func TestStableProxyOnDemandSelectionFailClosed(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	oldDB, oldReady, oldRedis, oldRDB := DB, proxySchemaReadyDB, common.RedisEnabled, common.RDB
+	oldSelected, oldPassive := selectedEndpointProxyURLProvider, endpointProxyURLProvider
+	DB, proxySchemaReadyDB, common.RedisEnabled = db, nil, false
+	t.Cleanup(func() {
+		DB, proxySchemaReadyDB, common.RedisEnabled, common.RDB = oldDB, oldReady, oldRedis, oldRDB
+		selectedEndpointProxyURLProvider, endpointProxyURLProvider = oldSelected, oldPassive
+		_ = sqlDB.Close()
+	})
+	require.NoError(t, EnsureProxyPoolSchema())
+	rows := []ProxyEndpoint{
+		{UserId: 9, Name: "HK preferred", Region: "HK", RawUri: "fixture-one", Public: true, Enabled: true},
+		{UserId: 9, Name: "US other public", Region: "US", RawUri: "fixture-two", Public: true, Enabled: true},
+		{UserId: 2, Name: "other private", RawUri: "fixture-three", Enabled: true},
+		{UserId: 1, Name: "own private", RawUri: "fixture-four", Enabled: true},
+	}
+	require.NoError(t, db.Create(&rows).Error)
+	var loaded []int
+	unavailable := true
+	selectedEndpointProxyURLProvider = func(endpoint ProxyEndpoint) (string, error) {
+		loaded = append(loaded, endpoint.Id)
+		if unavailable {
+			return "", fmt.Errorf("controlled runtime capacity failure")
+		}
+		return fmt.Sprintf("http://endpoint:fixture@127.0.0.1:%d", 24000+endpoint.Id), nil
+	}
+	endpointProxyURLProvider = func(ProxyEndpoint) (string, error) { return "", fmt.Errorf("not loaded") }
+	setting := dto.ChannelSettings{ProxyPolicy: &dto.ChannelProxyPolicy{Mode: "public_pool"}}
+	selected, err := ResolveStableChannelProxy(1, 0, "workbuddy:on-demand-fail-closed", setting)
+	require.ErrorContains(t, err, "controlled runtime capacity failure")
+	assert.Empty(t, selected)
+	assert.Equal(t, []int{rows[0].Id}, loaded, "must not eagerly load other public or private nodes")
+	// A better health rank appearing after runtime failure cannot change its binding.
+	require.NoError(t, db.Model(&rows[1]).Updates(map[string]any{"name": "HK newly healthy", "region": "HK", "last_ok_at": time.Now()}).Error)
+	unavailable = false
+	selected, err = ResolveStableChannelProxy(1, 0, "workbuddy:on-demand-fail-closed", setting)
+	require.NoError(t, err)
+	assert.Equal(t, []int{rows[0].Id, rows[0].Id}, loaded)
+	assert.Contains(t, selected, fmt.Sprintf(":%d", 24000+rows[0].Id))
+	_, err = ListUsableProxyUrls(1)
+	require.NoError(t, err)
+	assert.Len(t, loaded, 2, "summary and legacy list must not hot-load inventory")
+	_, err = ResolveStableChannelProxy(1, 0, "fixture:other-owner", dto.ChannelSettings{ProxyPolicy: &dto.ChannelProxyPolicy{Mode: "endpoint", EndpointID: rows[2].Id}})
+	require.Error(t, err)
+	assert.Len(t, loaded, 2, "other owner private node never reaches runtime")
+	_, err = ResolveStableChannelProxy(1, 0, "fixture:own-pool", dto.ChannelSettings{ProxyPolicy: &dto.ChannelProxyPolicy{Mode: "user_pool"}})
+	require.NoError(t, err)
+	assert.Equal(t, rows[3].Id, loaded[2], "explicit own pool excludes all public nodes of other owners")
+	common.RedisEnabled, common.RDB = true, nil
+	t.Setenv("REDIS_CONN_STRING", "redis://127.0.0.1:1")
+	_, err = ResolveStableChannelProxy(1, 0, "fixture:redis-down", setting)
+	require.ErrorContains(t, err, "binding store unavailable")
+	assert.Len(t, loaded, 3, "Redis failure must occur before loading or selecting another exit")
 }

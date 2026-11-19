@@ -77,7 +77,7 @@ func TestFreePiAuthorizationDatabaseMatrix(t *testing.T) {
 				common.CryptoSecret, common.CryptoSecretConfigured, common.SessionSecret = prevCrypto, prevConfigured, prevSessionSecret
 				assert.NoError(t, sqlDB.Close())
 			})
-			require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.AuthFlow{}, &model.Channel{}, &model.Ability{}, &model.SelfAccountBinding{}, &model.AuditLog{}))
+			require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.AuthFlow{}, &model.TwoFA{}, &model.PasskeyCredential{}, &model.Channel{}, &model.Ability{}, &model.SelfAccountBinding{}, &model.AuditLog{}))
 			var version string
 			versionSQL := "SELECT version()"
 			if dialect == "sqlite" {
@@ -85,8 +85,15 @@ func TestFreePiAuthorizationDatabaseMatrix(t *testing.T) {
 			}
 			require.NoError(t, db.Raw(versionSQL).Scan(&version).Error)
 			t.Logf("database version: %s", version)
+			previousPasswordLogin, previousPasswordEncryption := common.PasswordLoginEnabled, common.PasswordLoginEncryptionEnabled
+			common.PasswordLoginEnabled, common.PasswordLoginEncryptionEnabled = true, false
+			t.Cleanup(func() {
+				common.PasswordLoginEnabled, common.PasswordLoginEncryptionEnabled = previousPasswordLogin, previousPasswordEncryption
+			})
+			passwordHash, err := common.Password2Hash("freepi-verification-test-password")
+			require.NoError(t, err)
 			name := "freepi-" + uuid.NewString()[:8]
-			user := model.User{Username: name, AffCode: name, Role: common.RoleCommonUser, Status: common.UserStatusEnabled, AuthVersion: 1, Group: "default"}
+			user := model.User{Username: name, AffCode: name, Password: passwordHash, Role: common.RoleCommonUser, Status: common.UserStatusEnabled, AuthVersion: 1, Group: "default"}
 			require.NoError(t, db.Create(&user).Error)
 			session := model.UserSession{SID: uuid.NewString(), UserID: user.Id, Version: 1, UserAuthVersion: 1, Status: model.UserSessionStatusActive, CreatedAt: time.Now().Unix(), ExpiresAt: time.Now().Add(time.Hour).Unix(), RefreshHash: name, LoginMethod: "password"}
 			require.NoError(t, db.Create(&session).Error)
@@ -156,11 +163,14 @@ func TestFreePiAuthorizationDatabaseMatrix(t *testing.T) {
 			router.POST("/poll", PollFreePiOAuth)
 			router.POST("/consent", ConsentFreePiOAuth)
 			router.POST("/cancel", CancelFreePiOAuth)
-			request := func(path, body string) *httptest.ResponseRecorder {
+			request := func(path, body string, proof ...string) *httptest.ResponseRecorder {
 				r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
 				r.Header.Set("Content-Type", "application/json")
 				r.Header.Set("X-FreePi-Action", "authorize")
 				r.Header.Set("Sec-Fetch-Site", "same-origin")
+				if len(proof) > 0 {
+					r.Header.Set("X-Security-Proof", proof[0])
+				}
 				w := httptest.NewRecorder()
 				router.ServeHTTP(w, r)
 				return w
@@ -183,6 +193,136 @@ func TestFreePiAuthorizationDatabaseMatrix(t *testing.T) {
 				require.NoError(t, model.WithFreePiAuthFlow(state, identity, func(_ *gorm.DB, s *model.FreePiAuthState) error { s.NextPollAt = 0; return nil }))
 			}
 
+			t.Run("upstream_binding_context_is_strictly_allowlisted", func(t *testing.T) {
+				for _, raw := range []string{`{}`, `null`, `{"provider":"github"}`, `{"provider":"FreePi"}`, `{"provider":" freepi "}`, `{"provider":"freepi","redirect_uri":"https://attacker.invalid"}`, `{"provider":1}`} {
+					_, err := service.BindVerificationOperation(service.VerificationOperation{Scope: service.VerificationScopeUpstreamAccountBind, Context: []byte(raw)})
+					assert.ErrorIs(t, err, service.ErrVerificationContextInvalid, raw)
+				}
+				_, err := service.BindVerificationOperation(service.VerificationOperation{Scope: service.VerificationScopeUpstreamAccountBind, Context: []byte(`{"provider":"freepi"}`)})
+				require.NoError(t, err)
+			})
+			t.Run("upstream_binding_uses_enrolled_factors_without_session_fallback", func(t *testing.T) {
+				for _, tc := range []struct {
+					name                     string
+					password, twoFA, passkey bool
+					methods                  []string
+				}{
+					{"password", true, false, false, []string{service.VerificationMethodPassword}},
+					{"oauth_only", false, false, false, []string{service.VerificationMethodOAuth}},
+					{"twofa", true, true, false, []string{service.VerificationMethodTwoFA}},
+					{"passkey", true, false, true, []string{service.VerificationMethodPasskey}},
+					{"both_enrolled_factors", true, true, true, []string{service.VerificationMethodTwoFA, service.VerificationMethodPasskey}},
+				} {
+					t.Run(tc.name, func(t *testing.T) {
+						t.Cleanup(func() {
+							require.NoError(t, db.Model(&model.User{}).Where("id = ?", user.Id).Update("password", passwordHash).Error)
+							require.NoError(t, db.Unscoped().Where("user_id = ?", user.Id).Delete(&model.TwoFA{}).Error)
+							require.NoError(t, db.Unscoped().Where("user_id = ?", user.Id).Delete(&model.PasskeyCredential{}).Error)
+						})
+						if !tc.password {
+							require.NoError(t, db.Model(&model.User{}).Where("id = ?", user.Id).Update("password", "").Error)
+						}
+						if tc.twoFA {
+							require.NoError(t, db.Create(&model.TwoFA{UserId: user.Id, Secret: "factor-fixture", IsEnabled: true}).Error)
+						}
+						if tc.passkey {
+							require.NoError(t, db.Create(&model.PasskeyCredential{UserID: user.Id, CredentialID: uuid.NewString(), PublicKey: "factor-fixture"}).Error)
+						}
+						requirements, err := service.GetVerificationRequirements(identity, service.VerificationScopeUpstreamAccountBind)
+						require.NoError(t, err)
+						methods := make([]string, 0, len(requirements.Methods))
+						for _, method := range requirements.Methods {
+							methods = append(methods, method.Method)
+						}
+						assert.Equal(t, tc.methods, methods)
+						_, err = service.RequireVerificationMethod(identity, service.VerificationScopeUpstreamAccountBind, service.VerificationMethodSession)
+						assert.ErrorIs(t, err, service.ErrProofMethod)
+						if tc.twoFA || tc.passkey {
+							_, err = service.RequireVerificationMethod(identity, service.VerificationScopeUpstreamAccountBind, service.VerificationMethodPassword)
+							assert.ErrorIs(t, err, service.ErrProofMethod)
+						}
+					})
+				}
+				common.PasswordLoginEnabled = false
+				t.Cleanup(func() { common.PasswordLoginEnabled = true })
+				_, err := service.RequireVerificationMethod(identity, service.VerificationScopeUpstreamAccountBind, service.VerificationMethodPassword)
+				assert.ErrorIs(t, err, service.ErrVerificationUnavailable)
+			})
+			t.Run("recent_auth_accepts_scoped_verification_without_relogin", func(t *testing.T) {
+				operation := service.VerificationOperation{Scope: service.VerificationScopeUpstreamAccountBind, Context: []byte(`{"provider":"freepi"}`)}
+				defer func() {
+					require.NoError(t, db.Model(&model.UserSession{}).Where("sid = ?", session.SID).Updates(map[string]any{"created_at": session.CreatedAt, "expires_at": session.ExpiresAt}).Error)
+				}()
+				for _, createdAt := range []int64{time.Now().Add(-11 * time.Minute).Unix(), 0} {
+					require.NoError(t, db.Model(&model.UserSession{}).Where("sid = ?", session.SID).Update("created_at", createdAt).Error)
+					w := request("/start", `{}`)
+					assert.Equal(t, http.StatusForbidden, w.Code)
+					assert.Contains(t, w.Body.String(), `"code":"FREEPI_REAUTH_REQUIRED"`)
+					assert.Contains(t, w.Body.String(), "Verify your identity to continue linking a FreePi account.")
+					assert.NotContains(t, w.Body.String(), "Sign in again")
+				}
+				_, err := service.VerifySecurityInput(identity, service.VerificationInput{Scope: operation.Scope, Context: operation.Context, Method: service.VerificationMethodPassword, Password: "wrong-password"})
+				assert.ErrorIs(t, err, service.ErrVerificationFailed)
+				proof, err := service.VerifySecurityInput(identity, service.VerificationInput{Scope: operation.Scope, Context: operation.Context, Method: service.VerificationMethodPassword, Password: "freepi-verification-test-password"})
+				require.NoError(t, err)
+				w := request("/start", `{}`, proof.ProofToken)
+				require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+				var response struct {
+					Data struct {
+						State string `json:"state"`
+					} `json:"data"`
+				}
+				require.NoError(t, common.Unmarshal(w.Body.Bytes(), &response))
+				require.Len(t, response.Data.State, 43)
+				require.Equal(t, http.StatusOK, request("/cancel", fmt.Sprintf(`{"state":%q}`, response.Data.State)).Code)
+				w = request("/start", `{}`, proof.ProofToken)
+				assert.Equal(t, http.StatusForbidden, w.Code)
+				assert.Contains(t, w.Body.String(), `"code":"SECURITY_PROOF_CONSUMED"`)
+				require.NoError(t, db.Model(&model.UserSession{}).Where("sid = ?", session.SID).Update("created_at", session.CreatedAt).Error)
+				state := start(`{}`)
+				require.Equal(t, http.StatusOK, request("/cancel", fmt.Sprintf(`{"state":%q}`, state)).Code)
+				proofToken := issueSecurityEnrollmentProof(t, identity, operation, service.VerificationMethodPassword)
+				w = request("/start", `{}`, proofToken)
+				require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+				require.NoError(t, common.Unmarshal(w.Body.Bytes(), &response))
+				require.Equal(t, http.StatusOK, request("/cancel", fmt.Sprintf(`{"state":%q}`, response.Data.State)).Code)
+				w = request("/start", `{}`, proofToken)
+				assert.Equal(t, http.StatusForbidden, w.Code)
+				assert.Contains(t, w.Body.String(), `"code":"SECURITY_PROOF_CONSUMED"`, "fresh sessions must also consume supplied proofs")
+				require.NoError(t, db.Model(&model.UserSession{}).Where("sid = ?", session.SID).Update("created_at", time.Now().Add(-11*time.Minute).Unix()).Error)
+				wrongSID := identity
+				wrongSID.SessionID = uuid.NewString()
+				expired := issueSecurityEnrollmentProof(t, identity, operation, service.VerificationMethodPassword)
+				require.NoError(t, db.Model(&model.AuthFlow{}).Where("user_id = ? AND session_id = ? AND purpose = ? AND consumed_at IS NULL", identity.UserID, identity.SessionID, model.AuthFlowPurposeSecurityProof).Update("expires_at", time.Now().Add(-time.Minute)).Error)
+				wrongProvider, _, err := service.IssueSecurityProof(identity, service.VerificationMethodPassword, service.VerificationBinding{Scope: operation.Scope, ContextHash: "proof-for-a-different-provider"})
+				require.NoError(t, err)
+				for _, tc := range []struct{ name, proof, code string }{
+					{"malformed", "not-a-proof", "SECURITY_PROOF_INVALID"},
+					{"scope", issueSecurityEnrollmentProof(t, identity, service.VerificationOperation{Scope: service.VerificationScopePasskeyRegister}, service.VerificationMethodPassword), "SECURITY_PROOF_SCOPE_MISMATCH"},
+					{"provider", wrongProvider, "SECURITY_PROOF_CONTEXT_MISMATCH"},
+					{"session", issueSecurityEnrollmentProof(t, wrongSID, operation, service.VerificationMethodPassword), "SECURITY_PROOF_INVALID"},
+					{"expired", expired, "SECURITY_PROOF_EXPIRED"},
+					{"session_method", issueSecurityEnrollmentProof(t, identity, operation, service.VerificationMethodSession), "SECURITY_PROOF_METHOD_MISMATCH"},
+				} {
+					t.Run(tc.name, func(t *testing.T) {
+						w := request("/start", `{}`, tc.proof)
+						assert.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+						assert.Contains(t, w.Body.String(), fmt.Sprintf(`"code":%q`, tc.code))
+						assert.NotContains(t, w.Body.String(), tc.proof)
+					})
+				}
+				proofToken = issueSecurityEnrollmentProof(t, identity, operation, service.VerificationMethodPassword)
+				for _, path := range []string{"/start?proof_token=" + proofToken, "/start?X-Security-Proof=" + proofToken + "&token=untrusted-upstream-token"} {
+					w := request(path, `{}`)
+					assert.Equal(t, http.StatusForbidden, w.Code)
+					assert.Contains(t, w.Body.String(), "FREEPI_REAUTH_REQUIRED")
+				}
+				w = request("/start", fmt.Sprintf(`{"proof_token":%q,"token":"untrusted-upstream-token"}`, proofToken))
+				assert.Equal(t, http.StatusForbidden, w.Code)
+				assert.Contains(t, w.Body.String(), "FREEPI_REAUTH_REQUIRED")
+				require.NoError(t, db.Model(&model.UserSession{}).Where("sid = ?", session.SID).Update("expires_at", time.Now().Add(-time.Minute).Unix()).Error)
+				assert.Equal(t, http.StatusUnauthorized, request("/start", `{}`, proofToken).Code, "proof must never revive an expired login session")
+			})
 			t.Run("complete_device_link_is_forwarded_only_when_official_and_matches_code", func(t *testing.T) {
 				for _, uri := range []string{"https://github.com/login/device?user_code=ABCD-EFGH", "https://attacker.invalid/login/device?user_code=ABCD-EFGH", "https://github.com/login/device?user_code=WRONG", "https://github.com/login/device?user_code=ABCD-EFGH&redirect_uri=https://attacker.invalid"} {
 					completeVerification = uri

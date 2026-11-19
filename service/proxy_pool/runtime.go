@@ -55,6 +55,7 @@ func ManagerInstance() *Manager { return defaultManager }
 
 func init() {
 	model.SetEndpointProxyURLProvider(defaultManager.EndpointProxyURL)
+	model.SetSelectedEndpointProxyURLProvider(defaultManager.EnsureEndpointProxyURL)
 	// 让出口轮换能用上内核端口：节点全是客户端协议时，URL 列表本来为空。
 	model.SetExtraProxyURLProvider(func(userId int) []string {
 		return defaultManager.ProxyURLs(userId)
@@ -128,6 +129,138 @@ func (m *Manager) EndpointProxyURL(endpoint model.ProxyEndpoint) (string, error)
 		return "", fmt.Errorf("proxy endpoint is not loaded or changed; reload the kernel")
 	}
 	return m.plan.EndpointURLs[endpoint.Id], nil
+}
+
+// EnsureEndpointProxyURL hot-loads one authorized selection without restarting
+// the process or evicting another account's listener. Inventory size does not
+// determine listener count; at the hard bound callers fail closed until reload.
+func (m *Manager) EnsureEndpointProxyURL(endpoint model.ProxyEndpoint) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.runningLocked() || !m.ready || m.plan == nil {
+		return "", fmt.Errorf("mihomo is not ready; reload the kernel")
+	}
+	if endpoint.Id <= 0 || endpoint.UserId <= 0 || !endpoint.Enabled {
+		return "", fmt.Errorf("proxy endpoint is disabled or invalid")
+	}
+	key := stableHash(endpoint.Url + "\x00" + endpoint.RawUri)
+	if m.plan.EndpointKeys[endpoint.Id] == key && m.plan.EndpointURLs[endpoint.Id] != "" {
+		return m.plan.EndpointURLs[endpoint.Id], nil
+	}
+	if m.plan.EndpointURLs[endpoint.Id] == "" && m.plan.Proxies >= maxKernelProxies {
+		return "", fmt.Errorf("mihomo runtime listener capacity reached; reload the bounded runtime")
+	}
+	users := make([]RuntimeUser, 0, len(m.plan.Users)+1)
+	for _, user := range m.plan.Users {
+		next := RuntimeUser{UID: user.UID}
+		for _, node := range user.Nodes {
+			if node.ID != endpoint.Id {
+				next.Nodes = append(next.Nodes, node)
+			}
+		}
+		users = append(users, next)
+	}
+	users = append(users, RuntimeUser{UID: endpoint.UserId, Nodes: []RuntimeNode{{
+		ID: endpoint.Id, Name: endpoint.Name, Kind: endpoint.Kind, URL: endpoint.Url, RawURI: endpoint.RawUri, Public: endpoint.Public,
+	}}})
+	plan, err := BuildRuntimeConfig(users, RuntimeOptions{
+		BasePort: m.plan.SharedPort, Controller: m.plan.Controller, Secret: kernelSecret(), EndpointPorts: m.plan.EndpointPorts,
+	})
+	if err != nil {
+		return "", fmt.Errorf("build on-demand proxy listener: %w", err)
+	}
+	if plan.EndpointKeys[endpoint.Id] != key || plan.EndpointURLs[endpoint.Id] == "" {
+		return "", fmt.Errorf("proxy endpoint protocol or configuration is unsupported")
+	}
+	port := plan.EndpointPorts[endpoint.Id]
+	if _, loaded := m.plan.EndpointPorts[endpoint.Id]; !loaded {
+		listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		if err != nil {
+			return "", fmt.Errorf("on-demand proxy listener port unavailable")
+		}
+		_ = listener.Close()
+	}
+	body, err := common.Marshal(map[string]string{"payload": string(plan.YAML)})
+	if err != nil {
+		return "", fmt.Errorf("encode on-demand proxy configuration: %w", err)
+	}
+	req, err := http.NewRequest(http.MethodPut, "http://"+m.plan.Controller+"/configs?force=true", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+kernelSecret())
+	transport := &http.Transport{Proxy: nil}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport, Timeout: 8 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		// A timed-out reload may have applied: do not serve an uncertain plan.
+		m.ready = false
+		m.lastErr = "mihomo on-demand reload outcome is unknown; reload the kernel"
+		return "", fmt.Errorf("%s", m.lastErr)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		return "", fmt.Errorf("mihomo rejected on-demand proxy configuration: HTTP %d", resp.StatusCode)
+	}
+	if err := verifyEndpointListener(plan.EndpointURLs[endpoint.Id]); err != nil {
+		m.ready = false
+		m.lastErr = "mihomo on-demand listener authentication is unavailable; reload the kernel"
+		return "", fmt.Errorf("%s", m.lastErr)
+	}
+	if err := os.WriteFile(m.cfgPath, plan.YAML, 0o600); err != nil {
+		m.ready = false
+		m.lastErr = "persist mihomo on-demand configuration failed; reload the kernel"
+		return "", fmt.Errorf("%s", m.lastErr)
+	}
+	m.plan = plan
+	return plan.EndpointURLs[endpoint.Id], nil
+}
+
+// verifyEndpointListener authenticates to a mixed listener using SOCKS5
+// (RFC1929). It sends no CONNECT command and never contacts an upstream proxy.
+func verifyEndpointListener(rawURL string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Hostname() != "127.0.0.1" || parsed.User == nil {
+		return fmt.Errorf("invalid local endpoint listener")
+	}
+	username := parsed.User.Username()
+	password, _ := parsed.User.Password()
+	if len(username) == 0 || len(username) > 255 || len(password) == 0 || len(password) > 255 {
+		return fmt.Errorf("invalid local endpoint credentials")
+	}
+	connection, err := net.DialTimeout("tcp", parsed.Host, time.Second)
+	if err != nil {
+		return fmt.Errorf("connect local endpoint listener")
+	}
+	defer connection.Close()
+	if err := connection.SetDeadline(time.Now().Add(time.Second)); err != nil {
+		return err
+	}
+	if _, err := connection.Write([]byte{5, 1, 2}); err != nil {
+		return err
+	}
+	var reply [2]byte
+	if _, err := io.ReadFull(connection, reply[:]); err != nil {
+		return err
+	}
+	if reply != [2]byte{5, 2} {
+		return fmt.Errorf("local endpoint listener must require authentication")
+	}
+	auth := append([]byte{1, byte(len(username))}, []byte(username)...)
+	auth = append(auth, byte(len(password)))
+	auth = append(auth, []byte(password)...)
+	if _, err := connection.Write(auth); err != nil {
+		return err
+	}
+	if _, err := io.ReadFull(connection, reply[:]); err != nil {
+		return err
+	}
+	if reply != [2]byte{1, 0} {
+		return fmt.Errorf("local endpoint listener rejected authentication")
+	}
+	return nil
 }
 
 // LoadedEndpointIDs returns listeners in THIS process only, never another node's
@@ -588,7 +721,7 @@ func UsersWithClientNodes() ([]RuntimeUser, error) {
 	return users, nil
 }
 
-// ReloadAll 便捷入口：拉全量节点并重载内核。
+// ReloadAll rebuilds only bounded preload inventory; selected nodes may load on demand.
 func ReloadAll() (Status, error) {
 	users, err := UsersWithClientNodes()
 	if err != nil {

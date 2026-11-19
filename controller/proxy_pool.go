@@ -42,7 +42,17 @@ const (
 // GetProxyEndpoints GET /api/proxy-pool/endpoints — 当前用户可见的出口节点列表（自己的 + 公共池公开的）。
 func GetProxyEndpoints(c *gin.Context) {
 	uid := c.GetInt("id")
-	list, err := model.ListProxyEndpoints(uid)
+	offset, err := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	if err != nil || offset < 0 {
+		common.ApiErrorMsg(c, "invalid proxy endpoint pagination")
+		return
+	}
+	limit, err := strconv.Atoi(c.DefaultQuery("limit", strconv.Itoa(model.ProxyEndpointListLimit)))
+	if err != nil || limit <= 0 || limit > model.ProxyEndpointListLimit {
+		common.ApiErrorMsg(c, "invalid proxy endpoint pagination")
+		return
+	}
+	list, hasMore, err := model.ListProxyEndpointsPage(uid, offset, limit)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -51,7 +61,9 @@ func GetProxyEndpoints(c *gin.Context) {
 	for _, endpoint := range list {
 		out = append(out, proxyEndpointViewForUser(endpoint, uid))
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": out})
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": out, "pagination": gin.H{
+		"offset": offset, "limit": limit, "returned": len(out), "has_more": hasMore,
+	}})
 }
 
 // CreateProxyEndpoint POST /api/proxy-pool/endpoints — 手动添加一个出口节点。
@@ -210,6 +222,11 @@ func TestProxyEndpoint(c *gin.Context) {
 	if strings.TrimSpace(endpoint.Url) == "" {
 		if strings.TrimSpace(endpoint.RawUri) == "" {
 			common.ApiErrorMsg(c, "this node has neither dialable url nor raw uri")
+			return
+		}
+		// Loading/capacity errors are not evidence of a failed upstream node.
+		if _, err := proxy_pool.ManagerInstance().EnsureEndpointProxyURL(*endpoint); err != nil {
+			common.ApiError(c, err)
 			return
 		}
 		delayMs, kerr := proxy_pool.ManagerInstance().ProbeEndpointDelay(endpoint.Id)
@@ -628,6 +645,8 @@ type proxyPoolSummary struct {
 	InventoryRemaining    int    `json:"inventory_remaining"`
 	ListLimit             int    `json:"list_limit"`
 	RuntimePreloadLimit   int    `json:"runtime_preload_limit"`
+	RuntimeListenerLimit  int    `json:"runtime_listener_limit"`
+	OnDemandLoading       bool   `json:"on_demand_loading"`
 	EndpointTotal         int    `json:"endpoint_total"`
 	EndpointEnabled       int    `json:"endpoint_enabled"`
 	UsableURLCount        int    `json:"usable_url_count"`
@@ -671,7 +690,8 @@ func GetProxyPoolSummary(c *gin.Context) {
 		ImportedTotal: stats.Total, Enabled: stats.Enabled, LoadedThisProcess: kernelLoaded,
 		ProbedHealthy: stats.HealthyNodes, Unknown: stats.UnknownNodes, Failed: stats.FailedNodes, Disabled: stats.Total - stats.Enabled,
 		InventoryScope: "database_visible_to_user", LoadedScope: "this_process_visible_to_user",
-		InventoryRemaining: max(0, stats.Total-kernelLoaded), ListLimit: 600, RuntimePreloadLimit: model.ProxyRuntimePreloadLimit(),
+		InventoryRemaining: max(0, stats.Total-kernelLoaded), ListLimit: model.ProxyEndpointListLimit, RuntimePreloadLimit: model.ProxyRuntimePreloadLimit(),
+		RuntimeListenerLimit: proxy_pool.RuntimeListenerLimit(), OnDemandLoading: true,
 		EndpointTotal: stats.Total, EndpointEnabled: stats.Enabled,
 		UsableURLCount: len(usableURLs), SubscriptionTotal: subCount,
 		ClientNodeCount: stats.ClientNodes, PublicNodeCount: stats.PublicNodes, HaizhuNodeCount: stats.HaizhuNodes,

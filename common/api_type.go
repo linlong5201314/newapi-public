@@ -87,6 +87,10 @@ func ChannelType2APIType(channelType int) (int, bool) {
 		apiType = constant.APITypeTrae
 	case constant.ChannelTypeCline:
 		apiType = constant.APITypeCline
+	case constant.ChannelTypeKimiWork:
+		apiType = constant.APITypeKimiWork
+	case constant.ChannelTypeMiMo:
+		apiType = constant.APITypeMiMo
 	case constant.ChannelTypeFreePi:
 		apiType = constant.APITypeFreePi
 	case constant.ChannelTypeRaccoon:

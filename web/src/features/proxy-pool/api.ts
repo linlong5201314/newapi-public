@@ -24,6 +24,7 @@ import type {
   CreateEndpointPayload,
   CreateSubscriptionPayload,
   ProxyEndpoint,
+  ProxyEndpointPage,
   ProxyPoolSummary,
   ProxyRuntimeStatus,
   ProxySubscription,
@@ -50,6 +51,29 @@ export async function listEndpoints(): Promise<ProxyEndpoint[]> {
   return (
     requireServerSuccess(res.data as ApiEnvelope<ProxyEndpoint[]>).data ?? []
   )
+}
+
+/** Inventory pages are explicit; selectors can keep using listEndpoints(). */
+export async function listEndpointPage(
+  offset = 0,
+  limit = 600
+): Promise<ProxyEndpointPage> {
+  const res = await api.get(`${BASE}/endpoints`, { params: { offset, limit } })
+  const body = requireServerSuccess(
+    res.data as ApiEnvelope<ProxyEndpoint[] | null> & {
+      pagination?: ProxyEndpointPage['pagination']
+    }
+  )
+  const data = body.data ?? []
+  return {
+    data,
+    pagination: body.pagination ?? {
+      offset,
+      limit,
+      returned: data.length,
+      has_more: false,
+    },
+  }
 }
 
 export async function createEndpoint(

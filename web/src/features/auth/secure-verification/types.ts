@@ -35,6 +35,7 @@ export type SecurityProofScope =
   | 'access_token.update'
   | 'access_token.revoke'
   | 'account.binding.bind'
+  | 'upstream.account.bind'
   | 'account.binding.unbind'
   | 'account.password.set'
   | 'account.password.change'
@@ -56,6 +57,7 @@ export type VerificationOperation =
       scope: 'account.binding.bind'
       context: { provider: string; email?: string; code?: string }
     }
+  | { scope: 'upstream.account.bind'; context: { provider: 'freepi' } }
   | { scope: 'account.binding.unbind'; context: { provider_id: number } }
   | { scope: 'admin.user.create'; context: { role: number } }
   | {
@@ -93,6 +95,7 @@ export type VerificationOperation =
         SecurityProofScope,
         | 'channel.key.read'
         | 'account.binding.bind'
+        | 'upstream.account.bind'
         | 'account.binding.unbind'
         | 'access_token.generate'
         | 'access_token.update'

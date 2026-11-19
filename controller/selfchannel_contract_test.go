@@ -452,6 +452,14 @@ func TestDS2AccountLoginSessionEndToEnd(t *testing.T) {
 	c.Request.AddCookie(&http.Cookie{Name: service.RefreshCookieName, Value: platform.SID + ".fixture-refresh"})
 	SelfDs2ApiOAuthAuthorizePage(c)
 	require.Equal(t, 200, page.Code)
+	// no-referrer makes native browser form POSTs send Origin: null. Keep
+	// the origin while stripping the path/query containing the login state.
+	assert.Equal(t, "strict-origin", page.Header().Get("Referrer-Policy"))
+	assert.Equal(t, "no-store", page.Header().Get("Cache-Control"))
+	assert.Equal(t, "nosniff", page.Header().Get("X-Content-Type-Options"))
+	assert.Equal(t, "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'", page.Header().Get("Content-Security-Policy"))
+	assert.Contains(t, page.Body.String(), `<form method="post" action="/api/user/auth/ds2api/credentials">`)
+	assert.Contains(t, page.Body.String(), `href="https://chat.deepseek.com" target="_blank" rel="noopener noreferrer"`)
 	assert.Contains(t, page.Body.String(), "不是 DeepSeek OAuth")
 	assert.NotContains(t, page.Body.String(), "localStorage")
 	assert.NotContains(t, page.Body.String(), "javascript:")
@@ -464,17 +472,34 @@ func TestDS2AccountLoginSessionEndToEnd(t *testing.T) {
 		c.Request = httptest.NewRequest(http.MethodPost, "https://newapi.example/api/user/auth/ds2api/credentials", strings.NewReader(form.Encode()))
 		c.Request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		c.Request.Header.Set("Origin", origin)
+		c.Request.Header.Set("Referer", "https://newapi.example/")
+		c.Request.Header.Set("Sec-Fetch-Site", "same-origin")
+		// TLS terminates at ingress and the load balancer replaces Host.
+		// Neither that internal host nor forwarded headers establish trust.
+		c.Request.TLS = nil
+		c.Request.Host = "node.internal:3000"
+		c.Request.Header.Set("X-Forwarded-Proto", "https")
+		c.Request.Header.Set("X-Forwarded-Host", origin)
 		c.Request.AddCookie(cookies[0])
 		c.Request.AddCookie(&http.Cookie{Name: service.RefreshCookieName, Value: platform.SID + ".fixture-refresh"})
 		SelfDs2ApiOAuthCallback(c)
 		return recorder
 	}
-	rejected := finish("https://attacker.example", form)
-	assert.Equal(t, 403, rejected.Code)
-	assert.Zero(t, calls)
+	for _, origin := range []string{"https://attacker.example", "null", "", "https://sibling.newapi.example", "https://newapi.example.attacker.example", "http://newapi.example", "https://newapi.example:8443"} {
+		t.Run("reject_origin_"+origin, func(t *testing.T) {
+			rejected := finish(origin, form)
+			assert.Equal(t, http.StatusForbidden, rejected.Code)
+			assert.Equal(t, "Invalid login request origin", rejected.Body.String())
+			assert.Equal(t, "no-referrer", rejected.Header().Get("Referrer-Policy"))
+			assert.Zero(t, calls)
+			require.NoError(t, model.DB.Where("state = ?", session.State).First(&session).Error)
+			assert.Equal(t, "pending", session.Status)
+			assert.True(t, common.IsEncryptedSecret(session.Refresh))
+		})
+	}
 	badCSRF := form.Get("csrf")
 	form.Set("csrf", "invalid")
-	rejected = finish("https://newapi.example", form)
+	rejected := finish("https://newapi.example", form)
 	assert.Equal(t, 403, rejected.Code)
 	assert.Zero(t, calls)
 	form.Set("csrf", badCSRF)
@@ -526,14 +551,71 @@ func TestDS2LoginFailuresDoNotCreateChannel(t *testing.T) {
 	unconfigured := selfContractDS2Start(platform, `{}`)
 	assert.Equal(t, 503, unconfigured.Code)
 	t.Setenv("DS2API_BASE_URL", "https://ds2.example/v1")
-	for _, body := range []string{`{}`, `{"code":0,"data":{"biz_code":1,"biz_msg":"fixture-password-secret"}}`, `{"code":0,"data":{"biz_code":0,"biz_data":{}}}`} {
-		setSelfContractTransport(t, func(*http.Request) (*http.Response, error) { return selfContractResponse(200, body) })
-		_, err := service.LoginDS2Account(t.Context(), "test@example.com", "fixture-password-secret", "")
-		require.Error(t, err)
-		assert.NotContains(t, err.Error(), "fixture-password-secret")
+	for _, tc := range []struct {
+		name, body, message string
+	}{
+		{"missing_code", `{}`, "Upstream login failed or requires additional verification. Complete verification on the official website and retry"},
+		{"generic_failure", `{"code":0,"data":{"biz_code":1,"biz_msg":"fixture-password-secret"}}`, "Upstream login failed or requires additional verification. Complete verification on the official website and retry"},
+		{"verification_required", `{"code":0,"data":{"biz_code":11,"biz_msg":"fixture-password-secret","biz_data":{"user":{"token":"fixture-rejected-token"}}}}`, "DeepSeek requires verification on its official website before this account can be linked"},
+		{"outer_failure", `{"code":1,"data":{"biz_code":11}}`, "Upstream login failed or requires additional verification. Complete verification on the official website and retry"},
+		{"missing_token", `{"code":0,"data":{"biz_code":0,"biz_data":{}}}`, "Invalid upstream login response"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			setSelfContractTransport(t, func(*http.Request) (*http.Response, error) {
+				calls++
+				return selfContractResponse(200, tc.body)
+			})
+			token, err := service.LoginDS2Account(t.Context(), "test@example.com", "fixture-password-secret", "")
+			require.EqualError(t, err, tc.message)
+			assert.Empty(t, token)
+			assert.Equal(t, 1, calls)
+		})
+	}
+	start := selfContractDS2Start(platform, `{"proxy":"direct"}`)
+	require.Contains(t, start.Body.String(), `"success":true`)
+	var response struct {
+		Data struct {
+			State string `json:"sessionId"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(start.Body.Bytes(), &response))
+	var flow model.SelfOAuthSession
+	require.NoError(t, model.DB.Where("state = ?", ds2SessionKey(response.Data.State)).First(&flow).Error)
+	var options ds2LoginOptions
+	require.NoError(t, common.UnmarshalJsonStr(common.DecryptSecretOrLegacy(flow.Refresh), &options))
+	calls := 0
+	setSelfContractTransport(t, func(r *http.Request) (*http.Response, error) {
+		calls++
+		assert.Equal(t, "chat.deepseek.com", r.URL.Host)
+		return selfContractResponse(200, `{"code":0,"data":{"biz_code":11,"biz_msg":"fixture-password-secret","biz_data":{"user":{"token":"fixture-rejected-token"}}}}`)
+	})
+	form := url.Values{"state": {response.Data.State}, "csrf": {options.CSRF}, "account": {"test@example.com"}, "password": {"fixture-password-secret"}}
+	verification := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(verification)
+	c.Request = httptest.NewRequest(http.MethodPost, "https://newapi.example/api/user/auth/ds2api/credentials", strings.NewReader(form.Encode()))
+	c.Request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	c.Request.Header.Set("Origin", "https://newapi.example")
+	c.Request.AddCookie(start.Result().Cookies()[0])
+	c.Request.AddCookie(&http.Cookie{Name: service.RefreshCookieName, Value: platform.SID + ".fixture-refresh"})
+	SelfDs2ApiOAuthCallback(c)
+	assert.Equal(t, http.StatusBadGateway, verification.Code)
+	assert.Equal(t, "DeepSeek requires verification on its official website before this account can be linked", verification.Body.String())
+	assert.Equal(t, "no-referrer", verification.Header().Get("Referrer-Policy"))
+	assert.Equal(t, "no-store", verification.Header().Get("Cache-Control"))
+	assert.Equal(t, 1, calls)
+	require.NoError(t, model.DB.Where("state = ?", flow.State).First(&flow).Error)
+	assert.Equal(t, "failed", flow.Status)
+	assert.Equal(t, verification.Body.String(), flow.Err)
+	assert.Empty(t, flow.Access)
+	assert.Empty(t, flow.Refresh)
+	for _, target := range []any{&model.Channel{}, &model.SelfAccountBinding{}, &model.Ability{}} {
+		var count int64
+		require.NoError(t, model.DB.Model(target).Count(&count).Error)
+		assert.Zero(t, count)
 	}
 	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
+	c, _ = gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodGet, "/callback?token=fixture-query-token", nil)
 	SelfDs2ApiOAuthCallback(c)
 	assert.Equal(t, 405, recorder.Code)

@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"errors"
@@ -16,7 +15,6 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/relay/channel/trae"
 	"github.com/QuantumNous/new-api/relay/channel/workbuddy"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
@@ -180,6 +178,7 @@ func selfTraeCredentialImport(c *gin.Context) {
 		return
 	}
 	var req struct {
+		Realm           string                  `json:"realm"`
 		CallbackURL     string                  `json:"callbackUrl"`
 		RefreshToken    string                  `json:"refreshToken"`
 		UID             string                  `json:"uid"`
@@ -193,6 +192,10 @@ func selfTraeCredentialImport(c *gin.Context) {
 		ProxyPolicy     *dto.ChannelProxyPolicy `json:"proxyPolicy"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
+		accountAuthorizationError(c, model.ErrAuthFlowInvalid)
+		return
+	}
+	if realm := strings.ToLower(strings.TrimSpace(req.Realm)); realm != "" && realm != "cn" {
 		accountAuthorizationError(c, model.ErrAuthFlowInvalid)
 		return
 	}
@@ -387,6 +390,11 @@ func PollAccountAuthorization(ctx context.Context, identity model.AuthSessionIde
 		if state.Provider != "workbuddy" && state.Provider != "trae" {
 			return model.ErrAuthFlowInvalid
 		}
+		// Only the identity-bound bridge consent endpoint may promote a local
+		// upload to ready. The legacy generic poll must never bypass consent.
+		if state.Provider == "trae" && strings.HasPrefix(state.Status, "bridge_") {
+			return model.ErrAuthFlowInvalid
+		}
 		if state.Provider == "workbuddy" {
 			var cred workbuddy.Cred
 			if state.Credential == "" {
@@ -500,120 +508,6 @@ func CancelAccountAuthorization(identity model.AuthSessionIdentity, token string
 		state.Status = "cancelled"
 		return nil
 	})
-}
-
-// ImportTraeAuthorization accepts only the observed official local callback
-// contract. It does NOT invent a gateway callback or advertise browser login.
-func ImportTraeAuthorization(ctx context.Context, identity model.AuthSessionIdentity, callback, refresh, uid, machine, device, name string, public, confirmRotation bool, settings dto.ChannelSettings) (string, error) {
-	info := &trae.CallbackInfo{RefreshToken: refresh, UID: uid}
-	if callback != "" {
-		if refresh != "" {
-			return "", model.ErrAuthFlowInvalid
-		}
-		u, err := url.Parse(callback)
-		if err != nil || u.Scheme != "http" || u.Hostname() != "127.0.0.1" || u.Port() == "" || u.Path != "/authorize" || u.User != nil || u.Fragment != "" {
-			return "", errors.New("Unsupported Trae callback URI; use the official local client callback")
-		}
-		info, err = trae.ParseCallback(callback)
-		if err != nil {
-			return "", model.ErrAuthFlowInvalid
-		}
-	}
-	if info.RefreshToken == "" && info.AccessToken == "" {
-		return "", model.ErrAuthFlowInvalid
-	}
-	if info.RefreshToken != "" && !confirmRotation {
-		return "", errors.New("Trae token rotation confirmation is required; other clients may be signed out")
-	}
-	token, err := newAccountFlow(identity, "trae", "cn", name, public, settings, (&trae.Adaptor{}).GetModelList())
-	if err != nil {
-		return "", err
-	}
-	var upstreamErr error
-	err = model.WithWorkBuddyAuthFlow(token, identity, func(tx *gorm.DB, state *model.WorkBuddyAuthState) error {
-		assertion := info.RefreshToken
-		if assertion == "" {
-			assertion = info.AccessToken
-		}
-		if err := model.ClaimExternalAuthAssertionWithTx(tx, "trae_import", assertion, time.Now().Add(24*time.Hour)); err != nil {
-			return err
-		}
-		if machine == "" || device == "" {
-			machine, device = trae.NewDeviceIDs()
-		}
-		cred := trae.Cred{AccessToken: info.AccessToken, RefreshToken: info.RefreshToken, UID: info.UID, MachineID: machine, DeviceID: device, Domain: "trae.cn", ExpiresAt: info.ExpiresAt}
-		if cred.RefreshToken != "" {
-			body, _ := common.Marshal(map[string]any{"ClientID": trae.ClientID, "RefreshToken": cred.RefreshToken, "ClientSecret": "-", "UserID": ""})
-			req, _ := http.NewRequest(http.MethodPost, trae.OAuthHost+trae.EpExchange, bytes.NewReader(body))
-			trae.OAuthHeaders(req)
-			var response struct {
-				Result struct {
-					Token               string
-					RefreshToken        string
-					TokenExpireAt       int64
-					TokenExpireDuration int64
-				}
-			}
-			if err := service.AccountAuthorizationJSON(ctx, state.Proxy, req, &response); err != nil {
-				state.Status = "failed"
-				upstreamErr = err
-				return nil
-			}
-			if response.Result.Token == "" {
-				state.Status = "failed"
-				upstreamErr = service.ErrAccountProtocol
-				return nil
-			}
-			cred.AccessToken = response.Result.Token
-			if response.Result.RefreshToken != "" {
-				cred.RefreshToken = response.Result.RefreshToken
-			}
-			cred.ExpiresAt = trae.NormalizeExpire(response.Result.TokenExpireAt)
-			if cred.ExpiresAt <= 0 && response.Result.TokenExpireDuration > 0 && response.Result.TokenExpireDuration < 31536000 {
-				cred.ExpiresAt = time.Now().Add(time.Duration(response.Result.TokenExpireDuration) * time.Second).Unix()
-			}
-		}
-		body, _ := common.Marshal(map[string]any{"ReqSource": "IDE", "IDEVersion": trae.IdeVersion})
-		req, _ := http.NewRequest(http.MethodPost, trae.OAuthHost+trae.EpUserInfo, bytes.NewReader(body))
-		trae.OAuthHeaders(req)
-		req.Header.Set("X-Cloudide-Token", cred.AccessToken)
-		var response struct {
-			Result struct {
-				UserID       string
-				ScreenName   string
-				EnterpriseID string
-			}
-		}
-		if err := service.AccountAuthorizationJSON(ctx, state.Proxy, req, &response); err != nil {
-			state.Status = "failed"
-			upstreamErr = err
-			return nil
-		}
-		if response.Result.UserID == "" || cred.UID != "" && cred.UID != response.Result.UserID {
-			state.Status = "failed"
-			upstreamErr = service.ErrAccountProtocol
-			return nil
-		}
-		cred.UID, cred.Nickname, cred.EnterpriseID = response.Result.UserID, response.Result.ScreenName, response.Result.EnterpriseID
-		if cred.ExpiresAt <= time.Now().Unix() {
-			state.Status = "failed"
-			upstreamErr = service.ErrAccountProtocol
-			return nil
-		}
-		raw, err := common.Marshal(cred)
-		if err != nil {
-			return err
-		}
-		state.Credential, state.Status = string(raw), "ready"
-		return nil
-	})
-	if err != nil {
-		return "", err
-	}
-	if upstreamErr != nil {
-		return "", upstreamErr
-	}
-	return token, nil
 }
 
 // accountLoginProxySettings preserves explicit choices; domestic accounts permit

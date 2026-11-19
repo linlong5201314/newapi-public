@@ -1,8 +1,14 @@
 package proxy_pool
 
 import (
+	"bufio"
+	"encoding/base64"
 	"fmt"
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 	"io"
 	"net"
 	"net/http"
@@ -103,7 +109,7 @@ func TestMihomoIsolatedPrivateListeners(t *testing.T) {
 	plan, err := BuildRuntimeConfig([]RuntimeUser{
 		{UID: 1, Nodes: []RuntimeNode{{ID: 11, Name: "one", URL: first.URL}}},
 		{UID: 2, Nodes: []RuntimeNode{{ID: 22, Name: "two", URL: second.URL}}},
-	}, RuntimeOptions{BasePort: basePort, Controller: controller, Secret: "local-fixture-only"})
+	}, RuntimeOptions{BasePort: basePort, Controller: controller, Secret: kernelSecret()})
 	require.NoError(t, err)
 	var doc runtimeDoc
 	require.NoError(t, yaml.Unmarshal(plan.YAML, &doc))
@@ -125,13 +131,14 @@ func TestMihomoIsolatedPrivateListeners(t *testing.T) {
 	cmd := exec.Command(binary, "-f", config, "-d", dir)
 	cmd.Stdout, cmd.Stderr = logFile, logFile
 	done := make(chan struct{})
+	processDone := make(chan error, 1)
 	var processErr error
 	release()
 	if err := cmd.Start(); err != nil {
 		_ = logFile.Close()
 		require.NoError(t, err)
 	}
-	go func() { processErr = cmd.Wait(); close(done) }()
+	go func() { processErr = cmd.Wait(); processDone <- processErr; close(done) }()
 	t.Cleanup(func() {
 		select {
 		case <-done:
@@ -170,7 +177,7 @@ func TestMihomoIsolatedPrivateListeners(t *testing.T) {
 			readyErr = err
 			return false
 		}
-		req.Header.Set("Authorization", "Bearer local-fixture-only")
+		req.Header.Set("Authorization", "Bearer "+kernelSecret())
 		response, err := controllerClient.Do(req)
 		if err != nil {
 			readyErr = err
@@ -241,6 +248,119 @@ func TestMihomoIsolatedPrivateListeners(t *testing.T) {
 		require.NoError(t, response.Body.Close())
 		unauthTransport.CloseIdleConnections()
 	}
+
+	// The actual running kernel starts with only two private listeners. Inventory
+	// is intentionally larger than both the 300 preload and 600 display bounds.
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	oldDB, oldRedis := model.DB, common.RedisEnabled
+	model.DB, common.RedisEnabled = db, false
+	m := &Manager{cmd: cmd, processDone: processDone, ready: true, plan: plan, cfgPath: config}
+	model.SetSelectedEndpointProxyURLProvider(m.EnsureEndpointProxyURL)
+	t.Cleanup(func() {
+		model.SetSelectedEndpointProxyURLProvider(defaultManager.EnsureEndpointProxyURL)
+		model.DB, common.RedisEnabled = oldDB, oldRedis
+		_ = sqlDB.Close()
+	})
+	require.NoError(t, model.EnsureProxyPoolSchema())
+	rawURI, err := encodeClashJSON(map[string]any{
+		"type": "http", "server": "127.0.0.1", "port": first.Listener.Addr().(*net.TCPAddr).Port,
+	})
+	require.NoError(t, err)
+	rows := make([]model.ProxyEndpoint, 0, 602)
+	for i := range 601 {
+		rows = append(rows, model.ProxyEndpoint{Id: 1000 + i, UserId: 9, Name: fmt.Sprintf("US fixture %04d", i), Region: "US", Kind: "http", RawUri: rawURI, Source: "haizhu", Public: true, Enabled: true})
+	}
+	target := model.ProxyEndpoint{Id: 7114, UserId: 9, Name: "HK outside preload and list", Region: "HK", Kind: "http", RawUri: rawURI, Source: "haizhu", Public: true, Enabled: true}
+	rows = append(rows, target)
+	require.NoError(t, db.CreateInBatches(&rows, 100).Error)
+	t.Setenv("PROXY_POOL_PRELOAD_LIMIT", "300")
+	preloaded, err := model.ListAllEnabledProxyEndpoints()
+	require.NoError(t, err)
+	require.Len(t, preloaded, 300)
+	assert.NotContains(t, fmt.Sprint(preloaded), target.Name)
+	firstPage, hasMore, err := model.ListProxyEndpointsPage(3, 0, 600)
+	require.NoError(t, err)
+	require.Len(t, firstPage, 600)
+	require.True(t, hasMore)
+	lastPage, hasMore, err := model.ListProxyEndpointsPage(3, 600, 600)
+	require.NoError(t, err)
+	require.Len(t, lastPage, 2)
+	assert.False(t, hasMore)
+	assert.Equal(t, target.Id, lastPage[1].Id)
+
+	// Establish an authenticated tunnel BEFORE hot reload and use it afterward.
+	// Loading another node must not terminate or silently reroute an active account.
+	existingURL, err := url.Parse(plan.EndpointURLs[11])
+	require.NoError(t, err)
+	active, err := net.DialTimeout("tcp", existingURL.Host, time.Second)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = active.Close() })
+	require.NoError(t, active.SetDeadline(time.Now().Add(10*time.Second)))
+	password, _ := existingURL.User.Password()
+	auth := base64.StdEncoding.EncodeToString([]byte(existingURL.User.Username() + ":" + password))
+	_, err = fmt.Fprintf(active, "CONNECT fixture.invalid:80 HTTP/1.1\r\nHost: fixture.invalid:80\r\nProxy-Authorization: Basic %s\r\n\r\n", auth)
+	require.NoError(t, err)
+	activeReader := bufio.NewReader(active)
+	handshake, err := http.ReadResponse(activeReader, &http.Request{Method: http.MethodConnect})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, handshake.StatusCode)
+
+	settings := dto.ChannelSettings{ProxyPolicy: &dto.ChannelProxyPolicy{Mode: "public_pool"}}
+	selectedURL, err := model.ResolveStableChannelProxy(3, 0, "workbuddy:fixture-beyond-inventory", settings)
+	require.NoError(t, err)
+	assert.Equal(t, 3, m.plan.Proxies, "only the selected node is loaded, not 602 candidates")
+	assert.Equal(t, plan.EndpointURLs[11], m.plan.EndpointURLs[11], "existing account listener never moves")
+	assert.Equal(t, plan.EndpointURLs[22], m.plan.EndpointURLs[22])
+	assert.Equal(t, selectedURL, m.plan.EndpointURLs[target.Id])
+
+	_, err = fmt.Fprintf(active, "GET /still-bound HTTP/1.1\r\nHost: fixture.invalid\r\nConnection: close\r\n\r\n")
+	require.NoError(t, err)
+	activeResponse, err := http.ReadResponse(activeReader, &http.Request{Method: http.MethodGet})
+	require.NoError(t, err)
+	activeBody, err := io.ReadAll(io.LimitReader(activeResponse.Body, 16<<10))
+	require.NoError(t, err)
+	require.NoError(t, activeResponse.Body.Close())
+	require.NoError(t, active.Close())
+	assert.Equal(t, "owner-one", string(activeBody), "active tunnel retains its original private exit")
+
+	var current model.ProxyEndpoint
+	require.NoError(t, db.First(&current, target.Id).Error)
+	assert.Nil(t, current.LastOkAt, "loaded is not probed healthy")
+	selected, err := url.Parse(selectedURL)
+	require.NoError(t, err)
+	selectedTransport := &http.Transport{Proxy: http.ProxyURL(selected)}
+	t.Cleanup(selectedTransport.CloseIdleConnections)
+	selectedClient := &http.Client{Transport: selectedTransport, Timeout: 3 * time.Second}
+	response, err := selectedClient.Get("http://127.0.0.1:9/on-demand")
+	require.NoError(t, err)
+	actualBody, err := io.ReadAll(io.LimitReader(response.Body, 16<<10))
+	require.NoError(t, err)
+	require.NoError(t, response.Body.Close())
+	assert.Equal(t, http.StatusOK, response.StatusCode)
+	assert.Equal(t, "owner-one", string(actualBody))
+	selected.User = nil
+	unauthorizedTransport := &http.Transport{Proxy: http.ProxyURL(selected)}
+	t.Cleanup(unauthorizedTransport.CloseIdleConnections)
+	response, err = (&http.Client{Transport: unauthorizedTransport, Timeout: 3 * time.Second}).Get("http://127.0.0.1:9/on-demand")
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusProxyAuthRequired, response.StatusCode)
+	require.NoError(t, response.Body.Close())
+	// Capacity is fail-closed, not listener eviction or a different exit.
+	actualCount := m.plan.Proxies
+	m.plan.Proxies = maxKernelProxies
+	unloaded := rows[0]
+	_, err = m.EnsureEndpointProxyURL(unloaded)
+	require.ErrorContains(t, err, "capacity reached")
+	assert.Len(t, m.LoadedEndpointIDs(), 3)
+	repeated, err := model.ResolveStableChannelProxy(3, 0, "workbuddy:fixture-beyond-inventory", settings)
+	require.NoError(t, err)
+	assert.Equal(t, selectedURL, repeated)
+	m.plan.Proxies = actualCount
+	t.Log("602 inventory, page1=600, page2=2, preload=300 excludes id7114; public-pool id7114 request reached controlled local origin; only3 listeners; unauthenticated=407; cap fails closed; existing authenticated tunnel survives hot reload")
 }
 
 func TestBuildRuntimeConfigSharedPortAndVisibility(t *testing.T) {

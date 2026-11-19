@@ -12,6 +12,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/QuantumNous/new-api/common"
 )
 
 // Client SOLO 上游 HTTP 客户端（按凭据构造；传输层全包共享）。
@@ -100,13 +102,17 @@ func (c *Client) refreshTokenOnce() (*Cred, error) {
 	if strings.TrimSpace(c.cred.RefreshToken) == "" {
 		return nil, fmt.Errorf("no refreshToken")
 	}
+	clientID := c.cred.ClientID
+	if clientID == "" {
+		clientID = ClientID
+	}
 	body := map[string]any{
-		"ClientID":     ClientID,
+		"ClientID":     clientID,
 		"RefreshToken": c.cred.RefreshToken,
 		"ClientSecret": "-",
 		"UserID":       "",
 	}
-	raw, _ := json.Marshal(body)
+	raw, _ := common.Marshal(body)
 	req, err := http.NewRequest(http.MethodPost, c.oauthBase()+EpExchange, bytes.NewReader(raw))
 	if err != nil {
 		return nil, err
@@ -125,7 +131,7 @@ func (c *Client) refreshTokenOnce() (*Cred, error) {
 			RefreshExpireAt     int64  `json:"RefreshExpireAt"`
 		} `json:"Result"`
 	}
-	if err := json.Unmarshal(data, &resp); err != nil {
+	if err := common.Unmarshal(data, &resp); err != nil {
 		return nil, fmt.Errorf("exchange parse: %w", err)
 	}
 	if resp.Result.Token == "" {
@@ -193,7 +199,7 @@ func (c *Client) FetchModels() ([]ModelInfo, error) {
 		"mode_type":           nil,
 		"agent_type":          nil,
 	}
-	raw, _ := json.Marshal(body)
+	raw, _ := common.Marshal(body)
 	req, err := http.NewRequest(http.MethodPost, c.agentBase()+EpModels, bytes.NewReader(raw))
 	if err != nil {
 		return nil, err
@@ -211,7 +217,7 @@ func (c *Client) FetchModels() ([]ModelInfo, error) {
 			} `json:"display_config"`
 		} `json:"config_info_list"`
 	}
-	if err := json.Unmarshal(data, &resp); err != nil {
+	if err := common.Unmarshal(data, &resp); err != nil {
 		return nil, fmt.Errorf("models parse: %w", err)
 	}
 	out := make([]ModelInfo, 0, len(resp.ConfigInfoList))
@@ -243,7 +249,7 @@ func (c *Client) CheckinStatus() (checkedIn bool, credits int64, enable bool, er
 		Credits   int64 `json:"credits"`
 		Enable    bool  `json:"enable"`
 	}
-	if err := json.Unmarshal(data, &resp); err != nil {
+	if err := common.Unmarshal(data, &resp); err != nil {
 		return false, 0, false, fmt.Errorf("checkin status parse: %w", err)
 	}
 	return resp.CheckedIn, resp.Credits, resp.Enable, nil
@@ -283,7 +289,7 @@ func (c *Client) EntUsage() (remain, limit, used int64, packs int, err error) {
 			} `json:"usage"`
 		} `json:"user_entitlement_pack_list"`
 	}
-	if err := json.Unmarshal(data, &resp); err != nil {
+	if err := common.Unmarshal(data, &resp); err != nil {
 		return 0, 0, 0, 0, fmt.Errorf("ent usage parse: %w", err)
 	}
 	for _, p := range resp.UserEntitlementPackList {
@@ -309,7 +315,7 @@ func (c *Client) UserEntUsage() (remain int64, err error) {
 // GetUserInfo 查询账号信息（登录/导入补全用）。
 func (c *Client) GetUserInfo() (uid, nickname, enterpriseID string, err error) {
 	body := map[string]any{"ReqSource": "IDE", "IDEVersion": IdeVersion}
-	raw, _ := json.Marshal(body)
+	raw, _ := common.Marshal(body)
 	req, err := http.NewRequest(http.MethodPost, c.oauthBase()+EpUserInfo, bytes.NewReader(raw))
 	if err != nil {
 		return "", "", "", err
@@ -327,7 +333,7 @@ func (c *Client) GetUserInfo() (uid, nickname, enterpriseID string, err error) {
 			EnterpriseID string `json:"EnterpriseID"`
 		} `json:"Result"`
 	}
-	if err := json.Unmarshal(data, &resp); err != nil {
+	if err := common.Unmarshal(data, &resp); err != nil {
 		return "", "", "", fmt.Errorf("userinfo parse: %w", err)
 	}
 	return resp.Result.UserID, resp.Result.ScreenName, resp.Result.EnterpriseID, nil

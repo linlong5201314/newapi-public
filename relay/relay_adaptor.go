@@ -20,6 +20,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/cohere"
 	"github.com/QuantumNous/new-api/relay/channel/coze"
 	"github.com/QuantumNous/new-api/relay/channel/deepseek"
+	"github.com/QuantumNous/new-api/relay/channel/desktopaccount"
 	"github.com/QuantumNous/new-api/relay/channel/dify"
 	"github.com/QuantumNous/new-api/relay/channel/freepi"
 	"github.com/QuantumNous/new-api/relay/channel/gemini"
@@ -134,6 +135,8 @@ func GetAdaptor(apiType int) channel.Adaptor {
 		return &trae.Adaptor{}
 	case constant.APITypeCline:
 		return &cline.Adaptor{}
+	case constant.APITypeKimiWork, constant.APITypeMiMo:
+		return &desktopaccount.Adaptor{}
 	case constant.APITypeFreePi:
 		return &freepi.Adaptor{}
 	case constant.APITypeRaccoon:

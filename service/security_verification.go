@@ -32,6 +32,7 @@ const (
 	VerificationScopeAccessTokenRevoke   = "access_token.revoke"
 	VerificationScopeAccessTokenUpdate   = "access_token.update"
 	VerificationScopeAccountBind         = "account.binding.bind"
+	VerificationScopeUpstreamAccountBind = "upstream.account.bind"
 	VerificationScopeAccountUnbind       = "account.binding.unbind"
 	VerificationScopePasswordSet         = "account.password.set"
 	VerificationScopePasswordChange      = "account.password.change"
@@ -76,6 +77,12 @@ type AccountBindingContext struct {
 	Provider string `json:"provider"`
 	Email    string `json:"email,omitempty"`
 	Code     string `json:"code,omitempty"`
+}
+
+// UpstreamAccountBindingContext identifies an explicitly supported upstream, not
+// a platform OAuth login provider. New upstreams must be reviewed and allowlisted.
+type UpstreamAccountBindingContext struct {
+	Provider string `json:"provider"`
 }
 
 type AccountUnbindingContext struct {
@@ -190,6 +197,12 @@ func BindVerificationOperation(operation VerificationOperation) (VerificationBin
 			if len(fields) != 1 || context.Provider == "" || len(context.Provider) > 64 || oauth.GetProvider(context.Provider) == nil {
 				return VerificationBinding{}, ErrVerificationContextInvalid
 			}
+		}
+		normalized = context
+	case VerificationScopeUpstreamAccountBind:
+		var context UpstreamAccountBindingContext
+		if len(fields) != 1 || common.Unmarshal(fields["provider"], &context.Provider) != nil || context.Provider != "freepi" {
+			return VerificationBinding{}, ErrVerificationContextInvalid
 		}
 		normalized = context
 	case VerificationScopeAccountUnbind:
@@ -326,7 +339,7 @@ func securityVerificationPolicy(scope string, state model.UserVerificationState)
 		}
 	case VerificationScopePasskeyRegister, VerificationScopeTwoFASetup,
 		VerificationScopeAccessTokenGenerate, VerificationScopeAccessTokenUpdate, VerificationScopeAccessTokenRevoke,
-		VerificationScopeAccountBind, VerificationScopeAccountUnbind,
+		VerificationScopeAccountBind, VerificationScopeUpstreamAccountBind, VerificationScopeAccountUnbind,
 		VerificationScopePasswordSet, VerificationScopePasswordChange, VerificationScopeAccountDelete,
 		VerificationScopeAdminUserCreate, VerificationScopeAdminUserUpdate, VerificationScopeAdminUserDelete,
 		VerificationScopeAdminUserManage, VerificationScopeAdminUserPasskeyReset,
@@ -392,7 +405,7 @@ func GetVerificationRequirements(identity AuthIdentity, scope string) (*Verifica
 	for i := range methods {
 		if methods[i].Method == VerificationMethodPassword && !common.PasswordLoginEnabled {
 			switch scope {
-			case VerificationScopeAccountBind, VerificationScopeAccountUnbind, VerificationScopePasswordSet, VerificationScopePasswordChange, VerificationScopeAccountDelete,
+			case VerificationScopeAccountBind, VerificationScopeUpstreamAccountBind, VerificationScopeAccountUnbind, VerificationScopePasswordSet, VerificationScopePasswordChange, VerificationScopeAccountDelete,
 				VerificationScopeAdminUserCreate, VerificationScopeAdminUserUpdate, VerificationScopeAdminUserDelete,
 				VerificationScopeAdminUserManage, VerificationScopeAdminUserPasskeyReset,
 				VerificationScopeAdminUserTwoFADisable, VerificationScopeAdminUserBindingClear:

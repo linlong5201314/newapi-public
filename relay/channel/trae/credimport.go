@@ -1,141 +1,264 @@
-// credimport.go Trae 凭据导入解析：回调链接（含 refreshToken+userJwt 的 302 URL）
-// 或手填 refreshToken+uid → ExchangeToken 换正式 token + GetUserInfo 补全。
-// 移植自 _research/trae2api-web-main internal/server/callback.go。
+// credimport.go parses the official Trae CN loopback callback. It does not
+// implement an OAuth authorization-code or hosted redirect flow.
 package trae
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/QuantumNous/new-api/common"
 )
 
-// CallbackInfo 回调链接解析结果（仅服务端内部使用）。
+const (
+	DomesticAuthHost = "https://api.trae.cn"
+	IDEClientID      = "ono9krqynydwx5"
+)
+
+// CallbackInfo is secret authentication material; never include it in API
+// responses or logs. The expiry is only a refresh hint, not JWT verification.
 type CallbackInfo struct {
-	RefreshToken string // 优先 query.refreshToken，缺省回退 userJwt.RefreshToken
-	AccessToken  string // 无 refreshToken 时回退 userJwt.Token（兜底）
-	UID          string // userInfo.UserID
-	Nickname     string // userInfo.ScreenName
-	EnterpriseID string // userInfo.TenantID（注意回调字段名是 TenantID）
-	ExpiresAt    int64  // userJwt 兜底路径的过期时间
+	RefreshToken string
+	AccessToken  string
+	UID          string
+	Nickname     string
+	EnterpriseID string
+	ExpiresAt    int64
+	ClientID     string
+	AuthHost     string
 }
 
-// parseJSONParam 解回调里 URL 编码的 JSON 参数（容错双层 unquote）。
-func parseJSONParam(raw string) map[string]any {
+func parseJSONParam(raw string) (map[string]json.RawMessage, error) {
 	if raw == "" {
-		return nil
+		return nil, nil
 	}
-	candidates := []string{raw}
-	if uq, err := url.QueryUnescape(raw); err == nil && uq != raw {
-		candidates = append(candidates, uq)
+	// ParseQuery has already performed URL decoding. Decode JSON once, and
+	// retain numbers verbatim so large provider user IDs never lose precision.
+	var object map[string]json.RawMessage
+	if common.Unmarshal([]byte(raw), &object) != nil || object == nil {
+		return nil, errors.New("invalid Trae callback JSON")
 	}
-	for _, c := range candidates {
-		var obj map[string]any
-		if json.Unmarshal([]byte(c), &obj) == nil && obj != nil {
-			return obj
+	return object, nil
+}
+
+// callbackString accepts only the scalar forms present in the official callback.
+// Conflicting aliases are rejected rather than letting ambiguous input choose an
+// account, client, or token.
+func callbackString(object map[string]json.RawMessage, keys ...string) (string, error) {
+	var value string
+	for _, key := range keys {
+		item := object[key]
+		if len(item) == 0 || string(item) == "null" {
+			continue
+		}
+		var text string
+		if item[0] == '"' {
+			if common.Unmarshal(item, &text) != nil {
+				return "", errors.New("invalid Trae callback field")
+			}
+		} else if _, err := strconv.ParseInt(string(item), 10, 64); err == nil {
+			text = string(item)
+		} else {
+			return "", errors.New("invalid Trae callback field")
+		}
+		if value != "" && text != "" && value != text {
+			return "", errors.New("conflicting Trae callback fields")
+		}
+		if text != "" {
+			value = text
 		}
 	}
-	return nil
+	return value, nil
 }
 
-func getString(m map[string]any, key string) string {
-	if m == nil {
-		return ""
+func callbackExpiry(value string) int64 {
+	if number, err := strconv.ParseInt(value, 10, 64); err == nil {
+		return NormalizeExpire(number)
 	}
-	v, ok := m[key]
-	if !ok || v == nil {
-		return ""
-	}
-	switch x := v.(type) {
-	case string:
-		return x
-	case float64:
-		return strconv.FormatFloat(x, 'f', -1, 64)
-	case json.Number:
-		return x.String()
-	}
-	return fmt.Sprintf("%v", v)
-}
-
-func getInt64(m map[string]any, key string) int64 {
-	if m == nil {
-		return 0
-	}
-	v, ok := m[key]
-	if !ok || v == nil {
-		return 0
-	}
-	switch x := v.(type) {
-	case float64:
-		return int64(x)
-	case json.Number:
-		n, _ := x.Int64()
-		return n
-	case string:
-		n, _ := strconv.ParseInt(x, 10, 64)
-		return n
+	if instant, err := time.Parse(time.RFC3339Nano, value); err == nil {
+		return instant.Unix()
 	}
 	return 0
 }
 
-// ParseCallback 解析 TRAE 登录回调链接，提取凭证字段。
-// 回调形如：http://127.0.0.1:18080/authorize?refreshToken=...&userInfo={...}&userJwt={...}
-// refreshToken 优先；缺失时回退 userJwt.RefreshToken，再兜底 userJwt.Token。
+// CallbackTokenExpiry reads only a scheduling hint. Callers MUST authenticate the
+// access token with the provider before accepting it; this does not verify a JWT.
+func CallbackTokenExpiry(token string) int64 {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return 0
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return 0
+	}
+	var payload struct {
+		ExpiresAt json.Number `json:"exp"`
+	}
+	if common.Unmarshal(raw, &payload) != nil {
+		return 0
+	}
+	return callbackExpiry(payload.ExpiresAt.String())
+}
+
+// ParseCallback accepts the actual Trae CN IDE/SOLO local-client callback:
+// http://127.0.0.1:<port>/authorize?userJwt={...}&userInfo={...}.
+// A legacy refreshToken-only callback is also supported. No callback URL or
+// callback-supplied endpoint is fetched. Both token fields must be retained: the
+// page's valid pair is usable as-is and must not be rotated under another client.
 func ParseCallback(rawURL string) (*CallbackInfo, error) {
 	rawURL = strings.TrimSpace(rawURL)
-	if rawURL == "" {
-		return nil, fmt.Errorf("empty callback url")
+	if rawURL == "" || len(rawURL) > 65536 {
+		return nil, errors.New("invalid Trae callback URL")
 	}
 	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme != "http" || u.Hostname() != "127.0.0.1" || u.User != nil || u.Path != "/authorize" || u.RawPath != "" || u.Fragment != "" || u.Opaque != "" {
+		return nil, errors.New("unsupported Trae local callback URI")
+	}
+	port, err := strconv.Atoi(u.Port())
+	if err != nil || port < 1 || port > 65535 {
+		return nil, errors.New("invalid Trae callback port")
+	}
+	query, err := url.ParseQuery(u.RawQuery)
 	if err != nil {
-		return nil, fmt.Errorf("parse callback url: %w", err)
+		return nil, errors.New("invalid Trae callback query")
 	}
-	q := u.Query()
-	info := &CallbackInfo{
-		RefreshToken: q.Get("refreshToken"),
-	}
-
-	userInfo := parseJSONParam(q.Get("userInfo"))
-	info.UID = getString(userInfo, "UserID")
-	info.Nickname = getString(userInfo, "ScreenName")
-	info.EnterpriseID = getString(userInfo, "TenantID")
-
-	userJwt := parseJSONParam(q.Get("userJwt"))
-	jwtToken := getString(userJwt, "Token")
-	jwtRefresh := getString(userJwt, "RefreshToken")
-
-	if info.RefreshToken == "" {
-		info.RefreshToken = jwtRefresh
-	}
-	if info.RefreshToken == "" {
-		info.AccessToken = jwtToken
-		if jwtToken == "" {
-			return nil, fmt.Errorf("callback missing refreshToken and userJwt.Token")
+	for _, values := range query {
+		if len(values) != 1 {
+			return nil, errors.New("duplicate Trae callback parameter")
 		}
-		if exp := getInt64(userJwt, "TokenExpireAt"); exp > 0 {
-			info.ExpiresAt = NormalizeExpire(exp)
+	}
+	if query.Get("error") != "" || query.Get("code") != "" {
+		return nil, errors.New("Trae callback did not provide a local credential")
+	}
+	jwt, err := parseJSONParam(query.Get("userJwt"))
+	if err != nil {
+		return nil, err
+	}
+	account, err := parseJSONParam(query.Get("userInfo"))
+	if err != nil {
+		return nil, err
+	}
+	info := &CallbackInfo{ClientID: IDEClientID, AuthHost: DomesticAuthHost}
+	info.AccessToken, err = callbackString(jwt, "Token", "token")
+	if err != nil {
+		return nil, err
+	}
+	info.RefreshToken, err = callbackString(jwt, "RefreshToken", "refreshToken")
+	if err != nil {
+		return nil, err
+	}
+	if info.RefreshToken == "" {
+		info.RefreshToken = query.Get("refreshToken")
+	}
+	info.UID, err = callbackString(account, "UserID", "userId")
+	if err != nil {
+		return nil, err
+	}
+	if userID := query.Get("userId"); userID != "" {
+		if info.UID != "" && info.UID != userID {
+			return nil, errors.New("conflicting Trae callback account")
 		}
+		info.UID = userID
+	}
+	info.Nickname, err = callbackString(account, "ScreenName", "screenName")
+	if err != nil {
+		return nil, err
+	}
+	info.EnterpriseID, err = callbackString(account, "TenantID", "tenantId", "EnterpriseID", "enterpriseId")
+	if err != nil {
+		return nil, err
+	}
+	client, err := callbackString(jwt, "ClientID", "clientId")
+	if err != nil {
+		return nil, err
+	}
+	if named := query.Get("clientId"); named != "" {
+		if client != "" && client != named {
+			return nil, errors.New("conflicting Trae callback client")
+		}
+		client = named
+	}
+	if client != "" {
+		if client != IDEClientID && client != ClientID {
+			return nil, errors.New("unsupported Trae CN client")
+		}
+		info.ClientID = client
+	}
+	expiry, err := callbackString(jwt, "TokenExpireAt", "tokenExpireAt")
+	if err != nil {
+		return nil, err
+	}
+	info.ExpiresAt = callbackExpiry(expiry)
+	if info.ExpiresAt <= 0 {
+		info.ExpiresAt = CallbackTokenExpiry(info.AccessToken)
+	}
+	// A global callback must never be silently relabelled CN. These values
+	// are validation evidence only, never caller-selected network targets.
+	for _, key := range []string{"realm", "domain"} {
+		if value := strings.ToLower(query.Get(key)); value != "" && value != "cn" && value != "trae.cn" {
+			return nil, errors.New("only domestic Trae authorization is supported")
+		}
+	}
+	for _, key := range []string{"Region", "region", "AIRegion", "aiRegion"} {
+		value, err := callbackString(account, key)
+		if err != nil || value != "" && !strings.EqualFold(value, "CN") {
+			return nil, errors.New("unsupported Trae account region")
+		}
+	}
+	for _, value := range []string{query.Get("authHost"), query.Get("auth_host"), query.Get("host")} {
+		if err := validateDomesticCallbackHost(value); err != nil {
+			return nil, err
+		}
+	}
+	for _, key := range []string{"AuthHost", "authHost", "Host", "host"} {
+		value, err := callbackString(account, key)
+		if err != nil {
+			return nil, err
+		}
+		if err := validateDomesticCallbackHost(value); err != nil {
+			return nil, err
+		}
+	}
+	if info.RefreshToken == "" && info.AccessToken == "" {
+		return nil, errors.New("Trae callback is missing credentials")
 	}
 	return info, nil
 }
 
-// NewDeviceIDs 生成一对 hex32 machineID/deviceID（导入凭据时缺省补齐）。
+func validateDomesticCallbackHost(raw string) error {
+	if raw == "" {
+		return nil
+	}
+	if !strings.Contains(raw, "://") {
+		raw = "https://" + raw
+	}
+	u, err := url.Parse(raw)
+	if err == nil && u.Scheme == "https" && u.User == nil && u.Port() == "" && (u.Path == "" || u.Path == "/") && u.RawQuery == "" && u.Fragment == "" {
+		host := strings.ToLower(u.Host)
+		if host == "trae.cn" || strings.HasSuffix(host, ".trae.cn") || host == "api.trae.com.cn" || host == "trae-api-cn.mchost.guru" {
+			return nil
+		}
+	}
+	return errors.New("unsupported Trae domestic callback host")
+}
+
+// NewDeviceIDs supplies stable identifiers when a manual import has none.
 func NewDeviceIDs() (machineID, deviceID string) {
 	b := make([]byte, 32)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b[:16]), hex.EncodeToString(b[16:])
 }
 
-// ImportCredential 把解析后的登录材料换成正式凭据：
-//   - 有 refreshToken → ExchangeToken 轮换整族（注意：会踢同账号其他客户端下线）
-//   - 仅 accessToken（userJwt 兜底）→ 直接用，无法刷新（短命）
-// 随后 GetUserInfo 补全 uid/nickname（best-effort）。
-// machineID/deviceID 为空时自动生成一对。baseOverride 仅测试用
-// （空串时回落 TRAE_BASE_URL env，生产两者皆空走默认 host）。
+// ImportCredential is the legacy relay helper. Dashboard imports use the
+// session-bound controller flow and AccountAuthorizationJSON instead.
 func ImportCredential(info *CallbackInfo, machineID, deviceID, baseOverride string) (*Cred, error) {
 	if machineID == "" || deviceID == "" {
 		machineID, deviceID = NewDeviceIDs()
@@ -143,30 +266,22 @@ func ImportCredential(info *CallbackInfo, machineID, deviceID, baseOverride stri
 	if baseOverride == "" {
 		baseOverride = envBaseOverride()
 	}
-	cred := &Cred{
-		UID:          info.UID,
-		Nickname:     info.Nickname,
-		EnterpriseID: info.EnterpriseID,
-		MachineID:    machineID,
-		DeviceID:     deviceID,
-		Domain:       "trae.cn",
-		ExpiresAt:    info.ExpiresAt,
-		BaseOverride: baseOverride,
-	}
+	cred := &Cred{UID: info.UID, Nickname: info.Nickname, EnterpriseID: info.EnterpriseID,
+		MachineID: machineID, DeviceID: deviceID, Domain: "trae.cn", ExpiresAt: info.ExpiresAt,
+		ClientID: info.ClientID, ApiHost: info.AuthHost, BaseOverride: baseOverride}
 	client := NewClient(cred)
 	if info.RefreshToken != "" {
 		cred.RefreshToken = info.RefreshToken
-		newCred, err := client.refreshTokenOnce()
+		next, err := client.refreshTokenOnce()
 		if err != nil {
 			return nil, fmt.Errorf("ExchangeToken failed: %w", err)
 		}
-		cred = newCred
+		cred = next
 	} else if info.AccessToken != "" {
 		cred.AccessToken = info.AccessToken
 	} else {
-		return nil, fmt.Errorf("no refreshToken or accessToken to import")
+		return nil, errors.New("no refreshToken or accessToken to import")
 	}
-	// GetUserInfo 补全（best-effort：失败不阻断导入）。
 	if uid, nick, ent, err := NewClient(cred).GetUserInfo(); err == nil {
 		if cred.UID == "" {
 			cred.UID = uid
@@ -179,17 +294,15 @@ func ImportCredential(info *CallbackInfo, machineID, deviceID, baseOverride stri
 		}
 	}
 	if cred.ExpiresAt <= 0 && cred.RefreshToken == "" {
-		// userJwt 兜底且无过期信息：保守标记 1h（到期后强制重新导入）。
 		cred.ExpiresAt = time.Now().Add(time.Hour).Unix()
 	}
 	return cred, nil
 }
 
-// ImportFromRefreshToken 手填 refreshToken+uid 的导入路径（与回调链接同终点）。
 func ImportFromRefreshToken(refreshToken, uid, machineID, deviceID, baseOverride string) (*Cred, error) {
 	refreshToken = strings.TrimSpace(refreshToken)
 	if refreshToken == "" {
-		return nil, fmt.Errorf("refreshToken is required")
+		return nil, errors.New("refreshToken is required")
 	}
 	return ImportCredential(&CallbackInfo{RefreshToken: refreshToken, UID: strings.TrimSpace(uid)}, machineID, deviceID, baseOverride)
 }

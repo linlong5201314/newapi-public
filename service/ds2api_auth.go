@@ -111,7 +111,13 @@ func LoginDS2Account(ctx context.Context, account, password, proxy string) (stri
 			} `json:"biz_data"`
 		} `json:"data"`
 	}
-	if common.Unmarshal(body, &result) != nil || result.Code == nil || *result.Code != 0 || result.Data.Code == nil || *result.Data.Code != 0 {
+	if common.Unmarshal(body, &result) != nil || result.Code == nil || *result.Code != 0 || result.Data.Code == nil {
+		return "", errors.New("Upstream login failed or requires additional verification. Complete verification on the official website and retry")
+	}
+	if *result.Data.Code == 11 {
+		return "", errors.New("DeepSeek requires verification on its official website before this account can be linked")
+	}
+	if *result.Data.Code != 0 {
 		return "", errors.New("Upstream login failed or requires additional verification. Complete verification on the official website and retry")
 	}
 	token := strings.TrimSpace(result.Data.Data.User.Token)

@@ -29,6 +29,12 @@ beforeEach(() => {
               models: [],
             },
             {
+              id: 'trae-intl',
+              name: 'Trae international fixture',
+              authMode: 'oauth',
+              models: [],
+            },
+            {
               id: 'trae-cn',
               name: 'Trae fixture',
               authMode: 'oauth',
@@ -54,6 +60,37 @@ function renderUI(bindings = false) {
     </QueryClientProvider>
   )
 }
+
+it.each([false, true])(
+  'hides only international Trae creation and keeps domestic Trae and WorkBuddy global (bindings=%s)',
+  async (bindings) => {
+    const user = userEvent.setup()
+    renderUI(bindings)
+    if (bindings) {
+      const domestic = await screen.findByRole('option', {
+        name: 'Trae fixture',
+      })
+      expect(domestic).toBeInTheDocument()
+      expect(
+        screen.queryByRole('option', { name: 'Trae international fixture' })
+      ).not.toBeInTheDocument()
+      expect(screen.getByRole('option', { name: '国际版' })).toBeInTheDocument()
+    } else {
+      expect(
+        await screen.findByRole('button', { name: /Trae fixture/ })
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: /Trae international fixture/ })
+      ).not.toBeInTheDocument()
+      await user.click(
+        screen.getByRole('button', { name: /WorkBuddy fixture/ })
+      )
+      expect(
+        screen.getByRole('option', { name: 'WorkBuddy 国际版' })
+      ).toBeInTheDocument()
+    }
+  }
+)
 
 it('sends WorkBuddy owner egress in camelJSON with the account action header', async () => {
   await accountApi.startWorkbuddyOAuth('global', {
@@ -108,6 +145,7 @@ it('sends explicit Trae consent and owner egress without inventing an OAuth call
     '/api/channel/self/import_trae',
     {
       refreshToken: 'own-token',
+      realm: 'cn',
       confirmRotation: true,
       proxy: '',
       proxyPolicy: { mode: 'user_pool' },

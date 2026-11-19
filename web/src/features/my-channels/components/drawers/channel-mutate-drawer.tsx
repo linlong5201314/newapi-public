@@ -5298,11 +5298,13 @@ export function ChannelMutateDrawer({
       <TraeImportDialog
         open={traeImportOpen}
         onOpenChange={setTraeImportOpen}
-        onCredentials={(json) => {
-          form.setValue('key', json, {
-            shouldDirty: true,
-            shouldValidate: true,
+        onChannelCreated={() => {
+          queryClient.invalidateQueries({
+            queryKey: channelsQueryKeys.lists(),
           })
+          setTraeImportOpen(false)
+          onOpenChange(false)
+          setOpen(null)
         }}
       />
 

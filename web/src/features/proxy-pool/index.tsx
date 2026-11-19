@@ -16,7 +16,17 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
+import {
+  getCoreRowModel,
+  getPaginationRowModel,
+  useReactTable,
+} from '@tanstack/react-table'
 import {
   Copy,
   Cpu,
@@ -35,6 +45,7 @@ import { useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { DataTablePagination, StaticDataTable } from '@/components/data-table'
 import { EmptyState } from '@/components/empty-state'
 import { ErrorState } from '@/components/error-state'
 import { SectionPageLayout } from '@/components/layout'
@@ -59,14 +70,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
+import { TableCell, TableRow } from '@/components/ui/table'
 import { toIntlLocale } from '@/i18n/languages'
 import { formatNumber } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
@@ -82,7 +86,7 @@ import {
   getRuntimeStatus,
   getSummary,
   importHaizhuNodes,
-  listEndpoints,
+  listEndpointPage,
   listSubscriptions,
   reloadRuntime,
   selectRuntimeNode,
@@ -108,11 +112,15 @@ export function ProxyPoolPage() {
     'all' | 'mine' | 'public' | 'haizhu'
   >('all')
   const [searchKeyword, setSearchKeyword] = useState('')
-  const [pageSize, setPageSize] = useState(120)
-
-  const endpointsQuery = useQuery({
-    queryKey: [...QUERY_KEY, 'endpoints'],
-    queryFn: listEndpoints,
+  const endpointsQuery = useInfiniteQuery({
+    queryKey: [...QUERY_KEY, 'endpoint-pages'],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => listEndpointPage(pageParam),
+    getNextPageParam: (lastPage) => {
+      const pagination = lastPage.pagination
+      if (!pagination.has_more || pagination.returned <= 0) return undefined
+      return pagination.offset + pagination.returned
+    },
   })
   const subscriptionsQuery = useQuery({
     queryKey: [...QUERY_KEY, 'subscriptions'],
@@ -291,10 +299,13 @@ export function ProxyPoolPage() {
     onError: (error) => handleServerError(error, t('Export failed')),
   })
 
-  const endpoints = useMemo(
-    () => endpointsQuery.data ?? [],
-    [endpointsQuery.data]
-  )
+  const endpoints = useMemo(() => {
+    const byId = new Map<number, ProxyEndpoint>()
+    for (const page of endpointsQuery.data?.pages ?? []) {
+      for (const endpoint of page.data) byId.set(endpoint.id, endpoint)
+    }
+    return [...byId.values()]
+  }, [endpointsQuery.data])
   const subscriptions = subscriptionsQuery.data ?? []
   const summary = summaryQuery.data
   const runtime = runtimeQuery.data
@@ -316,83 +327,99 @@ export function ProxyPoolPage() {
     })
   }, [endpoints, scopeFilter, searchKeyword])
 
-  const visibleEndpoints = useMemo(
-    () => filteredEndpoints.slice(0, pageSize),
-    [filteredEndpoints, pageSize]
+  const endpointColumns = useMemo(
+    () => [
+      { id: 'name', header: t('Name') },
+      { id: 'kind', header: t('Protocol') },
+      { id: 'region', header: t('Region') },
+      { id: 'latency', header: t('Latency') },
+      { id: 'visibility', header: t('Visibility / sharing') },
+      { id: 'status', header: t('Status') },
+      { id: 'actions', header: t('Actions'), className: 'text-end' },
+    ],
+    [t]
   )
+  const endpointTable = useReactTable({
+    data: filteredEndpoints,
+    columns: endpointColumns,
+    getRowId: (endpoint) => String(endpoint.id),
+    getCoreRowModel: getCoreRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    initialState: { pagination: { pageIndex: 0, pageSize: 100 } },
+  })
+  const visibleEndpoints = endpointTable
+    .getRowModel()
+    .rows.map((row) => row.original)
 
   let endpointsContent: ReactNode
-  if (endpointsQuery.isLoading) {
+  if (endpointsQuery.isPending) {
     endpointsContent = <LoadingState />
-  } else if (endpointsQuery.isError) {
+  } else if (endpointsQuery.isError && !endpointsQuery.data) {
     endpointsContent = (
       <ErrorState onRetry={() => void endpointsQuery.refetch()} />
     )
   } else if (filteredEndpoints.length === 0) {
+    const hasFilter = scopeFilter !== 'all' || searchKeyword.trim().length > 0
     endpointsContent = (
       <EmptyState
-        title={t('No egress nodes yet')}
-        description={t(
-          'Import a subscription to add inventory. Imported nodes still require probing.'
-        )}
+        title={
+          hasFilter ? t('No matching fetched nodes') : t('No egress nodes yet')
+        }
+        description={
+          hasFilter
+            ? t(
+                'Change the filters or load more inventory. Unfetched records are not searched.'
+              )
+            : t(
+                'Import a subscription to add inventory. Imported nodes still require probing.'
+              )
+        }
       />
     )
   } else {
     endpointsContent = (
       <div className='space-y-2'>
-        <div className='overflow-x-auto rounded-lg border'>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t('Name')}</TableHead>
-                <TableHead>{t('Protocol')}</TableHead>
-                <TableHead>{t('Region')}</TableHead>
-                <TableHead>延迟</TableHead>
-                <TableHead>可见性 / 共享</TableHead>
-                <TableHead>{t('Status')}</TableHead>
-                <TableHead className='text-end'>{t('Actions')}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {visibleEndpoints.map((endpoint) => (
-                <EndpointRow
-                  key={endpoint.id}
-                  endpoint={endpoint}
-                  busy={
-                    busyId === `ep-${endpoint.id}` ||
-                    busyId === `test-${endpoint.id}`
-                  }
-                  testing={busyId === `test-${endpoint.id}`}
-                  onToggle={(enabled) =>
-                    toggleMutation.mutate({ id: endpoint.id, enabled })
-                  }
-                  onTogglePublic={(pub) =>
-                    toggleMutation.mutate({ id: endpoint.id, public: pub })
-                  }
-                  onTest={() => testMutation.mutate(endpoint.id)}
-                  onDelete={() => deleteEndpointMutation.mutate(endpoint.id)}
-                />
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-        {filteredEndpoints.length > pageSize && (
-          <div className='text-muted-foreground flex items-center justify-between px-1 text-xs'>
-            <span>
-              当前显示前 {visibleEndpoints.length} / 共{' '}
-              {filteredEndpoints.length} 个节点（已按低延迟优先排序）
-            </span>
-            <Button
-              size='sm'
-              variant='outline'
-              onClick={() => setPageSize((p) => p + 300)}
-            >
-              加载更多 (+300)
-            </Button>
-          </div>
-        )}
+        <StaticDataTable
+          columns={endpointColumns}
+          data={visibleEndpoints}
+          getRowKey={(endpoint) => endpoint.id}
+          renderRow={(endpoint) => (
+            <EndpointRow
+              endpoint={endpoint}
+              busy={
+                busyId === `ep-${endpoint.id}` ||
+                busyId === `test-${endpoint.id}`
+              }
+              testing={busyId === `test-${endpoint.id}`}
+              onToggle={(enabled) =>
+                toggleMutation.mutate({ id: endpoint.id, enabled })
+              }
+              onTogglePublic={(pub) =>
+                toggleMutation.mutate({ id: endpoint.id, public: pub })
+              }
+              onTest={() => testMutation.mutate(endpoint.id)}
+              onDelete={() => deleteEndpointMutation.mutate(endpoint.id)}
+            />
+          )}
+        />
+        <p className='text-muted-foreground text-xs'>
+          {t(
+            '{{count}} matching fetched nodes. Row pagination below does not fetch more inventory.',
+            {
+              count: formatNumber(filteredEndpoints.length, locale),
+            }
+          )}
+        </p>
+        <DataTablePagination table={endpointTable} />
       </div>
     )
+  }
+
+  let loadNextLabel = t('Load next inventory page')
+  if (endpointsQuery.isFetchingNextPage) {
+    loadNextLabel = t('Loading inventory...')
+  } else if (endpointsQuery.isFetchNextPageError) {
+    loadNextLabel = t('Retry loading inventory')
   }
 
   return (
@@ -495,18 +522,38 @@ export function ProxyPoolPage() {
         <p className='text-muted-foreground text-xs'>
           {t(
             'Node records are not unique exit IPs. Probe results are historical, not a current availability guarantee.'
-          )}{' '}
-          {t(
-            'This list contains {{shown}} of {{total}} visible records (limit {{limit}}).',
-            {
-              shown: formatNumber(endpoints.length, locale),
+          )}
+        </p>
+        {endpointsQuery.data && (
+          <p className='text-muted-foreground text-xs' role='status'>
+            {t('Fetched {{fetched}} of {{total}} visible inventory records.', {
+              fetched: formatNumber(endpoints.length, locale),
               total: formatNumber(
                 summary?.imported_total ?? summary?.endpoint_total,
                 locale
               ),
-              limit: formatNumber(summary?.list_limit, locale),
+            })}
+          </p>
+        )}
+        <p className='text-muted-foreground text-xs'>
+          {t(
+            'Browser list pages do not control runtime loading or prove node health.'
+          )}{' '}
+          {t(
+            'Preload limit: {{limit}}. Preloading is separate from browser list pages.',
+            {
+              limit: formatNumber(summary?.runtime_preload_limit, locale),
             }
-          )}
+          )}{' '}
+          {summary?.on_demand_loading === true &&
+            t(
+              'Client-protocol nodes can load on first use, up to {{limit}} listeners per process. Active listeners are not evicted; capacity or probe failures can still prevent use.',
+              { limit: formatNumber(summary.runtime_listener_limit, locale) }
+            )}
+          {summary?.on_demand_loading !== true &&
+            t(
+              'On-demand runtime loading is not confirmed by this server. Unloaded inventory is not a healthy-node count.'
+            )}
         </p>
 
         {/* 共享 mihomo 内核控制卡：仅超级管理员可见 */}
@@ -522,15 +569,6 @@ export function ProxyPoolPage() {
                   <CardDescription>
                     {t(
                       'This process has its own bounded mihomo runtime. Database inventory is shared; listeners are not. Private listeners remain owner-only.'
-                    )}{' '}
-                    {t(
-                      'Preload limit: {{limit}}. Remaining inventory is not loaded; an administrator must adjust the bounded preload and reload before use.',
-                      {
-                        limit: formatNumber(
-                          summary?.runtime_preload_limit,
-                          locale
-                        ),
-                      }
                     )}
                   </CardDescription>
                 </div>
@@ -633,45 +671,112 @@ export function ProxyPoolPage() {
                 <div className='flex rounded-md border p-0.5 text-xs'>
                   {(
                     [
-                      ['all', `全部可见 (${endpoints.length})`],
+                      [
+                        'all',
+                        t('All fetched ({{count}})', {
+                          count: formatNumber(endpoints.length, locale),
+                        }),
+                      ],
                       [
                         'mine',
-                        `我的私有/自建 (${endpoints.filter((e) => e.is_owner && e.source !== 'haizhu').length})`,
+                        t('Mine fetched ({{count}})', {
+                          count: formatNumber(
+                            endpoints.filter(
+                              (e) => e.is_owner && e.source !== 'haizhu'
+                            ).length,
+                            locale
+                          ),
+                        }),
                       ],
                       [
                         'public',
-                        `公共池公开 (${endpoints.filter((e) => e.public).length})`,
+                        t('Public fetched ({{count}})', {
+                          count: formatNumber(
+                            endpoints.filter((e) => e.public).length,
+                            locale
+                          ),
+                        }),
                       ],
                       [
                         'haizhu',
-                        `Haizhu内置 (${endpoints.filter((e) => e.source === 'haizhu').length})`,
+                        t('Haizhu fetched ({{count}})', {
+                          count: formatNumber(
+                            endpoints.filter((e) => e.source === 'haizhu')
+                              .length,
+                            locale
+                          ),
+                        }),
                       ],
                     ] as const
                   ).map(([key, label]) => (
-                    <button
+                    <Button
                       key={key}
-                      type='button'
-                      onClick={() => setScopeFilter(key)}
-                      className={`rounded px-2.5 py-1 transition-colors ${
-                        scopeFilter === key
-                          ? 'bg-primary text-primary-foreground font-medium'
-                          : 'text-muted-foreground hover:text-foreground'
-                      }`}
+                      size='sm'
+                      variant={scopeFilter === key ? 'default' : 'ghost'}
+                      aria-pressed={scopeFilter === key}
+                      onClick={() => {
+                        setScopeFilter(key)
+                        endpointTable.setPageIndex(0)
+                      }}
                     >
                       {label}
-                    </button>
+                    </Button>
                   ))}
                 </div>
                 <Input
                   value={searchKeyword}
-                  onChange={(e) => setSearchKeyword(e.target.value)}
-                  placeholder='搜节点名 / 地区 (如 HK, US, SG)…'
+                  onChange={(e) => {
+                    setSearchKeyword(e.target.value)
+                    endpointTable.setPageIndex(0)
+                  }}
+                  aria-label={t('Search fetched nodes')}
+                  aria-describedby='proxy-inventory-filter-scope'
+                  placeholder={t('Search fetched names, regions, protocols...')}
                   className='h-8 w-52 text-xs'
                 />
               </div>
             </div>
           </CardHeader>
-          <CardContent>{endpointsContent}</CardContent>
+          <CardContent className='space-y-3'>
+            <p
+              id='proxy-inventory-filter-scope'
+              className='text-muted-foreground text-xs'
+            >
+              {t(
+                'Search and visibility filters apply only to fetched records. Load more inventory to include the rest.'
+              )}
+            </p>
+            {endpointsContent}
+            {endpointsQuery.isFetchNextPageError && (
+              <p role='alert' className='text-destructive text-sm'>
+                {t(
+                  'Could not load more inventory. Fetched nodes are still available.'
+                )}
+              </p>
+            )}
+            {endpointsQuery.isRefetchError &&
+              !endpointsQuery.isFetchNextPageError &&
+              endpointsQuery.data && (
+                <ErrorState
+                  className='min-h-0'
+                  title={t(
+                    'Could not refresh inventory. Previously fetched records are shown.'
+                  )}
+                  onRetry={() => void endpointsQuery.refetch()}
+                />
+              )}
+            {endpointsQuery.hasNextPage && (
+              <Button
+                variant='outline'
+                disabled={endpointsQuery.isFetching}
+                onClick={() =>
+                  void endpointsQuery.fetchNextPage({ cancelRefetch: false })
+                }
+              >
+                {loadNextLabel}
+              </Button>
+            )}
+          </CardContent>
         </Card>
       </SectionPageLayout.Content>
 

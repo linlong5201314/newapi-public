@@ -27,6 +27,9 @@ const (
 	maxKernelProxies    = 1500
 )
 
+// RuntimeListenerLimit is the hard per-process bound, including preload.
+func RuntimeListenerLimit() int { return maxKernelProxies }
+
 // RuntimeNode 一个待注入内核的节点。RawURI（clash-json:）优先，其次 URL（可直连的 http/socks）。
 type RuntimeNode struct {
 	ID     int
@@ -59,6 +62,8 @@ type RuntimePlan struct {
 	EndpointURLs     map[int]string
 	EndpointKeys     map[int]uint64
 	Proxies          int
+	Users            []RuntimeUser
+	Controller       string
 }
 
 // RuntimeOptions 内核配置参数。
@@ -67,6 +72,8 @@ type RuntimeOptions struct {
 	Controller string // 127.0.0.1:23459
 	Secret     string
 	LogLevel   string
+	// EndpointPorts preserves issued listener URLs across bounded hot loads.
+	EndpointPorts map[int]int
 }
 
 type runtimeDoc struct {
@@ -119,6 +126,7 @@ func BuildRuntimeConfig(users []RuntimeUser, opts RuntimeOptions) (*RuntimePlan,
 		EndpointPorts:    map[int]int{},
 		EndpointURLs:     map[int]string{},
 		EndpointKeys:     map[int]uint64{},
+		Controller:       opts.Controller,
 	}
 
 	sorted := slices.Clone(users)
@@ -126,12 +134,21 @@ func BuildRuntimeConfig(users []RuntimeUser, opts RuntimeOptions) (*RuntimePlan,
 
 	seen := map[string]struct{}{}
 	privateByUser := map[int][]string{}
+	usedPorts := map[int]bool{}
+	for _, port := range opts.EndpointPorts {
+		if port <= opts.BasePort || port > 65535 || usedPorts[port] {
+			return nil, fmt.Errorf("invalid or duplicate endpoint listener port")
+		}
+		usedPorts[port] = true
+	}
+	nextPort := opts.BasePort + 100
 
 	for _, user := range sorted {
 		if user.UID <= 0 {
 			continue
 		}
 		prefix := nodeNamePrefix(user.UID)
+		loadedUser := RuntimeUser{UID: user.UID}
 		for _, node := range user.Nodes {
 			if len(doc.Proxies) >= maxKernelProxies {
 				break
@@ -144,9 +161,17 @@ func BuildRuntimeConfig(users []RuntimeUser, opts RuntimeOptions) (*RuntimePlan,
 			name := uniqueProxyName(baseName, seen)
 			proxy["name"] = name
 			doc.Proxies = append(doc.Proxies, proxy)
+			loadedUser.Nodes = append(loadedUser.Nodes, node)
 			plan.AllNodes = append(plan.AllNodes, name)
 			if node.ID > 0 {
-				port := opts.BasePort + 100 + len(plan.EndpointPorts)
+				port := opts.EndpointPorts[node.ID]
+				if port == 0 {
+					for usedPorts[nextPort] {
+						nextPort++
+					}
+					port = nextPort
+					usedPorts[port] = true
+				}
 				if port > 65535 {
 					return nil, fmt.Errorf("endpoint listener port exceeds 65535")
 				}
@@ -169,6 +194,9 @@ func BuildRuntimeConfig(users []RuntimeUser, opts RuntimeOptions) (*RuntimePlan,
 			} else {
 				privateByUser[user.UID] = append(privateByUser[user.UID], name)
 			}
+		}
+		if len(loadedUser.Nodes) > 0 {
+			plan.Users = append(plan.Users, loadedUser)
 		}
 	}
 

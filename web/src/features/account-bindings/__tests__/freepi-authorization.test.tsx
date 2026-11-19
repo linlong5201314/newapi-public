@@ -8,6 +8,7 @@ import {
   waitFor,
 } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { AxiosError, AxiosHeaders } from 'axios'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { api } from '@/lib/api'
@@ -16,7 +17,7 @@ import { FreePiAuthorizationCard } from '../freepi-authorization'
 
 const { translate } = vi.hoisted(() => ({ translate: (key: string) => key }))
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: translate }) }))
-vi.mock('@/lib/api', () => ({ api: { post: vi.fn() } }))
+vi.mock('@/lib/api', () => ({ api: { get: vi.fn(), post: vi.fn() } }))
 vi.mock('@/lib/handle-server-error', () => ({ handleServerError: vi.fn() }))
 
 const session = {
@@ -48,7 +49,152 @@ afterEach(() => {
   vi.resetAllMocks()
 })
 
+function forbidden(message: string, code?: string): AxiosError {
+  const config = { headers: new AxiosHeaders() }
+  return new AxiosError(
+    'Request failed with status code 403',
+    'ERR_BAD_REQUEST',
+    config,
+    null,
+    {
+      data: { success: false, message, ...(code ? { code } : {}) },
+      status: 403,
+      statusText: 'Forbidden',
+      headers: new AxiosHeaders(),
+      config,
+    }
+  )
+}
+
 describe('FreePi device authorization', () => {
+  it('keeps the actual HTTP 403 business reason visible without requesting verification for unrelated failures', async () => {
+    vi.mocked(api.post).mockRejectedValue(
+      forbidden('FreePi authorization requires a same-origin browser request')
+    )
+    renderCard()
+    await userEvent.setup().click(
+      screen.getByRole('button', {
+        name: 'Start GitHub device authorization',
+      })
+    )
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'FreePi authorization requires a same-origin browser request'
+    )
+    expect(screen.getByRole('alert')).not.toHaveTextContent(
+      'Request failed with status code 403'
+    )
+    expect(api.get).not.toHaveBeenCalled()
+  })
+
+  it('requests scoped verification only for FREEPI_REAUTH_REQUIRED and retries once with the proof header', async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      data: {
+        success: true,
+        data: {
+          scope: 'upstream.account.bind',
+          methods: [{ method: 'password', available: true }],
+          oauth_providers: [],
+          password_encryption_enabled: false,
+        },
+      },
+    })
+    vi.mocked(api.post).mockImplementation(async (url) => {
+      if (url === '/api/verify') {
+        return {
+          data: {
+            success: true,
+            data: {
+              proof_token: 'one-use-freepi-proof',
+              scope: 'upstream.account.bind',
+              method: 'password',
+              expires_at: Math.floor(Date.now() / 1000) + 120,
+            },
+          },
+        }
+      }
+      const starts = vi
+        .mocked(api.post)
+        .mock.calls.filter(
+          ([path]) => path === '/api/channel/self/oauth/freepi/start'
+        )
+      if (starts.length === 1) {
+        throw forbidden(
+          'Confirm your identity before linking FreePi',
+          'FREEPI_REAUTH_REQUIRED'
+        )
+      }
+      return { data: { success: true, data: session } }
+    })
+    const user = userEvent.setup()
+    renderCard()
+    await user.click(
+      screen.getByRole('button', { name: 'Start GitHub device authorization' })
+    )
+    await user.type(
+      await screen.findByLabelText('Password', { selector: 'input' }),
+      'synthetic-password'
+    )
+    await user.click(screen.getByRole('button', { name: 'Verify' }))
+    expect(await screen.findByText(session.userCode)).toBeVisible()
+    expect(api.get).toHaveBeenCalledWith(
+      '/api/verify/methods',
+      expect.objectContaining({ params: { scope: 'upstream.account.bind' } })
+    )
+    expect(api.post).toHaveBeenCalledWith(
+      '/api/verify',
+      expect.objectContaining({
+        scope: 'upstream.account.bind',
+        context: { provider: 'freepi' },
+      }),
+      expect.anything()
+    )
+    expect(api.post).toHaveBeenLastCalledWith(
+      '/api/channel/self/oauth/freepi/start',
+      { displayName: '', public: false, confirmPublic: false },
+      expect.objectContaining({
+        singleUseAuthorization: true,
+        headers: {
+          'X-FreePi-Action': 'authorize',
+          'X-Security-Proof': 'one-use-freepi-proof',
+        },
+      })
+    )
+    expect(api.post).toHaveBeenCalledTimes(3)
+  })
+
+  it('does not spend a FreePi proof or start GitHub authorization when security verification is cancelled', async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      data: {
+        success: true,
+        data: {
+          scope: 'upstream.account.bind',
+          methods: [{ method: 'password', available: true }],
+          oauth_providers: [],
+          password_encryption_enabled: false,
+        },
+      },
+    })
+    vi.mocked(api.post).mockRejectedValue(
+      forbidden(
+        'Confirm your identity before linking FreePi',
+        'FREEPI_REAUTH_REQUIRED'
+      )
+    )
+    const user = userEvent.setup()
+    renderCard()
+    await user.click(
+      screen.getByRole('button', { name: 'Start GitHub device authorization' })
+    )
+    await screen.findByLabelText('Password', { selector: 'input' })
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(
+      await screen.findByRole('button', {
+        name: 'Start GitHub device authorization',
+      })
+    ).toBeEnabled()
+    expect(api.post).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText(session.userCode)).not.toBeInTheDocument()
+  })
   it('uses an upstream complete verification link while keeping the manual code fallback', async () => {
     const user = userEvent.setup()
     const complete = 'https://github.com/login/device?user_code=ABCD-EFGH'
@@ -323,9 +469,7 @@ describe('FreePi device authorization', () => {
     await user.click(
       screen.getByRole('button', { name: 'Start GitHub device authorization' })
     )
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'FreePi authorization could not be started. Try again later'
-    )
+    expect(await screen.findByRole('alert')).toHaveTextContent('Login required')
     expect(screen.queryByText(session.userCode)).not.toBeInTheDocument()
   })
 })

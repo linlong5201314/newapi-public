@@ -72,6 +72,8 @@ const (
 	ChannelTypeCline          = 67
 	ChannelTypeRaccoon        = 68
 	ChannelTypeFreePi         = 69
+	ChannelTypeKimiWork       = 70
+	ChannelTypeMiMo           = 71
 	ChannelTypeDummy          // this one is only for count, do not add any channel after this
 
 )
@@ -147,8 +149,10 @@ var ChannelBaseURLs = []string{
 	"",                                          //65 WorkBuddy（账号型渠道，默认四域内置，BaseURL 可整体覆盖走 mock）
 	"",                                          //66 Trae（账号型渠道，默认三 host 内置，BaseURL 可整体覆盖走 mock）
 	"https://api.cline.bot/api/v1",              //67 Cline（官方 API base 已含 /api/v1，路径为 /chat/completions）
-	"https://xiaohuanxiong.com/api/web/llm/v2", //68 商汤小浣熊（网页登录态 JWT，路径为 /chat/completions）
-	"https://api.freepi.ai",                    //69 FreePi (GitHub device authorization)
+	"https://xiaohuanxiong.com/api/web/llm/v2",   //68 商汤小浣熊（网页登录态 JWT，路径为 /chat/completions）
+	"https://api.freepi.ai",                      //69 FreePi (GitHub device authorization)
+	"https://agent-gw.kimi.com/coding/v1",        //70 Kimi Work desktop account
+	"https://mimo-server-sgp.xiaomimimo.com/api", //71 Xiaomi MiMo account
 }
 
 func GetChannelBaseURL(channelType int) string {
@@ -240,6 +244,8 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeRaccoon:        "商汤小浣熊",
 	ChannelTypeFreePi:         "FreePi",
 	ChannelTypeTrae:           "Trae",
+	ChannelTypeKimiWork:       "Kimi Work",
+	ChannelTypeMiMo:           "Xiaomi MiMo",
 }
 
 func GetChannelTypeName(channelType int) string {

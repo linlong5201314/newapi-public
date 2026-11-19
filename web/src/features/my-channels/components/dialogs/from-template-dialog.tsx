@@ -61,6 +61,7 @@ import {
   type OAuthSession,
 } from '@/features/account-bindings/api'
 import { FreePiAuthorizationCard } from '@/features/account-bindings/freepi-authorization'
+import { ProviderAuthorizationCard } from '@/features/account-bindings/provider-authorization'
 import { createSubscription, listEndpoints } from '@/features/proxy-pool/api'
 import { handleServerError } from '@/lib/handle-server-error'
 import {
@@ -477,16 +478,12 @@ export function FromTemplateDialog({
   const presentation = templatePresentation[templateKind]
   const authorizationUrls: Record<string, string> = {
     'trae-cn': 'https://www.trae.cn',
-    'trae-intl': 'https://www.trae.ai',
     'cline-account': 'https://app.cline.bot',
     'qoder-cn': 'https://qoder.cn/account/integrations',
   }
   const tokenPlaceholders: Record<string, string> = {
     ds2api: t('Paste an existing token, or use the account login link above.'),
     'trae-cn': t(
-      'Use your own refresh token or the official http://127.0.0.1:port/authorize callback.'
-    ),
-    'trae-intl': t(
       'Use your own refresh token or the official http://127.0.0.1:port/authorize callback.'
     ),
     'qoder-cn':
@@ -511,7 +508,12 @@ export function FromTemplateDialog({
     !isSubscription || /^https?:\/\/\S+$/i.test(subscriptionUrl.trim())
 
   const canSubmit = useMemo(() => {
-    if (!selected || !callable || selected.id === 'freepi') return false
+    if (
+      !selected ||
+      !callable ||
+      ['freepi', 'kimi-work', 'xiaomi-mimo'].includes(selected.id)
+    )
+      {return false}
     if (
       !isSubscription &&
       !isChannelProxySelectionComplete(proxyPolicy, proxyUrl)
@@ -521,10 +523,7 @@ export function FromTemplateDialog({
     if (isSubscription) return subscriptionOk
     if (isAuthTemplate) {
       if (selected.id === 'magpie') return true
-      if (
-        (selected.id === 'trae-cn' || selected.id === 'trae-intl') &&
-        !traeConfirmed
-      ) {
+      if (selected.id === 'trae-cn' && !traeConfirmed) {
         return false
       }
       return authTokensInput.trim().length > 0
@@ -781,7 +780,7 @@ export function FromTemplateDialog({
       // 1) Token / OAuth 账号授权类模板：直接在弹窗内完成授权建渠道
       if (isAuthTemplate) {
         const raw = authTokensInput.trim()
-        if (selected.id === 'trae-cn' || selected.id === 'trae-intl') {
+        if (selected.id === 'trae-cn') {
           if (!traeConfirmed) return
           const looksUrl =
             /^https?:/i.test(raw) ||
@@ -834,8 +833,6 @@ export function FromTemplateDialog({
         if (
           selected.id === 'qoder-cn' ||
           selected.id === 'internlm-inkstone' ||
-          selected.id === 'kimi-work' ||
-          selected.id === 'xiaomi-mimo' ||
           selected.id === 'cline-account'
         ) {
           const firstToken = raw
@@ -953,6 +950,7 @@ export function FromTemplateDialog({
     return templates.filter(
       (tpl) =>
         !tpl.id.startsWith('opencode-') &&
+        tpl.id !== 'trae-intl' &&
         (categoryTab === 'all' || classifyTemplate(tpl) === categoryTab)
     )
   }, [templates, categoryTab])
@@ -1140,251 +1138,280 @@ export function FromTemplateDialog({
                   }}
                 />
               )}
-              {isAuthTemplate && selected.id !== 'freepi' && (
-                <div className='space-y-3'>
-                  {/* WorkBuddy 一键设备授权 */}
-                  {selected.id === 'workbuddy' && (
-                    <div className='bg-muted/50 flex flex-wrap items-center gap-2 rounded-lg p-2.5 text-xs'>
-                      <select
-                        className='bg-background h-8 rounded-md border px-2 text-xs'
-                        value={oauthRealm}
-                        onChange={(e) =>
-                          setOauthRealm(e.target.value as 'cn' | 'global')
-                        }
-                      >
-                        <option value='cn'>WorkBuddy 国内版（支持签到）</option>
-                        <option value='global'>WorkBuddy 国际版</option>
-                      </select>
-                      <Button
-                        size='sm'
-                        type='button'
-                        disabled={
-                          authStarting ||
-                          !isChannelProxySelectionComplete(
-                            proxyPolicy,
-                            proxyUrl
-                          )
-                        }
-                        onClick={() => void startWorkBuddyFlow()}
-                      >
-                        {t(
-                          authStarting
-                            ? 'Creating authorization session...'
-                            : 'Start WorkBuddy authorization'
-                        )}
-                      </Button>
-                      {(wbSession || authStarting) && (
+              {(['kimi-work', 'xiaomi-mimo', 'trae-cn'] as const).map(
+                (provider) =>
+                  selected.id === provider && (
+                    <ProviderAuthorizationCard
+                      key={provider}
+                      provider={provider}
+                      options={{
+                        displayName: customName.trim() || undefined,
+                        public: visibility || publicModels.length > 0,
+                        proxy: proxySelectionTouched
+                          ? resolveOutboundProxy()
+                          : undefined,
+                        proxyPolicy:
+                          proxySelectionTouched || provider !== 'trae-cn'
+                            ? proxyPolicy
+                            : undefined,
+                      }}
+                      disabled={
+                        isSubmitting ||
+                        !isChannelProxySelectionComplete(proxyPolicy, proxyUrl)
+                      }
+                      onComplete={() => {
+                        void queryClient.invalidateQueries({
+                          queryKey: channelsQueryKeys.all,
+                        })
+                        onOpenChange(false)
+                      }}
+                    />
+                  )
+              )}
+              {isAuthTemplate &&
+                !['freepi', 'kimi-work', 'xiaomi-mimo'].includes(
+                  selected.id
+                ) && (
+                  <div className='space-y-3'>
+                    {/* WorkBuddy 一键设备授权 */}
+                    {selected.id === 'workbuddy' && (
+                      <div className='bg-muted/50 flex flex-wrap items-center gap-2 rounded-lg p-2.5 text-xs'>
+                        <select
+                          className='bg-background h-8 rounded-md border px-2 text-xs'
+                          value={oauthRealm}
+                          onChange={(e) =>
+                            setOauthRealm(e.target.value as 'cn' | 'global')
+                          }
+                        >
+                          <option value='cn'>
+                            WorkBuddy 国内版（支持签到）
+                          </option>
+                          <option value='global'>WorkBuddy 国际版</option>
+                        </select>
                         <Button
+                          size='sm'
                           type='button'
+                          disabled={
+                            authStarting ||
+                            !isChannelProxySelectionComplete(
+                              proxyPolicy,
+                              proxyUrl
+                            )
+                          }
+                          onClick={() => void startWorkBuddyFlow()}
+                        >
+                          {t(
+                            authStarting
+                              ? 'Creating authorization session...'
+                              : 'Start WorkBuddy authorization'
+                          )}
+                        </Button>
+                        {(wbSession || authStarting) && (
+                          <Button
+                            type='button'
+                            size='sm'
+                            variant='outline'
+                            onClick={() => void cancelWorkBuddyFlow()}
+                          >
+                            {t('Cancel authorization')}
+                          </Button>
+                        )}
+                        {oauthStatusText && (
+                          <span role='status' className='text-primary'>
+                            {oauthStatusText}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {selected.id === 'xiaohuanxiong' && (
+                      <div
+                        role='status'
+                        className='bg-muted/50 space-y-2 rounded-lg p-2.5 text-xs'
+                      >
+                        <p>
+                          {t(
+                            'Raccoon browser authorization only supports an official local client. Gateway callbacks are not supported'
+                          )}
+                        </p>
+                        <p>
+                          {t(
+                            'Use credentials exported by your own official Raccoon client below. A website login URL or authorization code is not a usable API credential.'
+                          )}
+                        </p>
+                        <a
+                          href='https://xiaohuanxiong.com'
+                          target='_blank'
+                          rel='noopener noreferrer'
+                          className='text-primary underline'
+                        >
+                          {t('Open official Raccoon client')}
+                        </a>
+                      </div>
+                    )}
+
+                    {/* DS2API 一键生成授权链接 → 复制去浏览器登录 → 自动返回开通渠道 */}
+                    {selected.id === 'ds2api' && (
+                      <div className='border-primary/30 bg-primary/5 space-y-2 rounded-lg border p-3 text-xs'>
+                        <div className='flex flex-wrap items-center justify-between gap-2'>
+                          <span className='text-foreground font-medium'>
+                            {t(
+                              'Create an account login link and sign in with your own DeepSeek account. This is not browser OAuth.'
+                            )}
+                          </span>
+                          <div className='flex flex-wrap gap-1.5'>
+                            <Button
+                              size='sm'
+                              type='button'
+                              className='h-8 text-xs'
+                              onClick={() => void startDs2ApiFlow()}
+                              disabled={authStarting}
+                            >
+                              {ds2apiSession
+                                ? t('Regenerate account login link')
+                                : t('Create account login link')}
+                            </Button>
+                            {ds2apiSession && (
+                              <>
+                                <Button
+                                  size='sm'
+                                  variant='outline'
+                                  type='button'
+                                  onClick={() => void cancelDs2Flow()}
+                                >
+                                  {t('Cancel authorization')}
+                                </Button>
+                                <Button
+                                  size='sm'
+                                  variant='secondary'
+                                  type='button'
+                                  className='h-8 text-xs'
+                                  onClick={() => {
+                                    void navigator.clipboard
+                                      ?.writeText(ds2apiSession.authUrl)
+                                      .then(() =>
+                                        toast.success('授权链接已复制')
+                                      )
+                                  }}
+                                >
+                                  <Copy className='me-1 size-3.5' />
+                                  复制链接
+                                </Button>
+                                <Button
+                                  size='sm'
+                                  variant='outline'
+                                  type='button'
+                                  className='h-8 text-xs'
+                                  onClick={() =>
+                                    window.open(
+                                      ds2apiSession.authUrl,
+                                      '_blank',
+                                      'noopener,noreferrer'
+                                    )
+                                  }
+                                >
+                                  <ExternalLink className='me-1 size-3.5' />
+                                  {t('Open account login page')}
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        {ds2apiSession && (
+                          <Input
+                            readOnly
+                            value={ds2apiSession.authUrl}
+                            onClick={(e) =>
+                              (e.target as HTMLInputElement).select()
+                            }
+                            className='h-8 font-mono text-xs'
+                          />
+                        )}
+                        {oauthStatusText && (
+                          <div className='text-primary flex items-center gap-1.5'>
+                            <Loader2 className='size-3.5 animate-spin' />
+                            <span>{oauthStatusText}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Trae / Cline / Qoder CN / 书生·端砚 快捷跳转授权按钮 */}
+                    {(selected.id === 'cline-account' ||
+                      selected.id === 'qoder-cn' ||
+                      selected.id === 'internlm-inkstone') && (
+                      <div className='bg-muted/50 flex flex-wrap items-center gap-2 rounded-lg p-2.5 text-xs'>
+                        <Button
                           size='sm'
                           variant='outline'
-                          onClick={() => void cancelWorkBuddyFlow()}
-                        >
-                          {t('Cancel authorization')}
-                        </Button>
-                      )}
-                      {oauthStatusText && (
-                        <span role='status' className='text-primary'>
-                          {oauthStatusText}
-                        </span>
-                      )}
-                    </div>
-                  )}
-
-                  {selected.id === 'xiaohuanxiong' && (
-                    <div
-                      role='status'
-                      className='bg-muted/50 space-y-2 rounded-lg p-2.5 text-xs'
-                    >
-                      <p>
-                        {t(
-                          'Raccoon browser authorization only supports an official local client. Gateway callbacks are not supported'
-                        )}
-                      </p>
-                      <p>
-                        {t(
-                          'Use credentials exported by your own official Raccoon client below. A website login URL or authorization code is not a usable API credential.'
-                        )}
-                      </p>
-                      <a
-                        href='https://xiaohuanxiong.com'
-                        target='_blank'
-                        rel='noopener noreferrer'
-                        className='text-primary underline'
-                      >
-                        {t('Open official Raccoon client')}
-                      </a>
-                    </div>
-                  )}
-
-                  {/* DS2API 一键生成授权链接 → 复制去浏览器登录 → 自动返回开通渠道 */}
-                  {selected.id === 'ds2api' && (
-                    <div className='border-primary/30 bg-primary/5 space-y-2 rounded-lg border p-3 text-xs'>
-                      <div className='flex flex-wrap items-center justify-between gap-2'>
-                        <span className='text-foreground font-medium'>
-                          {t(
-                            'Create an account login link and sign in with your own DeepSeek account. This is not browser OAuth.'
-                          )}
-                        </span>
-                        <div className='flex flex-wrap gap-1.5'>
-                          <Button
-                            size='sm'
-                            type='button'
-                            className='h-8 text-xs'
-                            onClick={() => void startDs2ApiFlow()}
-                            disabled={authStarting}
-                          >
-                            {ds2apiSession
-                              ? t('Regenerate account login link')
-                              : t('Create account login link')}
-                          </Button>
-                          {ds2apiSession && (
-                            <>
-                              <Button
-                                size='sm'
-                                variant='outline'
-                                type='button'
-                                onClick={() => void cancelDs2Flow()}
-                              >
-                                {t('Cancel authorization')}
-                              </Button>
-                              <Button
-                                size='sm'
-                                variant='secondary'
-                                type='button'
-                                className='h-8 text-xs'
-                                onClick={() => {
-                                  void navigator.clipboard
-                                    ?.writeText(ds2apiSession.authUrl)
-                                    .then(() => toast.success('授权链接已复制'))
-                                }}
-                              >
-                                <Copy className='me-1 size-3.5' />
-                                复制链接
-                              </Button>
-                              <Button
-                                size='sm'
-                                variant='outline'
-                                type='button'
-                                className='h-8 text-xs'
-                                onClick={() =>
-                                  window.open(
-                                    ds2apiSession.authUrl,
-                                    '_blank',
-                                    'noopener,noreferrer'
-                                  )
-                                }
-                              >
-                                <ExternalLink className='me-1 size-3.5' />
-                                {t('Open account login page')}
-                              </Button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                      {ds2apiSession && (
-                        <Input
-                          readOnly
-                          value={ds2apiSession.authUrl}
-                          onClick={(e) =>
-                            (e.target as HTMLInputElement).select()
-                          }
-                          className='h-8 font-mono text-xs'
-                        />
-                      )}
-                      {oauthStatusText && (
-                        <div className='text-primary flex items-center gap-1.5'>
-                          <Loader2 className='size-3.5 animate-spin' />
-                          <span>{oauthStatusText}</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Trae / Cline / Qoder CN / 书生·端砚 快捷跳转授权按钮 */}
-                  {(selected.id === 'trae-cn' ||
-                    selected.id === 'trae-intl' ||
-                    selected.id === 'cline-account' ||
-                    selected.id === 'qoder-cn' ||
-                    selected.id === 'internlm-inkstone') && (
-                    <div className='bg-muted/50 flex flex-wrap items-center gap-2 rounded-lg p-2.5 text-xs'>
-                      <Button
-                        size='sm'
-                        variant='outline'
-                        type='button'
-                        onClick={() =>
-                          window.open(
-                            selected.signupUrl ||
-                              authorizationUrls[selected.id] ||
-                              'https://discovery.intern-ai.org.cn/',
-                            '_blank',
-                            'noopener,noreferrer'
-                          )
-                        }
-                      >
-                        <ExternalLink className='me-1 size-3.5' />
-                        打开 {selected.name} 授权 / Token 页面
-                      </Button>
-                      <span className='text-muted-foreground'>
-                        {selected.id === 'trae-cn' ||
-                        selected.id === 'trae-intl'
-                          ? t(
-                              'Trae import uses your own official client credentials, not one-click browser OAuth.'
+                          type='button'
+                          onClick={() =>
+                            window.open(
+                              selected.signupUrl ||
+                                authorizationUrls[selected.id] ||
+                                'https://discovery.intern-ai.org.cn/',
+                              '_blank',
+                              'noopener,noreferrer'
                             )
-                          : '登录后复制 Token / 回调 URL 粘贴到下方即可直接开通渠道'}
-                      </span>
-                    </div>
-                  )}
-
-                  <textarea
-                    aria-label={
-                      selected.id === 'trae-cn' || selected.id === 'trae-intl'
-                        ? t('Trae callback URL or refresh token')
-                        : undefined
-                    }
-                    value={authTokensInput}
-                    onChange={(e) => setAuthTokensInput(e.target.value)}
-                    rows={4}
-                    placeholder={
-                      tokenPlaceholders[selected.id] ??
-                      '粘贴授权 Token（每行一个）'
-                    }
-                    className='border-input bg-background w-full rounded-md border p-2.5 font-mono text-xs'
-                  />
-
-                  {(selected.id === 'trae-cn' ||
-                    selected.id === 'trae-intl') && (
-                    <div className='space-y-2'>
-                      <Input
-                        value={traeUid}
-                        onChange={(e) => setTraeUid(e.target.value)}
-                        placeholder='Trae UID（可选，用回调链接导入时自动识别）'
-                        className='h-8 text-xs'
-                      />
-                      <Label className='flex items-start gap-2 text-xs'>
-                        <Checkbox
-                          checked={traeConfirmed}
-                          disabled={isSubmitting}
-                          onCheckedChange={(checked) =>
-                            setTraeConfirmed(checked === true)
                           }
-                        />
-                        {t(
-                          'I understand that importing Trae credentials rotates tokens and may sign out other clients.'
-                        )}
-                      </Label>
-                      {oauthStatusText && (
-                        <p
-                          role='status'
-                          className='text-muted-foreground text-xs'
                         >
-                          {oauthStatusText}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
+                          <ExternalLink className='me-1 size-3.5' />
+                          打开 {selected.name} 授权 / Token 页面
+                        </Button>
+                        <span className='text-muted-foreground'>
+                          登录后复制 Token / 回调 URL 粘贴到下方即可直接开通渠道
+                        </span>
+                      </div>
+                    )}
+
+                    <textarea
+                      aria-label={
+                        selected.id === 'trae-cn'
+                          ? t('Trae callback URL or refresh token')
+                          : undefined
+                      }
+                      value={authTokensInput}
+                      onChange={(e) => setAuthTokensInput(e.target.value)}
+                      rows={4}
+                      placeholder={
+                        tokenPlaceholders[selected.id] ??
+                        '粘贴授权 Token（每行一个）'
+                      }
+                      className='border-input bg-background w-full rounded-md border p-2.5 font-mono text-xs'
+                    />
+
+                    {selected.id === 'trae-cn' && (
+                      <div className='space-y-2'>
+                        <Input
+                          value={traeUid}
+                          onChange={(e) => setTraeUid(e.target.value)}
+                          placeholder='Trae UID（可选，用回调链接导入时自动识别）'
+                          className='h-8 text-xs'
+                        />
+                        <Label className='flex items-start gap-2 text-xs'>
+                          <Checkbox
+                            checked={traeConfirmed}
+                            disabled={isSubmitting}
+                            onCheckedChange={(checked) =>
+                              setTraeConfirmed(checked === true)
+                            }
+                          />
+                          {t(
+                            'I understand that importing Trae credentials rotates tokens and may sign out other clients.'
+                          )}
+                        </Label>
+                        {oauthStatusText && (
+                          <p
+                            role='status'
+                            className='text-muted-foreground text-xs'
+                          >
+                            {oauthStatusText}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               {isIpFreeTemplate && (
                 <div className='border-primary/30 bg-primary/5 space-y-1 rounded-lg border p-3 text-xs'>
                   <div className='text-foreground font-medium'>

@@ -67,6 +67,18 @@ export interface ProxyEndpoint {
   updated_at: string
 }
 
+export interface ProxyEndpointPagination {
+  offset: number
+  limit: number
+  returned: number
+  has_more: boolean
+}
+
+export interface ProxyEndpointPage {
+  data: ProxyEndpoint[]
+  pagination: ProxyEndpointPagination
+}
+
 export interface ProxySubscription {
   id: number
   name: string
@@ -89,18 +101,20 @@ export interface ProxySubscription {
 }
 
 export interface ProxyPoolSummary {
-  imported_total?: number
-  enabled?: number
-  loaded_this_process?: number
-  probed_healthy?: number
-  unknown?: number
-  failed?: number
-  disabled?: number
+  imported_total?: number | null
+  enabled?: number | null
+  loaded_this_process?: number | null
+  probed_healthy?: number | null
+  unknown?: number | null
+  failed?: number | null
+  disabled?: number | null
   inventory_scope?: 'database_visible_to_user'
   loaded_scope?: 'this_process_visible_to_user'
-  inventory_remaining?: number
+  inventory_remaining?: number | null
   list_limit?: number
-  runtime_preload_limit?: number
+  runtime_preload_limit?: number | null
+  runtime_listener_limit?: number | null
+  on_demand_loading?: boolean
   endpoint_total: number
   endpoint_enabled: number
   /** Configured dialable URLs; not a probe result or unique exit-IP count. */

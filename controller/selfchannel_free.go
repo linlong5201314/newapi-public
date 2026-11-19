@@ -114,6 +114,11 @@ func AddSelfChannelFromTemplate(c *gin.Context) {
 		common.ApiErrorMsg(c, "Use GitHub device authorization to connect FreePi")
 		return
 	}
+	switch tpl.Id {
+	case "trae-cn", "kimi-work", "xiaomi-mimo":
+		common.ApiErrorMsg(c, "Use the dedicated account connection flow for this provider")
+		return
+	}
 	if liveFreeCatalogProvider(tpl.BaseUrl, tpl.Id) == "opencode" {
 		common.ApiErrorMsg(c, "OpenCode free models are not available through this gateway. Use the official OpenCode client")
 		return
