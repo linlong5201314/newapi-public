@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -209,25 +210,36 @@ func miMoURL(target string, hosts ...string) (*url.URL, error) {
 	return nil, ErrAccountProtocol
 }
 
-func StartMiMoSignIn(ctx context.Context, proxy string) (MiMoTicket, string, error) {
-	var ticket MiMoTicket
+func StartMiMoSignIn(ctx context.Context, proxy string) (ticket MiMoTicket, authURL string, resultErr error) {
+	stage, upstreamStatus := "device", 0
+	defer func() {
+		if resultErr != nil {
+			// Fixed stage and HTTP status only: URLs and errors can contain tickets.
+			common.SysLog(fmt.Sprintf("MiMo login start failed: stage=%s upstream_http=%d", stage, upstreamStatus))
+		}
+	}()
 	device := make([]byte, 16)
 	if _, err := rand.Read(device); err != nil {
 		return ticket, "", err
 	}
 	ticket.DeviceID = "pc_" + hex.EncodeToString(device)
 	base := MiMoBase("SGP")
+	stage = "service_request"
 	status, headers, _, err := desktopAccountRequest(ctx, proxy, base+"/user/xiaomi/me", MiMoHeaders())
+	upstreamStatus = status
 	if err != nil {
 		return ticket, "", err
 	}
+	stage = "service_status"
 	if status < 300 || status >= 400 {
 		return ticket, "", ErrAccountProtocol
 	}
+	stage = "service_redirect"
 	login, err := miMoURL(headers.Get("Location"), "account.xiaomi.com")
 	if err != nil {
 		return ticket, "", err
 	}
+	stage = "service_callback"
 	sid, callback := login.Query().Get("sid"), login.Query().Get("callback")
 	callbackURL, err := url.Parse(callback)
 	if err != nil || callbackURL.Host != "mimo-server-sgp.xiaomimimo.com" || callbackURL.User != nil || callbackURL.Path != "/api/sts" || (callbackURL.Scheme != "http" && callbackURL.Scheme != "https") || callbackURL.Fragment != "" || sid != "mimosgp" {
@@ -237,7 +249,9 @@ func StartMiMoSignIn(ctx context.Context, proxy string) (MiMoTicket, string, err
 	q := url.Values{"_group": {"DEFAULT"}, "_qrsize": {"240"}, "qs": {"%3Fsid%3D" + url.QueryEscape(sid) + "%26_json%3Dtrue"}, "callback": {callbackURL.String()}, "_hasLogo": {"false"}, "sid": {sid}, "serviceParam": {""}, "_locale": {"en_US"}}
 	h := MiMoHeaders()
 	h.Set("Cookie", "deviceId="+ticket.DeviceID+"; pass_ua=pc; uLocale=zh_CN")
+	stage = "ticket_request"
 	status, _, raw, err := desktopAccountRequest(ctx, proxy, MiMoAccount+"/longPolling/loginUrl?"+q.Encode(), h)
+	upstreamStatus = status
 	if err != nil {
 		return ticket, "", err
 	}
@@ -247,15 +261,19 @@ func StartMiMoSignIn(ctx context.Context, proxy string) (MiMoTicket, string, err
 		PollURL  string `json:"lp"`
 		Timeout  int    `json:"timeout"`
 	}
+	stage = "ticket_response"
 	if status != http.StatusOK || common.Unmarshal([]byte(strings.TrimPrefix(strings.TrimSpace(string(raw)), "&&&START&&&")), &result) != nil || result.Code == nil || *result.Code != 0 {
 		return ticket, "", ErrAccountProtocol
 	}
+	stage = "login_destination"
 	if _, err := miMoURL(result.LoginURL, "account.xiaomi.com", "ak.account.xiaomi.com"); err != nil {
 		return ticket, "", err
 	}
+	stage = "poll_destination"
 	if _, err := miMoURL(result.PollURL, "account.xiaomi.com", "ak.lp.account.xiaomi.com"); err != nil {
 		return ticket, "", err
 	}
+	stage = "ticket_size"
 	if len(result.LoginURL) > 8192 || len(result.PollURL) > 8192 {
 		return ticket, "", ErrAccountProtocol
 	}
