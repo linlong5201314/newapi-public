@@ -202,6 +202,29 @@ function ModelTestDialog(
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
+        <div className='flex items-center gap-2'>
+          <Button
+            type='button'
+            variant='ghost'
+            size='sm'
+            disabled={test.isPending || models.length === 0}
+            onClick={() => changeSelection(models.slice(0, 3))}
+          >
+            {t('Select first 3')}
+          </Button>
+          <Button
+            type='button'
+            variant='ghost'
+            size='sm'
+            disabled={test.isPending || selected.length === 0}
+            onClick={() => changeSelection([])}
+          >
+            {t('Clear selection')}
+          </Button>
+          <span className='text-muted-foreground text-xs'>
+            {t('{{count}} selected', { count: selected.length })}
+          </span>
+        </div>
         <div
           className='max-h-48 space-y-2 overflow-y-auto rounded-lg border p-3'
           role='group'

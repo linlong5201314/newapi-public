@@ -50,7 +50,7 @@ func SelfDesktopAccountCapabilities(c *gin.Context) {
 		return
 	}
 	switch c.Query("provider") {
-	case "cline-account", "qoder-cn", "qoder-global":
+	case "cline-account", "qoder-cn", "qoder-global", "nous-portal":
 		common.ApiSuccess(c, gin.H{"provider": c.Query("provider"), "method": "device_poll", "browserLoginAvailable": true, "importAvailable": false})
 	case "raccoon", "trae-cn":
 		common.ApiSuccess(c, gin.H{"provider": c.Query("provider"), "method": "callback_url", "browserLoginAvailable": true, "importAvailable": false})

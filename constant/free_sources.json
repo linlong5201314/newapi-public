@@ -1,6 +1,6 @@
 {
-  "version": 6,
-  "curatedAt": "2026-11-17",
+  "version": 8,
+  "curatedAt": "2026-11-20",
   "source": "assets/free-pools.json + assets/free-model-catalog.json + OmniRoute provider registry",
   "templates": [
     {
@@ -351,7 +351,6 @@
       "signupUrl": "https://app.kilo.ai/profile",
       "keyRequired": false,
       "models": [
-        "kilo-auto/free",
         "inclusionai/ling-3.2-flash:free",
         "baidu/ernie-5.5-flash-preview:free",
         "thinkingmachines/inkling-2-small:free",
@@ -777,6 +776,22 @@
       "poolKey": "qoder-global",
       "authMode": "oauth",
       "hiddenEndpoint": true,
+      "authType": "none"
+    },
+    {
+      "id": "nous-portal",
+      "name": "Nous Portal (OAuth)",
+      "channelType": 74,
+      "baseUrl": "https://inference-api.nousresearch.com/v1",
+      "signupUrl": "https://portal.nousresearch.com",
+      "keyRequired": false,
+      "models": [],
+      "freeNote": "Nous Portal 设备授权（RFC 8628）：生成官方登录链接，浏览器确认设备码后自动轮询完成；凭据加密存储，推理 JWT 自动轮换。",
+      "monthlyTokens": 0,
+      "freeType": "account-dependent",
+      "tos": "ok",
+      "poolKey": "nous-portal",
+      "authMode": "oauth",
       "authType": "none"
     }
   ]

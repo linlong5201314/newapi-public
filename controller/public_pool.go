@@ -2,12 +2,14 @@ package controller
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"net/url"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -557,4 +559,161 @@ func parseLimitOrDefault(raw string, def int) int {
 		return n
 	}
 	return def
+}
+
+// ---------------------------------------------------------------------------
+// 公共池模型 × 公共节点 IP 维度可用性（root 专属）
+// ---------------------------------------------------------------------------
+
+// publicPoolProbeResult 单条模型×节点的测量行（IP 维度）。
+type publicPoolProbeResult struct {
+	EndpointID int    `json:"endpoint_id"`
+	Status     string `json:"status"` // available|unavailable|unknown
+	Reason     string `json:"reason"`
+	LatencyMS  int64  `json:"latency_ms"`
+}
+
+// publicPoolModelIPView 一个模型在所有被测公共端点上的可用性汇总。
+type publicPoolModelIPView struct {
+	Model     string                  `json:"model"`
+	Passed    bool                    `json:"passed"` // 所有被测端点全通过
+	Available int                     `json:"available_endpoints"`
+	Total     int                     `json:"total_endpoints"`
+	Results   []publicPoolProbeResult `json:"results"`
+}
+
+// ListPublicPoolProbeEndpoints 返回公共渠道可选的公共端点（IP 维度展示用）。
+// root 专属；只暴露端点 id / 归属订阅 / public 标记，绝不暴露地址或凭据。
+func ListPublicPoolProbeEndpoints(c *gin.Context) {
+	if !requirePublicPoolRoot(c) {
+		return
+	}
+	channel, ok := loadPublicPoolAdminChannel(c)
+	if !ok {
+		return
+	}
+	endpoints, hasMore, err := model.ListModelProbeEndpoints(c.Request.Context(), c.GetInt("id"), 0, 100, true)
+	if err != nil {
+		common.ApiErrorT(c, "Model test endpoints are unavailable")
+		return
+	}
+	common.ApiSuccess(c, gin.H{
+		"channel_id":           channel.Id,
+		"endpoints":            endpoints,
+		"endpoint_has_more":    hasMore,
+		"configured_egress_only": service.ModelProbeConfiguredEgressOnly(channel.Type),
+	})
+}
+
+// PostPublicPoolProbeAllPublicEndpoints root 一键对公共渠道的所选模型
+// 在全部公共节点上做 IP 维度实测。每模型×每端点一次，最大 3 模型 × 50 端点。
+// 账号型渠道（owner_id=0 但绑凭据）只用配置出口，不轮换公共节点。
+func PostPublicPoolProbeAllPublicEndpoints(c *gin.Context) {
+	if !requirePublicPoolRoot(c) {
+		return
+	}
+	channel, ok := loadPublicPoolAdminChannel(c)
+	if !ok {
+		return
+	}
+	var request struct {
+		Models []string `json:"models"`
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 4096)
+	if err := common.DecodeJson(c.Request.Body, &request); err != nil {
+		common.ApiErrorT(c, "Invalid parameters")
+		return
+	}
+	probeReq := service.ModelProbeRequest{Models: request.Models}
+	if err := probeReq.Validate(); err != nil {
+		common.ApiErrorT(c, err.Error())
+		return
+	}
+	// 账号型渠道不能用公共节点轮换（凭据绑死配置出口）。
+	if service.ModelProbeConfiguredEgressOnly(channel.Type) {
+		common.ApiErrorT(c, "Account model tests must use configured egress")
+		return
+	}
+	// 拉全部公共端点（上限 50，超出需分批）。
+	endpoints, _, err := model.ListModelProbeEndpoints(c.Request.Context(), c.GetInt("id"), 0, 50, true)
+	if err != nil {
+		common.ApiErrorT(c, "Model test endpoints are unavailable")
+		return
+	}
+	endpointIDs := []int{0} // 0 = 渠道配置出口（direct/fixed/public_pool 的稳定出口）
+	for _, ep := range endpoints {
+		if ep.ID > 0 {
+			endpointIDs = append(endpointIDs, ep.ID)
+		}
+	}
+	if len(endpointIDs) > 50 {
+		endpointIDs = endpointIDs[:50]
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), service.ModelProbeBatchTimeout)
+	defer cancel()
+	ctx = context.WithValue(ctx, modelProbeUserContextKey{}, c.GetInt("id"))
+
+	views := make([]publicPoolModelIPView, 0, len(probeReq.Models))
+	probeChannel, cerr := model.GetChannelById(channel.Id, true)
+	if cerr != nil {
+		common.ApiErrorT(c, "Public free channel not found")
+		return
+	}
+	for _, modelName := range probeReq.Models {
+		view := publicPoolModelIPView{Model: modelName, Results: []publicPoolProbeResult{}}
+		allPassed := true
+		for _, endpointID := range endpointIDs {
+			resolved, rerr := model.ResolveModelProbeEndpoint(ctx, c.GetInt("id"), probeChannel, endpointID)
+			if rerr != nil {
+				view.Results = append(view.Results, publicPoolProbeResult{EndpointID: endpointID, Status: model.ModelEndpointUnknown, Reason: "endpoint_unavailable"})
+				allPassed = false
+				continue
+			}
+			started := time.Now()
+			attemptCtx, attemptCancel := context.WithTimeout(ctx, service.ModelProbeAttemptTimeout)
+			outcome := runSelfModelProbeRelay(attemptCtx, probeChannel, modelName, resolved)
+			if attemptCtx.Err() != nil {
+				outcome = service.ClassifyModelProbeError(attemptCtx, nil)
+			}
+			attemptCancel()
+			latency := time.Since(started).Milliseconds()
+			// 持久化测量（公共渠道 owner_id=0，scope 以公共端点计）。
+			sample := model.ModelEndpointHealth{
+				ChannelID:      channel.Id,
+				Model:          modelName,
+				EndpointID:     resolved.ID,
+				SubscriptionID: resolved.SubscriptionID,
+				Status:         outcome.Status,
+				Reason:         outcome.Reason,
+				HTTPStatus:     outcome.HTTPStatus,
+				LatencyMS:      latency,
+				CheckedAt:      time.Now().Unix(),
+				ScopeKey:       model.ModelEndpointHealthScope(probeChannel, modelName, resolved.Endpoint, resolved.ProxyURL),
+			}
+			if _, err := model.RecordModelEndpointHealth(ctx, sample); err != nil {
+				common.SysError("failed to record public pool model endpoint health")
+			}
+			view.Results = append(view.Results, publicPoolProbeResult{
+				EndpointID: endpointID,
+				Status:     outcome.Status,
+				Reason:     outcome.Reason,
+				LatencyMS:  latency,
+			})
+			if outcome.Status == model.ModelEndpointAvailable {
+				view.Available++
+			} else {
+				allPassed = false
+			}
+		}
+		view.Total = len(endpointIDs)
+		view.Passed = allPassed && view.Available == view.Total
+		views = append(views, view)
+	}
+	common.ApiSuccess(c, gin.H{
+		"channel_id":        channel.Id,
+		"endpoint_ids":      endpointIDs,
+		"endpoint_count":    len(endpointIDs),
+		"models":            views,
+		"max_output_tokens": service.ModelProbeMaxOutputTokens,
+	})
 }

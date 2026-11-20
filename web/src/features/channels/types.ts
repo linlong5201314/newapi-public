@@ -71,6 +71,8 @@ export const channelSchema = z.object({
     multi_key_mode: 'random',
   }),
   settings: z.string().default('{}'), // other_settings JSON
+  owner_id: z.number().default(0), // 0=平台公共渠道，>0=用户自建渠道
+  tier: z.string().default('api'), // free=免费层，api=密钥层
 })
 
 export type Channel = z.infer<typeof channelSchema>
@@ -299,6 +301,7 @@ export interface SearchChannelsParams {
   model?: string
   status?: string
   type?: number
+  pool?: string // 'public' = 平台公共免费池, 'user' = 用户自建渠道
   id_sort?: boolean
   tag_mode?: boolean
   sort_by?: ChannelSortBy

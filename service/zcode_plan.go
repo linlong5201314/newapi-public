@@ -3,10 +3,13 @@ package service
 // Balance contract pinned to HaizhuAI/Zkali@0770d34c1561018ebba3a780ec3c4896faecffe0.
 // Account availability comes only from this authenticated response, never the catalog.
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"strconv"
@@ -68,6 +71,9 @@ func ValidateZCodeStartPlan(ctx context.Context, proxy string, credential *ZCode
 	}
 	headers := make(http.Header)
 	headers.Set("Authorization", "Bearer "+credential.Token)
+	// X-Device-Mid 是 zcode-plan/billing/balance 的必传头（缺了返回 400
+	// {"code":3001}）。服务端用确定性 UUID，不以任何真实设备指纹为输入。
+	headers.Set("X-Device-Mid", zcodeDeviceMid(credential.UserID))
 	status, responseHeaders, raw, err := desktopAccountRequest(ctx, proxy, zcodeStartPlanBalanceURL, headers)
 	if err != nil {
 		return nil, err
@@ -181,6 +187,17 @@ func ValidateZCodeStartPlan(ctx context.Context, proxy string, credential *ZCode
 	return models, nil
 }
 
+// zcodeDeviceMid 生成确定性设备标识：同一用户始终得到同一个 UUID，避免每次
+// 余额查询产生新设备记录。输入只有用户 ID（已认证身份），不采集任何真实设备指纹。
+func zcodeDeviceMid(userID string) string {
+	h := sha256.Sum256([]byte("zcode-device-mid-v1:" + userID))
+	// RFC 4122 UUID v5 格式（版本位置 0101，变体位 10）。
+	raw := h[:16]
+	raw[6] = (raw[6] & 0x0f) | 0x50
+	raw[8] = (raw[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", raw[0:4], raw[4:6], raw[6:8], raw[8:10], raw[10:16])
+}
+
 // zcodePlanOwnsBucket requires an explicit link, never just a model/show_name.
 func zcodePlanOwnsBucket(plan zcodeStartPlan, bucket zcodePlanBucket) bool {
 	if bucket.UserPlanID != "" {
@@ -272,4 +289,156 @@ func zcodePlanQuotaAvailable(bucket zcodePlanBucket) bool {
 		return false
 	}
 	return true
+}
+
+// ---------------------------------------------------------------------------
+// Start Plan 套餐预览与领取（Zkali zai-start-plan-provider 协议）
+// ---------------------------------------------------------------------------
+
+// ZCodePlanPreview 一个可领取的套餐。
+type ZCodePlanPreview struct {
+	PlanID    string `json:"plan_id"`
+	Name      string `json:"name"`
+	Priority  int    `json:"priority"`
+	Claimable bool   `json:"claimable"`
+}
+
+// ZCodePlanPreviewResult 预览响应的归一化结果。
+type ZCodePlanPreviewResult struct {
+	Plans      []ZCodePlanPreview `json:"plans"`
+	ServerTime float64            `json:"server_time"`
+}
+
+// ZCodePlanClaimResult 领取响应。
+type ZCodePlanClaimResult struct {
+	Claimed   bool   `json:"claimed"`
+	PlanID    string `json:"plan_id"`
+	Message   string `json:"message,omitempty"`
+}
+
+const zcodePlanPreviewURL = ZCodeAPIBase + "/zcode-plan/billing/preview?app_version=" + ZCodeAppVersion
+const zcodePlanClaimURL = ZCodeAPIBase + "/zcode-plan/billing/claim"
+
+// PreviewZCodePlans 查询可领取的 Start Plan 套餐。JWT 可选（未登录也能看公开预览）。
+// 返回 nil, nil 表示没有可领取的套餐。
+func PreviewZCodePlans(ctx context.Context, proxy string, credential *ZCodeCredential) (*ZCodePlanPreviewResult, error) {
+	headers := make(http.Header)
+	if credential != nil && HeaderCredential(credential.Token, 16384) {
+		headers.Set("Authorization", "Bearer "+credential.Token)
+		headers.Set("X-Device-Mid", zcodeDeviceMid(credential.UserID))
+	}
+	status, _, raw, err := desktopAccountRequest(ctx, proxy, zcodePlanPreviewURL, headers)
+	if err != nil {
+		return nil, err
+	}
+	if status != http.StatusOK {
+		return nil, ErrAccountUpstream
+	}
+	var envelope struct {
+		Code *int `json:"code"`
+		Data *struct {
+			ServerTime json.RawMessage `json:"server_time"`
+			Plans      []struct {
+				PlanID    string `json:"plan_id"`
+				Name      string `json:"name"`
+				Priority  int    `json:"priority"`
+				Claimable *bool  `json:"claimable"`
+			} `json:"plans"`
+		} `json:"data"`
+	}
+	if common.Unmarshal(raw, &envelope) != nil || envelope.Code == nil || *envelope.Code != 0 || envelope.Data == nil {
+		return nil, ErrAccountProtocol
+	}
+	result := &ZCodePlanPreviewResult{Plans: []ZCodePlanPreview{}}
+	if t, ok := zcodePlanNumber(envelope.Data.ServerTime); ok {
+		result.ServerTime = t
+	}
+	for _, plan := range envelope.Data.Plans {
+		claimable := plan.Claimable == nil || *plan.Claimable
+		if plan.PlanID != "" && claimable {
+			result.Plans = append(result.Plans, ZCodePlanPreview{
+				PlanID:    plan.PlanID,
+				Name:      plan.Name,
+				Priority:  plan.Priority,
+				Claimable: true,
+			})
+		}
+	}
+	// 按 priority 降序、plan_id 升序排列（Zkali 协议：服务端已排序，客户端不重排）。
+	return result, nil
+}
+
+// ClaimZCodePlan 用当前 ZCode JWT 领取指定套餐。必须已登录。
+func ClaimZCodePlan(ctx context.Context, proxy string, credential *ZCodeCredential, planID string) (*ZCodePlanClaimResult, error) {
+	if credential == nil || (credential.Provider != "zai" && credential.Provider != "bigmodel") ||
+		!HeaderCredential(credential.UserID, 256) || !HeaderCredential(credential.Token, 16384) || credential.ExpiresAt <= 0 {
+		return nil, ErrAccountProtocol
+	}
+	if credential.ExpiresAt <= time.Now().Unix() {
+		return nil, ErrDesktopLoginExpired
+	}
+	if strings.TrimSpace(planID) == "" || len(planID) > 128 {
+		return nil, ErrAccountProtocol
+	}
+	body, err := common.Marshal(map[string]string{"plan_id": planID})
+	if err != nil {
+		return nil, ErrAccountProtocol
+	}
+	headers := make(http.Header)
+	headers.Set("Authorization", "Bearer "+credential.Token)
+	headers.Set("Content-Type", "application/json")
+	headers.Set("X-Device-Mid", zcodeDeviceMid(credential.UserID))
+	status, _, raw, err := desktopAccountRequestWithBody(ctx, proxy, zcodePlanClaimURL, headers, body)
+	if err != nil {
+		return nil, err
+	}
+	if status == http.StatusUnauthorized || status == http.StatusForbidden {
+		return nil, ErrDesktopLoginExpired
+	}
+	var envelope struct {
+		Code *int  `json:"code"`
+		Msg  string `json:"msg"`
+		Data *struct {
+			Claimed *bool `json:"claimed"`
+		} `json:"data"`
+	}
+	if common.Unmarshal(raw, &envelope) != nil {
+		return nil, ErrAccountProtocol
+	}
+	result := &ZCodePlanClaimResult{PlanID: planID, Message: envelope.Msg}
+	if envelope.Code != nil && *envelope.Code == 0 && envelope.Data != nil && envelope.Data.Claimed != nil && *envelope.Data.Claimed {
+		result.Claimed = true
+	}
+	if status != http.StatusOK {
+		return result, ErrAccountUpstream
+	}
+	return result, nil
+}
+
+// desktopAccountRequestWithBody 是 desktopAccountRequest 的 POST 变体。
+// 只用于套餐领取等需要 JSON body 的请求；URL 与凭据安全约束与 GET 版本相同。
+func desktopAccountRequestWithBody(ctx context.Context, proxy, target string, headers http.Header, body []byte) (int, http.Header, []byte, error) {
+	client, err := GetAccountAuthHTTPClient(proxy, "")
+	if err != nil || client == nil {
+		return 0, nil, nil, ErrAccountEgress
+	}
+	copyClient := *client
+	copyClient.Timeout = 8 * time.Second
+	copyClient.Jar = nil
+	copyClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
+	if err != nil {
+		return 0, nil, nil, ErrAccountProtocol
+	}
+	req.Header = headers.Clone()
+	res, err := copyClient.Do(req)
+	if err != nil {
+		return 0, nil, nil, ErrAccountUpstream
+	}
+	defer res.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(res.Body, (1<<20)+1))
+	if err != nil || len(raw) > 1<<20 {
+		return 0, nil, nil, ErrAccountProtocol
+	}
+	return res.StatusCode, res.Header, raw, nil
 }

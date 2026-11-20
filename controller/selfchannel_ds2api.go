@@ -146,7 +146,7 @@ func ds2BrowserSession(c *gin.Context) (*model.SelfOAuthSession, *ds2LoginOption
 	return &session, &options, true
 }
 
-var ds2LoginPage = template.Must(template.New("ds2-login").Parse(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>DS2API account login</title></head><body style="font-family:system-ui;max-width:38rem;margin:3rem auto;padding:1rem"><h1>连接 DeepSeek 账号</h1><p>这是本平台的账号登录页面，不是 DeepSeek OAuth 授权。平台将通过 DS2API 上游使用的登录接口验证你的账号，并安全保存返回的会话 token；不会要求 F12 或浏览器脚本。请仅使用你自己的账号。</p><p>只有你明确勾选公开，渠道才会进入公共池。上游若要求验证码或风控验证，本平台不能代为绕过。密码不落库。</p><form method="post" action="/api/user/auth/ds2api/credentials"><input type="hidden" name="state" value="{{.State}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><p><label>邮箱或手机号 <input name="account" type="text" autocomplete="username" maxlength="320" required></label></p><p><label>密码 <input name="password" type="password" autocomplete="current-password" maxlength="1024" required></label></p><button type="submit">登录并连接</button></form><p><a href="https://chat.deepseek.com" target="_blank" rel="noopener noreferrer">打开 DeepSeek 官网</a></p></body></html>`))
+var ds2LoginPage = template.Must(template.New("ds2-login").Parse(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>连接 DeepSeek 账号</title><style>body{font-family:system-ui;max-width:38rem;margin:3rem auto;padding:1rem}.verify{background:#fff8e6;border:1px solid #f0c36d;border-radius:8px;padding:1rem;margin:1rem 0}.verify a{color:#0066cc;font-weight:600}button{padding:.5rem 1.5rem;font-size:1rem;cursor:pointer}input{width:100%;padding:.5rem;margin:.25rem 0;box-sizing:border-box}label{display:block;margin:.5rem 0 .25rem}</style></head><body><h1>连接 DeepSeek 账号</h1><p>这是本平台的账号登录页面，不是 DeepSeek OAuth 授权。平台将通过 DS2API 上游使用的登录接口验证你的账号，并安全保存返回的会话 token；不会要求 F12 或浏览器脚本。请仅使用你自己的账号。</p><div class="verify"><p><strong>如果上次登录提示"需要验证"：</strong></p><p>请先 <a href="https://chat.deepseek.com" target="_blank" rel="noopener noreferrer">打开 DeepSeek 官网</a> 手动登录一次完成验证（滑块/邮箱/手机验证码），验证成功后回到此页面重新提交。</p></div><p>只有你明确勾选公开，渠道才会进入公共池。上游若要求验证码或风控验证，本平台不能代为绕过。密码不落库。</p><form method="post" action="/api/user/auth/ds2api/credentials"><input type="hidden" name="state" value="{{.State}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><p><label>邮箱或手机号 <input name="account" type="text" autocomplete="username" maxlength="320" required></label></p><p><label>密码 <input name="password" type="password" autocomplete="current-password" maxlength="1024" required></label></p><button type="submit">登录并连接</button></form></body></html>`))
 
 func SelfDs2ApiOAuthAuthorizePage(c *gin.Context) {
 	_, options, ok := ds2BrowserSession(c)
@@ -331,6 +331,12 @@ func SelfDs2ApiOAuthCallback(c *gin.Context) {
 
 func failDS2Session(c *gin.Context, state, message string) {
 	_ = model.DB.Model(&model.SelfOAuthSession{}).Where("state = ? AND provider = ? AND status IN ?", state, "ds2api", []string{"exchanging", "binding"}).Updates(map[string]any{"status": "failed", "err": message, "access": "", "refresh": ""}).Error
+	// biz_code 11（需要官网验证）给用户一个验证后重试的引导页，而不是纯文本错误。
+	if strings.Contains(message, "requires verification") || strings.Contains(message, "验证") {
+		c.Header("Content-Type", "text/html; charset=utf-8")
+		c.String(http.StatusBadGateway, `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>需要验证</title><style>body{font-family:system-ui;max-width:38rem;margin:3rem auto;padding:1rem}.warn{background:#fff8e6;border:1px solid #f0c36d;border-radius:8px;padding:1rem;margin:1rem 0}a{color:#0066cc}</style></head><body><h1>DeepSeek 账号需要验证</h1><div class="warn"><p>DeepSeek 要求此账号先在官网完成验证（滑块/邮箱/手机验证码）。</p><p><strong>步骤：</strong></p><ol><li><a href="https://chat.deepseek.com" target="_blank" rel="noopener noreferrer">打开 DeepSeek 官网</a>，用你的账号登录并完成验证</li><li>验证成功后，回到本平台重新开始授权（之前的会话已过期）</li></ol></div><p><a href="/my-channels">返回我的渠道</a></p></body></html>`)
+		return
+	}
 	c.Header("Content-Type", "text/plain; charset=utf-8")
 	c.String(http.StatusBadGateway, message)
 }

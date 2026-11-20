@@ -40,6 +40,8 @@ func brokerProvider(c *gin.Context) (string, int, bool) {
 		return "qoder", constant.ChannelTypeQoder, true
 	case "cline":
 		return "cline", constant.ChannelTypeCline, true
+	case "nous":
+		return "nous", constant.ChannelTypeNousPortal, true
 	}
 	return "", 0, false
 }
@@ -61,6 +63,14 @@ func brokerStart(ctx context.Context, proxy, provider, realm string) (*brokerCla
 	case "cline":
 		var grant *service.ClineTicket
 		grant, target, err = service.StartClineSignIn(ctx, proxy)
+		if err == nil {
+			ticket = grant
+			until = grant.Until
+			interval = grant.Interval
+		}
+	case "nous":
+		var grant *service.NousTicket
+		grant, target, err = service.StartNousSignIn(ctx, proxy)
 		if err == nil {
 			ticket = grant
 			until = grant.Until
@@ -94,7 +104,7 @@ func SelfBrokerAccountStart(c *gin.Context) {
 		return
 	}
 	realm := req.Realm
-	if provider == "cline" {
+	if provider == "cline" || provider == "nous" {
 		realm = "global"
 	}
 	if realm == "" {
@@ -223,6 +233,29 @@ func brokerPollCredential(ctx context.Context, proxy, provider string, claim *br
 			return "", nil, err
 		}
 		models, err := service.FetchClineModels(ctx, proxy, cred)
+		return string(raw), models, err
+	case "nous":
+		var cred *service.NousCredential
+		var err error
+		if stored == "" {
+			var ticket service.NousTicket
+			if common.Unmarshal(claim.Ticket, &ticket) != nil {
+				return "", nil, service.ErrAccountProtocol
+			}
+			cred, err = service.PollNousSignIn(ctx, proxy, &ticket)
+		} else {
+			cred = &service.NousCredential{}
+			err = common.Unmarshal([]byte(stored), cred)
+		}
+		if err != nil || cred == nil {
+			return "", nil, err
+		}
+		cred.Egress = egress
+		raw, err := common.Marshal(cred)
+		if err != nil {
+			return "", nil, err
+		}
+		models, err := service.FetchNousModels(ctx, proxy, cred)
 		return string(raw), models, err
 	}
 	return "", nil, model.ErrAuthFlowInvalid

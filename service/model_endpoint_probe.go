@@ -232,7 +232,7 @@ func RunModelEndpointProbes(ctx context.Context, userID int, request ModelProbeR
 // explicit model test is not permission to move a logged-in account to a new IP.
 func ModelProbeConfiguredEgressOnly(channelType int) bool {
 	switch channelType {
-	case constant.ChannelTypeWorkBuddy, constant.ChannelTypeTrae, constant.ChannelTypeCline, constant.ChannelTypeRaccoon, constant.ChannelTypeKimiWork, constant.ChannelTypeMiMo, constant.ChannelTypeZCode, constant.ChannelTypeQoder:
+	case constant.ChannelTypeWorkBuddy, constant.ChannelTypeTrae, constant.ChannelTypeCline, constant.ChannelTypeRaccoon, constant.ChannelTypeKimiWork, constant.ChannelTypeMiMo, constant.ChannelTypeZCode, constant.ChannelTypeQoder, constant.ChannelTypeNousPortal:
 		return true
 	default:
 		return false

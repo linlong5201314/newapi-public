@@ -16,6 +16,7 @@ export type NativeAccountProvider =
   | 'raccoon'
   | 'qoder-cn'
   | 'qoder-global'
+  | 'nous-portal'
 export type BrowserAccountProvider = Exclude<NativeAccountProvider, 'kimi-work'>
 export type ProviderAuthorizationOptions = {
   displayName?: string
@@ -95,6 +96,7 @@ function browserAccountEndpoint(provider: BrowserAccountProvider) {
   if (provider === 'raccoon') return 'raccoon/url'
   if (provider === 'cline-account') return 'broker/cline'
   if (provider === 'qoder-cn' || provider === 'qoder-global') return 'broker/qoder'
+  if (provider === 'nous-portal') return 'broker/nous'
   if (provider === 'zcode-bigmodel' || provider === 'zcode-zai') return 'zcode'
   return 'mimo'
 }

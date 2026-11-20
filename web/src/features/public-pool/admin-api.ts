@@ -77,3 +77,38 @@ export async function setPublicAdminChannelStatus(
   const response = await api.post(`${endpoint}/${id}/status`, { status })
   requireServerSuccess(response.data)
 }
+
+// ---------------------------------------------------------------------------
+// IP 维度可用性实测（root 一键测公共渠道在所有公共节点上的模型可用性）
+// ---------------------------------------------------------------------------
+
+export type PublicPoolProbeResult = {
+  endpoint_id: number
+  status: string
+  reason: string
+  latency_ms: number
+}
+
+export type PublicPoolModelIPView = {
+  model: string
+  passed: boolean
+  available_endpoints: number
+  total_endpoints: number
+  results: PublicPoolProbeResult[]
+}
+
+export type PublicPoolProbeAllResponse = {
+  channel_id: number
+  endpoint_ids: number[]
+  endpoint_count: number
+  models: PublicPoolModelIPView[]
+  max_output_tokens: number
+}
+
+export async function probePublicChannelAllEndpoints(
+  id: number,
+  models: string[]
+): Promise<PublicPoolProbeAllResponse> {
+  const response = await api.post(`${endpoint}/${id}/probe_all`, { models })
+  return requireServerSuccess(response.data).data
+}

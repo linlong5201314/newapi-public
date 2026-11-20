@@ -76,7 +76,8 @@ const (
 	ChannelTypeMiMo           = 71
 	ChannelTypeZCode          = 72
 	ChannelTypeQoder          = 73
-	ChannelTypeDummy          = 74 // this one is only for count, do not add any channel after this
+	ChannelTypeNousPortal     = 74
+	ChannelTypeDummy          = 75 // this one is only for count, do not add any channel after this
 
 )
 
@@ -251,6 +252,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeMiMo:           "Xiaomi MiMo",
 	ChannelTypeZCode:          "ZCode Start Plan",
 	ChannelTypeQoder:          "Qoder",
+	ChannelTypeNousPortal:     "Nous Portal",
 }
 
 func GetChannelTypeName(channelType int) string {

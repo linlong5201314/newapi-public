@@ -18,9 +18,11 @@ import {
   copyPublicAdminChannel,
   deletePublicAdminChannel,
   getPublicAdminChannels,
+  probePublicChannelAllEndpoints,
   PUBLIC_ADMIN_CHANNELS_KEY,
   setPublicAdminChannelStatus,
   type PublicAdminChannel,
+  type PublicPoolModelIPView,
 } from '../admin-api'
 import { PUBLIC_CATALOG_QUERY_KEY } from '../constants'
 import { PublicAdminChannelEditor } from './admin-channel-editor'
@@ -41,6 +43,43 @@ export function PublicPoolAdminChannels() {
     channel: PublicAdminChannel | null
   } | null>(null)
   const [action, setAction] = useState<Action | null>(null)
+  // IP 维度实测结果：channelId -> 模型视图
+  const [ipProbes, setIpProbes] = useState<
+    Record<number, { loading: boolean; models: PublicPoolModelIPView[]; endpointCount: number }>
+  >({})
+  const ipProbeMutation = useMutation({
+    mutationFn: async (channel: PublicAdminChannel) => {
+      const models = channel.models
+        .split(',')
+        .map((name) => name.trim())
+        .filter(Boolean)
+        .slice(0, 3)
+      return probePublicChannelAllEndpoints(channel.id, models)
+    },
+    onMutate: (channel) => {
+      setIpProbes((previous) => ({
+        ...previous,
+        [channel.id]: { loading: true, models: [], endpointCount: 0 },
+      }))
+    },
+    onSuccess: (data, channel) => {
+      setIpProbes((previous) => ({
+        ...previous,
+        [channel.id]: {
+          loading: false,
+          models: data.models,
+          endpointCount: data.endpoint_count,
+        },
+      }))
+    },
+    onError: (error, channel) => {
+      setIpProbes((previous) => ({
+        ...previous,
+        [channel.id]: { loading: false, models: [], endpointCount: 0 },
+      }))
+      handleServerError(error)
+    },
+  })
   const query = useQuery({
     queryKey: [...PUBLIC_ADMIN_CHANNELS_KEY, keyword, page],
     queryFn: ({ signal }) =>
@@ -180,6 +219,55 @@ export function PublicPoolAdminChannels() {
               <p className='text-muted-foreground mt-1 text-xs break-all'>
                 {t('Group')}: {channel.group}
               </p>
+              {ipProbes[channel.id] &&
+                (ipProbes[channel.id].loading ||
+                  ipProbes[channel.id].models.length > 0) && (
+                  <div className='mt-3 rounded-lg border border-dashed p-3'>
+                    {ipProbes[channel.id].loading ? (
+                      <p className='text-muted-foreground text-xs'>
+                        {t('Testing models across public endpoints...')}
+                      </p>
+                    ) : (
+                      <>
+                        <p className='mb-2 text-xs font-medium'>
+                          {t('IP availability ({{count}} endpoints tested)', {
+                            count: ipProbes[channel.id].endpointCount,
+                          })}
+                        </p>
+                        <ul className='space-y-1'>
+                          {ipProbes[channel.id].models.map((view) => (
+                            <li
+                              key={view.model}
+                              className='flex flex-wrap items-center gap-2 text-xs'
+                            >
+                              <span className='font-mono'>{view.model}</span>
+                              <Badge
+                                variant={
+                                  view.passed ? 'default' : 'destructive'
+                                }
+                              >
+                                {view.available_endpoints}/{view.total_endpoints}{' '}
+                                {t('available')}
+                              </Badge>
+                              {!view.passed && (
+                                <span className='text-muted-foreground'>
+                                  {view.results
+                                    .filter((r) => r.status !== 'available')
+                                    .slice(0, 3)
+                                    .map(
+                                      (r) =>
+                                        `#${r.endpoint_id}:${r.reason}`
+                                    )
+                                    .join(', ')}
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+                  </div>
+                )}
               <div className='mt-3 flex flex-wrap gap-2'>
                 <ModelTestButton
                   channelId={channel.id}
@@ -189,6 +277,16 @@ export function PublicPoolAdminChannels() {
                     .filter(Boolean)}
                   disabled={mutation.isPending}
                 />
+                <Button
+                  size='sm'
+                  variant='outline'
+                  disabled={mutation.isPending || ipProbeMutation.isPending}
+                  onClick={() => ipProbeMutation.mutate(channel)}
+                >
+                  {ipProbeMutation.isPending
+                    ? t('Testing...')
+                    : t('Test all public IPs')}
+                </Button>
                 <Button
                   size='sm'
                   variant='outline'

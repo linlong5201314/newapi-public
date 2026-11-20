@@ -3277,7 +3277,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "相关项目",
     "footer.defaultCopyright": "版权所有。",
-    "footer.new\u0061pi.projectAttributionSuffix": "版权所有，由项目贡献者设计与开发。",
+    "footer.newapi.projectAttributionSuffix": "版权所有，由项目贡献者设计与开发。",
     "For advanced custom channels this applies only to /v1/responses routes without protocol conversion.": "高级自定义渠道仅对 /v1/responses 且不做协议转换的路由生效。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "对于 2025 年 5 月 10 日之后添加的渠道，在部署时无需从模型名称中移除 \".\"",
     "For private deployments, format: https://fastgpt.run/api/openapi": "对于私有部署，格式为：https://fastgpt.run/api/openapi",
@@ -8465,6 +8465,14 @@
     "Zhipu GLM": "智谱GLM",
     "Zhipu V4": "智谱 V4",
     "Zone that owns the primary domain. Leave blank to keep the current value.": "主域名所属的 Zone。留空则保持不变。",
-    "Zoom": "缩放"
+    "Zoom": "缩放",
+    "All Pools": "所有池",
+    "Public Pool": "公共池",
+    "User Channels": "用户渠道",
+    "Pool": "池",
+    "Test all public IPs": "测试全部公共节点",
+    "Testing models across public endpoints...": "正在跨公共节点测试模型…",
+    "IP availability ({{count}} endpoints tested)": "IP 可用性（已测 {{count}} 个节点）",
+    "available": "可用"
   }
 }

@@ -271,7 +271,7 @@ func SelfFetchAccountModels(c *gin.Context, channel *model.Channel) ([]string, b
 		return models, true
 	}
 
-	if channel.Type == constant.ChannelTypeQoder || ((channel.Type == constant.ChannelTypeCline || channel.Type == constant.ChannelTypeRaccoon) && strings.HasPrefix(strings.TrimSpace(model.DecryptChannelKey(channel.Type, channel.Key)), "{")) {
+	if channel.Type == constant.ChannelTypeQoder || channel.Type == constant.ChannelTypeNousPortal || ((channel.Type == constant.ChannelTypeCline || channel.Type == constant.ChannelTypeRaccoon) && strings.HasPrefix(strings.TrimSpace(model.DecryptChannelKey(channel.Type, channel.Key)), "{")) {
 		if channel.OwnerId != c.GetInt("id") {
 			writeSelfChannelNotFound(c)
 			return nil, true
@@ -319,6 +319,19 @@ func SelfFetchAccountModels(c *gin.Context, channel *model.Channel) ([]string, b
 				err = e
 			} else {
 				models, err = service.RaccoonLiveModels(c.Request.Context(), proxy, cred.Token)
+			}
+		case constant.ChannelTypeNousPortal:
+			var cred service.NousCredential
+			if common.Unmarshal([]byte(secret), &cred) != nil {
+				accountAuthorizationError(c, service.ErrAccountProtocol)
+				return nil, true
+			}
+			egress = cred.Egress
+			proxy, e := egress.Resolve(channel.OwnerId, channel.Id, channel.GetSetting())
+			if e != nil {
+				err = e
+			} else {
+				models, err = service.FetchNousModels(c.Request.Context(), proxy, &cred)
 			}
 		}
 		if err != nil {

@@ -26,5 +26,8 @@ func registerPublicPoolRoutes(apiRouter *gin.RouterGroup) {
 		admin.DELETE("/:id", controller.DeletePublicPoolAdminChannel)
 		admin.POST("/:id/copy", middleware.CriticalRateLimit(), controller.CopyPublicPoolAdminChannel)
 		admin.POST("/:id/status", controller.SetPublicPoolAdminChannelStatus)
+		// IP 维度可用性：root 对公共渠道按公共节点逐一实测模型可用性
+		admin.GET("/:id/probe_endpoints", controller.ListPublicPoolProbeEndpoints)
+		admin.POST("/:id/probe_all", middleware.CriticalRateLimit(), controller.PostPublicPoolProbeAllPublicEndpoints)
 	}
 }

@@ -31,6 +31,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/mokaai"
 	"github.com/QuantumNous/new-api/relay/channel/moonshot"
 	"github.com/QuantumNous/new-api/relay/channel/newapi"
+	"github.com/QuantumNous/new-api/relay/channel/nousportal"
 	"github.com/QuantumNous/new-api/relay/channel/ollama"
 	"github.com/QuantumNous/new-api/relay/channel/openai"
 	"github.com/QuantumNous/new-api/relay/channel/palm"
@@ -147,6 +148,8 @@ func GetAdaptor(apiType int) channel.Adaptor {
 		return &freepi.Adaptor{}
 	case constant.APITypeRaccoon:
 		return &raccoon.Adaptor{}
+	case constant.APITypeNousPortal:
+		return &nousportal.Adaptor{}
 	}
 	return nil
 }

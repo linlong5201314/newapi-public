@@ -461,6 +461,28 @@ func searchChannelsExecute(c *gin.Context, ownerId int) {
 		pageSize = 20
 	}
 
+	// pool 筛选：仅管理端（ownerId<0）生效，public=平台公共渠道(owner_id=0 且 tier='free')，user=用户自建渠道。
+	if ownerId < 0 {
+		switch strings.ToLower(strings.TrimSpace(c.Query("pool"))) {
+		case "public":
+			filtered := make([]*model.Channel, 0, len(channelData))
+			for _, ch := range channelData {
+				if ch.OwnerId == 0 && ch.Tier == "free" {
+					filtered = append(filtered, ch)
+				}
+			}
+			channelData = filtered
+		case "user":
+			filtered := make([]*model.Channel, 0, len(channelData))
+			for _, ch := range channelData {
+				if !(ch.OwnerId == 0 && ch.Tier == "free") {
+					filtered = append(filtered, ch)
+				}
+			}
+			channelData = filtered
+		}
+	}
+
 	total := len(channelData)
 	startIdx := min((page-1)*pageSize, total)
 	endIdx := min(startIdx+pageSize, total)

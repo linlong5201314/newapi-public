@@ -3,6 +3,7 @@ package controller
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -333,4 +334,94 @@ func SelfZCodeOAuthCancel(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, nil)
+}
+
+// ---------------------------------------------------------------------------
+// ZCode Start Plan 套餐预览与领取
+// ---------------------------------------------------------------------------
+
+// loadZCodeChannelCredential 从渠道 ID 解出 ZCode 凭据。只有渠道 owner 或 root
+// 才能读取；凭据绝不写入响应或日志。
+func loadZCodeChannelCredential(c *gin.Context, identity model.AuthSessionIdentity) (*model.Channel, *service.ZCodeCredential, error) {
+	channelID, err := strconv.Atoi(c.Param("id"))
+	if err != nil || channelID <= 0 {
+		return nil, nil, model.ErrAuthFlowInvalid
+	}
+	channel, err := model.GetChannelById(channelID, true)
+	if err != nil || channel.Type != constant.ChannelTypeZCode {
+		return nil, nil, model.ErrAuthFlowInvalid
+	}
+	if channel.OwnerId != identity.UserID {
+		var user model.User
+		if err := model.DB.Select("id, role").First(&user, identity.UserID).Error; err != nil || user.Role != common.RoleRootUser {
+			return nil, nil, model.ErrAuthFlowInvalid
+		}
+	}
+	if !common.IsEncryptedSecret(channel.Key) {
+		return nil, nil, service.ErrAccountProtocol
+	}
+	secret, err := common.DecryptSecret(channel.Key)
+	if err != nil {
+		return nil, nil, service.ErrAccountProtocol
+	}
+	var cred service.ZCodeCredential
+	if common.Unmarshal([]byte(secret), &cred) != nil {
+		return nil, nil, service.ErrAccountProtocol
+	}
+	return channel, &cred, nil
+}
+
+// SelfZCodePlanPreview 查询指定 ZCode 渠道可用的 Start Plan 套餐。
+func SelfZCodePlanPreview(c *gin.Context) {
+	identity, ok := accountAuthorizationIdentity(c)
+	if !ok {
+		return
+	}
+	channel, cred, err := loadZCodeChannelCredential(c, identity)
+	if err != nil {
+		zcodeAuthorizationError(c, err)
+		return
+	}
+	proxy, err := cred.Egress.Resolve(identity.UserID, channel.Id, channel.GetSetting())
+	if err != nil {
+		zcodeAuthorizationError(c, err)
+		return
+	}
+	result, err := service.PreviewZCodePlans(c.Request.Context(), proxy, cred)
+	if err != nil {
+		zcodeAuthorizationError(c, err)
+		return
+	}
+	common.ApiSuccess(c, result)
+}
+
+// SelfZCodePlanClaim 领取指定 Start Plan 套餐。
+func SelfZCodePlanClaim(c *gin.Context) {
+	identity, ok := accountAuthorizationIdentity(c)
+	if !ok {
+		return
+	}
+	channel, cred, err := loadZCodeChannelCredential(c, identity)
+	if err != nil {
+		zcodeAuthorizationError(c, err)
+		return
+	}
+	var req struct {
+		PlanID string `json:"plan_id"`
+	}
+	if c.ShouldBindJSON(&req) != nil || strings.TrimSpace(req.PlanID) == "" {
+		accountAuthorizationError(c, model.ErrAuthFlowInvalid)
+		return
+	}
+	proxy, err := cred.Egress.Resolve(identity.UserID, channel.Id, channel.GetSetting())
+	if err != nil {
+		zcodeAuthorizationError(c, err)
+		return
+	}
+	result, err := service.ClaimZCodePlan(c.Request.Context(), proxy, cred, strings.TrimSpace(req.PlanID))
+	if err != nil {
+		zcodeAuthorizationError(c, err)
+		return
+	}
+	common.ApiSuccess(c, result)
 }

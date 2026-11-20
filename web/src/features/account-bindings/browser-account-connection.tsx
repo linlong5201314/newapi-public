@@ -68,6 +68,9 @@ function isAllowedAccountLogin(provider: WebAccountProvider, raw: string) {
         u.hostname === 'qoder.com' && u.pathname === '/device/selectAccounts'
       )
     }
+    if (provider === 'nous-portal') {
+      return u.hostname === 'portal.nousresearch.com'
+    }
     return (
       (u.hostname === 'bigmodel.cn' && u.pathname === '/login') ||
       (u.hostname === 'chat.z.ai' && u.pathname === '/api/oauth/authorize') ||
@@ -169,7 +172,8 @@ export function BrowserAccountConnection({
         return
       }
       activeRequest.current = true
-      setBusy(true)
+      // 轮询不操作全局 busy：busy 只表示用户主动操作（start/complete/cancel/approve），
+      // 否则回调粘贴按钮会随每次轮询一闪一闪（busy true→false→true）。
       try {
         if (Date.now() >= pending.expires) {
           throw new Error(t('Authorization session expired'))
@@ -489,14 +493,16 @@ export function BrowserAccountConnection({
                 autoComplete='off'
               />
               {devicePoll ? (
-                <Button
-                  type='button'
-                  variant='outline'
-                  disabled={busy || !!consent}
-                  onClick={() => checkStatus.current?.()}
-                >
-                  {t('Check authorization status')}
-                </Button>
+                !consent?.account && (
+                  <Button
+                    type='button'
+                    variant='outline'
+                    disabled={busy}
+                    onClick={() => checkStatus.current?.()}
+                  >
+                    {t('Check authorization status')}
+                  </Button>
+                )
               ) : (
                 <>
                   {session.automaticCallbackSupported === false && (

@@ -446,7 +446,7 @@ export function FromTemplateDialog({
   const isAuthTemplate = templateKind === 'auth'
   const webAccountProvider = (() : WebAccountProvider | null => {
     if (selected?.id === 'xiaohuanxiong') return 'raccoon'
-    if (['trae-cn','cline-account','qoder-cn','qoder-global','zcode-bigmodel','zcode-zai'].includes(selected?.id ?? '')) return selected?.id as WebAccountProvider
+    if (['trae-cn','cline-account','qoder-cn','qoder-global','zcode-bigmodel','zcode-zai','nous-portal'].includes(selected?.id ?? '')) return selected?.id as WebAccountProvider
     return null
   })()
   const isZCodeTemplate = Boolean(webAccountProvider)
@@ -487,6 +487,7 @@ export function FromTemplateDialog({
     'trae-cn': 'https://www.trae.cn',
     'cline-account': 'https://app.cline.bot',
     'qoder-cn': 'https://qoder.cn/account/integrations',
+    'nous-portal': 'https://portal.nousresearch.com',
   }
   const tokenPlaceholders: Record<string, string> = {
     ds2api: t('Paste an existing token, or use the account login link above.'),

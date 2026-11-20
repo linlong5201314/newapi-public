@@ -150,6 +150,7 @@ export function ChannelsTable() {
       { columnId: 'type', searchKey: 'type', type: 'array' },
       { columnId: 'group', searchKey: 'group', type: 'array' },
       { columnId: 'model', searchKey: 'model', type: 'string' },
+      { columnId: 'pool', searchKey: 'pool', type: 'array' },
     ],
   })
 
@@ -178,6 +179,12 @@ export function ChannelsTable() {
   )
   const groupFilter =
     (columnFilters.find((f) => f.id === 'group')?.value as string[]) || []
+  const poolFilter =
+    (columnFilters.find((f) => f.id === 'pool')?.value as string[]) || []
+  const poolParam =
+    poolFilter.length > 0 && !poolFilter.includes('all')
+      ? poolFilter[0]
+      : undefined
   const {
     value: modelFilter,
     inputValue: modelFilterInput,
@@ -249,6 +256,7 @@ export function ChannelsTable() {
         typeFilter.length > 0 && !typeFilter.includes('all')
           ? Number(typeFilter[0])
           : undefined,
+      pool: poolParam,
       tag_mode: enableTagMode,
       id_sort: idSort,
       ...sortParams,
@@ -273,6 +281,7 @@ export function ChannelsTable() {
               typeFilter.length > 0 && !typeFilter.includes('all')
                 ? Number(typeFilter[0])
                 : undefined,
+            pool: poolParam,
             tag_mode: enableTagMode,
             id_sort: idSort,
             ...sortParams,
@@ -295,6 +304,7 @@ export function ChannelsTable() {
               typeFilter.length > 0 && !typeFilter.includes('all')
                 ? Number(typeFilter[0])
                 : undefined,
+            pool: poolParam,
             tag_mode: enableTagMode,
             id_sort: idSort,
             ...sortParams,
@@ -581,6 +591,16 @@ export function ChannelsTable() {
                 columnId: 'group',
                 title: t('Group'),
                 options: groupFilterOptions,
+                singleSelect: true,
+              },
+              {
+                columnId: 'pool',
+                title: t('Pool'),
+                options: [
+                  { label: t('All Pools'), value: 'all' },
+                  { label: t('Public Pool'), value: 'public' },
+                  { label: t('User Channels'), value: 'user' },
+                ],
                 singleSelect: true,
               },
             ],
