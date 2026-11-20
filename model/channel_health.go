@@ -63,6 +63,15 @@ var (
 	channelHealthStore = make(map[int]*channelHealthEntry)
 )
 
+// ResetChannelHealthStoreForTest clears the in-memory health cache. Tests that
+// create fresh channel IDs in isolation must not observe samples recorded by a
+// previous test under a recycled ID.
+func ResetChannelHealthStoreForTest() {
+	channelHealthMu.Lock()
+	channelHealthStore = make(map[int]*channelHealthEntry)
+	channelHealthMu.Unlock()
+}
+
 func channelHealthEntryOf(id int) *channelHealthEntry {
 	channelHealthMu.RLock()
 	entry, ok := channelHealthStore[id]

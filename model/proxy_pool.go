@@ -584,6 +584,14 @@ func BindChannelProxyAccount(ownerID, channelID int, accountKey string) error {
 	return nil
 }
 
+// Egress selection failures are surfaced to account authorization as actionable
+// 503 responses, distinct from a mid-flow proxy change/unavailability. The
+// controller maps them with errors.Is; messages stay user-facing English keys.
+var (
+	ErrProxyPoolEmpty        = errors.New("no usable proxy endpoint in the selected proxy scope")
+	ErrProxyEndpointNotReady = errors.New("selected proxy endpoint has no usable listener in this process")
+)
+
 // ResolveStableChannelProxy selects a fixed-node URL, never the shared selector.
 // ownerID is the channel OWNER (0 for an internal platform public pool), not
 // the requesting end user. accountKey is a stable provider:opaque identity for
@@ -696,7 +704,7 @@ func ResolveStableChannelProxy(ownerID, channelID int, accountKey string, settin
 		}
 	}
 	if best == "" {
-		return "", fmt.Errorf("no usable proxy in selected scope; direct fallback is disabled")
+		return "", ErrProxyPoolEmpty
 	}
 	selected := bound
 	if _, ok := candidates[selected]; !ok {
@@ -714,7 +722,7 @@ func ResolveStableChannelProxy(ownerID, channelID int, accountKey string, settin
 		proxyURL, err = selectedEndpointProxyURLProvider(endpoint)
 		if err != nil {
 			// Runtime capacity/outages must not rotate an otherwise valid binding.
-			return "", fmt.Errorf("account proxy endpoint unavailable in this process: %w", err)
+			return "", fmt.Errorf("%w: %v", ErrProxyEndpointNotReady, err)
 		}
 	}
 	if parsed, parseErr := common.ParseProxyURLStrict(proxyURL); parseErr != nil || parsed == nil {

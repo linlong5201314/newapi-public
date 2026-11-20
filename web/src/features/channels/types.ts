@@ -289,6 +289,7 @@ export interface GetChannelsParams {
   status?: string // 'enabled', 'disabled', or empty for all
   type?: number
   group?: string
+  pool?: string // 'public' = 平台公共免费池, 'user' = 用户自建渠道
   id_sort?: boolean
   tag_mode?: boolean
   sort_by?: ChannelSortBy

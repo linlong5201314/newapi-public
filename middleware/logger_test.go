@@ -67,6 +67,9 @@ func TestAccessAndPanicLogsFollowLogRotation(t *testing.T) {
 	*common.LogDir = t.TempDir()
 	t.Cleanup(func() {
 		gin.SetMode(previousMode)
+		// Close the descriptor opened for this test's log directory before
+		// TempDir cleanup; Windows cannot unlink an open file.
+		logger.CloseCurrentLogger()
 		gin.DefaultWriter, gin.DefaultErrorWriter = previousWriter, previousErrorWriter
 		*common.LogDir = previousLogDir
 	})

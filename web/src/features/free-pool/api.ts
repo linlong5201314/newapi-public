@@ -40,9 +40,7 @@ export async function listPool(sort: PoolSort): Promise<FreePoolEntry[]> {
   return res.data?.data ?? []
 }
 
-export async function submitPool(
-  payload: SubmitPoolPayload
-): Promise<number> {
+export async function submitPool(payload: SubmitPoolPayload): Promise<number> {
   const res = await api.post(BASE, payload)
   return res.data?.data?.id ?? 0
 }

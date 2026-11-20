@@ -67,6 +67,9 @@ func SetRelayRouter(router *gin.Engine) {
 	playgroundRouter.Use(middleware.UserAuth(), middleware.Distribute())
 	{
 		playgroundRouter.POST("/chat/completions", controller.Playground)
+		// Image generation follows the same dashboard-session playground path so
+		// the chat UI can generate without exposing relay API keys in the page.
+		playgroundRouter.POST("/images/generations", func(c *gin.Context) { controller.PlaygroundImage(c) })
 	}
 	relayV1Router := router.Group("/v1")
 	relayV1Router.Use(middleware.RouteTag("relay"))

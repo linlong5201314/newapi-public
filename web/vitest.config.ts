@@ -41,6 +41,13 @@ export default defineConfig({
     // heaviest test measures ~3.2s uncontended, so 20s keeps headroom for the
     // ~4x slowdown observed on shared runners.
     testTimeout: 20000,
+    // Contended full-suite runs spawned 24 workers × 243 jsdom environments and
+    // timed out otherwise-green heavy tests (channel-configuration, routing,
+    // visual-billing-editor). Forks with bounded concurrency keep per-file
+    // isolation without oversubscribing memory; measured full-suite time rises
+    // slightly but every test stays within its 20s budget.
+    pool: 'forks',
+    maxWorkers: 4,
     clearMocks: true,
     restoreMocks: true,
     include: [

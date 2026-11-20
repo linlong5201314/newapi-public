@@ -40,6 +40,7 @@ type modelProbeFixture struct {
 
 func newModelProbeFixture(t *testing.T) *modelProbeFixture {
 	t.Helper()
+	model.ResetChannelHealthStoreForTest()
 	require.NoError(t, i18n.Init())
 	previousRatios := ratio_setting.ModelRatio2JSONString()
 	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"gpt-3.5-turbo":1,"gpt-4":1}`))

@@ -255,4 +255,71 @@ describe('Platform free channel administration', () => {
       screen.queryByText('No public free channels')
     ).not.toBeInTheDocument()
   })
+
+  it('when probing shows sampled vs eligible total, per-model counts and the no-delete note', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(api, 'get').mockResolvedValue({
+      data: { success: true, data: { items: [savedChannel], total: 1 } },
+    })
+    const post = vi.spyOn(api, 'post').mockResolvedValue({
+      data: {
+        success: true,
+        data: {
+          channel_id: 7,
+          endpoint_ids: [11, 12, 13],
+          selected_count: 3,
+          eligible_total: 7114,
+          sampled: true,
+          checked_at: 1700000000,
+          ttl_seconds: 600,
+          storage_failed_attempts: 0,
+          max_output_tokens: 8,
+          health_never_deletes: true,
+          models: [
+            {
+              model: 'model-a',
+              passed: false,
+              attempted: 3,
+              available_endpoints: 1,
+              unavailable_endpoints: 1,
+              unknown_endpoints: 1,
+              not_run_endpoints: 0,
+              total_endpoints: 3,
+              results: [
+                { endpoint_id: 11, status: 'available', reason: 'passed', latency_ms: 12 },
+                { endpoint_id: 12, status: 'unavailable', reason: 'upstream_error', latency_ms: 30 },
+                { endpoint_id: 13, status: 'unknown', reason: 'timeout', latency_ms: 50 },
+              ],
+            },
+          ],
+        },
+      },
+    })
+    mount()
+    const row = await screen.findByRole('article', { name: 'Platform fixture' })
+    await user.click(
+      within(row).getByRole('button', { name: 'Test all public IPs' })
+    )
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        '/api/public_pool/admin/channels/7/probe_all',
+        { models: ['model-a', 'model-b'] }
+      )
+    )
+    // Sampled vs eligible total is explicit.
+    expect(
+      await within(row).findByText(
+        'IP availability: tested 3 of 7114 eligible public endpoints'
+      )
+    ).toBeVisible()
+    // Per-model available/total plus separately-counted unknown.
+    expect(within(row).getByText('1/3 available')).toBeVisible()
+    expect(within(row).getByText('1 unknown')).toBeVisible()
+    // The no-delete note is visible.
+    expect(
+      within(row).getByText(
+        'Sampled batch. Results never delete models; they only mark endpoint health.'
+      )
+    ).toBeVisible()
+  })
 })

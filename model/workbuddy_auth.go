@@ -58,8 +58,8 @@ func encryptWorkBuddyState(state *WorkBuddyAuthState) (string, error) {
 }
 
 func CreateWorkBuddyAuthFlow(state WorkBuddyAuthState) (string, error) {
-	providerAllowed := state.Provider == "workbuddy" || state.Provider == "trae" || state.Provider == "kimi-work" || state.Provider == "xiaomi-mimo" || state.Provider == "zcode" || state.Provider == "qoder" || state.Provider == "cline" || state.Provider == "raccoon"
-	discoversModels := state.Provider == "zcode" || state.Provider == "qoder" || state.Provider == "cline" || state.Provider == "raccoon"
+	providerAllowed := state.Provider == "workbuddy" || state.Provider == "trae" || state.Provider == "kimi-work" || state.Provider == "xiaomi-mimo" || state.Provider == "zcode" || state.Provider == "qoder" || state.Provider == "cline" || state.Provider == "raccoon" || state.Provider == "nous"
+	discoversModels := state.Provider == "zcode" || state.Provider == "qoder" || state.Provider == "cline" || state.Provider == "raccoon" || state.Provider == "nous"
 	if !providerAllowed || len(state.Models) == 0 && !discoversModels || state.EgressKey == "" {
 		return "", ErrAuthFlowInvalid
 	}

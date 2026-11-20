@@ -273,6 +273,32 @@ export function UpstreamModelSelection(props: UpstreamModelSelectionProps) {
   else if (counts.removed) fallbackTab = 'removed'
   const activeTab = counts[tabState.tab] > 0 ? tabState.tab : fallbackTab
 
+  // The currently visible set: the active changes tab, or the search-filtered
+  // flat list when the changes view is hidden. Bulk actions never touch hidden
+  // models outside this set.
+  const categorizedByTab: Record<ChangeTab, string[]> = {
+    new: categorized.added,
+    existing: categorized.existing,
+    removed: categorized.removed,
+  }
+  const visibleModels = showChanges
+    ? categorizedByTab[activeTab]
+    : categorized.filtered
+
+  const deselectVisible = () => {
+    const visibleSet = new Set(visibleModels)
+    props.onChange(props.selected.filter((model) => !visibleSet.has(model)))
+  }
+  const invertVisible = () => {
+    const selectedSet = new Set(props.selected)
+    const visibleSet = new Set(visibleModels)
+    const next = props.selected.filter((model) => !visibleSet.has(model))
+    for (const model of visibleModels) {
+      if (!selectedSet.has(model)) next.push(model)
+    }
+    props.onChange(next)
+  }
+
   return (
     <div className='space-y-3'>
       <Input
@@ -281,6 +307,29 @@ export function UpstreamModelSelection(props: UpstreamModelSelectionProps) {
         value={search}
         onChange={(event) => setSearch(event.target.value)}
       />
+      <div className='flex flex-wrap items-center gap-2'>
+        <Button
+          type='button'
+          variant='outline'
+          size='sm'
+          disabled={visibleModels.length === 0}
+          onClick={deselectVisible}
+        >
+          {t('Deselect all')}
+        </Button>
+        <Button
+          type='button'
+          variant='outline'
+          size='sm'
+          disabled={visibleModels.length === 0}
+          onClick={invertVisible}
+        >
+          {t('Invert selection')}
+        </Button>
+        <span className='text-muted-foreground text-xs'>
+          {t('Applies to the models currently shown.')}
+        </span>
+      </div>
       {!showChanges && (
         <div className='flex items-center justify-between gap-2'>
           <span className='text-muted-foreground text-xs'>

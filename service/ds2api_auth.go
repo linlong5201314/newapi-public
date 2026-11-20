@@ -40,6 +40,15 @@ func ValidateDS2BrowserSession(raw string, identity model.AuthSessionIdentity) e
 	})
 }
 
+// DS2VerificationRequired is a typed, non-transient account-state failure: the
+// provider demands interactive verification. It is never a gateway transport
+// failure and must not surface as HTTP 502 or be retried automatically.
+type DS2VerificationRequired struct{}
+
+func (DS2VerificationRequired) Error() string {
+	return "DeepSeek requires verification on its official website before this account can be linked"
+}
+
 // LoginDS2Account implements CJackHwang/ds2api's DeepSeek account login contract.
 // DeepSeek does not offer an OAuth consent/redirect flow in that integration.
 // No caller-controlled endpoint, invented cookie, or browser script is involved.
@@ -113,7 +122,7 @@ func LoginDS2Account(ctx context.Context, account, password, proxy string) (stri
 		return "", errors.New("Upstream login failed or requires additional verification. Complete verification on the official website and retry")
 	}
 	if *result.Data.Code == 11 {
-		return "", errors.New("DeepSeek requires verification on its official website before this account can be linked")
+		return "", DS2VerificationRequired{}
 	}
 	if *result.Data.Code != 0 {
 		return "", errors.New("Upstream login failed or requires additional verification. Complete verification on the official website and retry")

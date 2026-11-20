@@ -15,6 +15,11 @@ var ErrAccountProtocol = errors.New("Account provider returned an invalid respon
 var ErrAccountEgress = errors.New("Account proxy changed or is unavailable; restart authorization")
 var ErrAccountPollEarly = errors.New("Wait before polling authorization again")
 
+// ErrAccountServerAddress marks a gateway misconfiguration, never a proxy or
+// provider problem: the configured public ServerAddress is missing or unusable
+// for the account authorization origin contract.
+var ErrAccountServerAddress = errors.New("Server address is missing or invalid for account authorization")
+
 // accountAuthJSON never follows redirects and never includes upstream bodies or
 // URL-bearing transport errors in outward errors (state/token are URL secrets).
 func AccountAuthorizationJSON(ctx context.Context, proxy string, request *http.Request, out any) error {

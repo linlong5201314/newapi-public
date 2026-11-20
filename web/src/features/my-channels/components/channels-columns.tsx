@@ -263,7 +263,8 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
                       <div className='space-y-1 text-xs'>
                         {statusReason && (
                           <div className='wrap-anywhere'>
-                            {t('Reason:')} {translateServerText(t, statusReason)}
+                            {t('Reason:')}{' '}
+                            {translateServerText(t, statusReason)}
                           </div>
                         )}
                         {statusTime && (
@@ -432,7 +433,11 @@ function ChannelNameButton({
       className='group/name flex max-w-full min-w-0 items-center gap-1 text-left transition-colors hover:text-[#4d6bfe]'
       title='查看渠道详情'
     >
-      <TruncatedText text={name} className='font-medium' maxWidth='max-w-full' />
+      <TruncatedText
+        text={name}
+        className='font-medium'
+        maxWidth='max-w-full'
+      />
       <ChevronRight className='size-3.5 shrink-0 opacity-0 transition-opacity group-hover/name:opacity-100' />
     </button>
   )

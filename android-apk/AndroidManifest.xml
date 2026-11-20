@@ -7,9 +7,16 @@
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Mic is requested at runtime only when the same-origin page asks for
+         audio capture; see MainActivity's WebChromeClient.onPermissionRequest
+         bridge. The WebView will deny the request if the user has not granted
+         the runtime permission. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <application
         android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:usesCleartextTraffic="false"
         android:allowBackup="false"
         android:fullBackupContent="false"

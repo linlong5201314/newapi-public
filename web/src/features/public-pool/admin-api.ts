@@ -92,7 +92,11 @@ export type PublicPoolProbeResult = {
 export type PublicPoolModelIPView = {
   model: string
   passed: boolean
+  attempted: number
   available_endpoints: number
+  unavailable_endpoints: number
+  unknown_endpoints: number
+  not_run_endpoints: number
   total_endpoints: number
   results: PublicPoolProbeResult[]
 }
@@ -100,9 +104,16 @@ export type PublicPoolModelIPView = {
 export type PublicPoolProbeAllResponse = {
   channel_id: number
   endpoint_ids: number[]
-  endpoint_count: number
+  selected_count: number
+  eligible_total: number
+  sampled: boolean
   models: PublicPoolModelIPView[]
+  checked_at: number
+  ttl_seconds: number
+  storage_error?: string
+  storage_failed_attempts: number
   max_output_tokens: number
+  health_never_deletes: boolean
 }
 
 export async function probePublicChannelAllEndpoints(

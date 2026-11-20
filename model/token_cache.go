@@ -25,6 +25,15 @@ func (token Token) cacheMAC() (string, error) {
 	}{token, token.AutoGroups, token.CacheExpiresAt})
 }
 
+// DeleteTokenQuotaCacheForTest removes the cached quota reservation state so
+// tests that mutate remain_quota directly see the new value immediately.
+func DeleteTokenQuotaCacheForTest(key string) error {
+	if common.RDB == nil {
+		return nil
+	}
+	return common.RDB.Del(context.Background(), getTokenCacheKey(key)).Err()
+}
+
 func getTokenCacheKey(key string) string {
 	return fmt.Sprintf("token:%s", common.GenerateHMAC(key))
 }

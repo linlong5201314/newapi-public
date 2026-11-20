@@ -20,7 +20,7 @@ beforeEach(() => {
 afterEach(() => sheet.remove())
 
 describe('official chat layout contract', () => {
-  it('keeps the desktop sidebar at the official 261px width with a 40px new-chat control', () => {
+  it('keeps the desktop sidebar at 310px with a 40px pill new-chat control', () => {
     render(
       <div className='ds-demo'>
         <aside className='ds-demo-sidebar'>
@@ -31,13 +31,30 @@ describe('official chat layout contract', () => {
       </div>
     )
     expect(screen.getByRole('complementary')).toHaveStyle({
-      width: '261px',
-      padding: '6px 12px 0px',
+      width: '310px',
     })
     expect(screen.getByRole('button', { name: 'New chat' })).toHaveStyle({
       height: '40px',
       'border-radius': '100px',
     })
+  })
+
+  it('caps the composer container at 910px and keeps the whale brand row styles scoped', () => {
+    render(
+      <div className='ds-demo'>
+        <div className='ds-demo-composer-container' data-testid='composer' />
+        <span className='ds-demo-brand' data-testid='brand'>
+          <span className='ds-demo-app-name'>DeepSeek · NewAPI</span>
+        </span>
+      </div>
+    )
+    expect(screen.getByTestId('composer')).toHaveStyle({
+      'max-width': 'min(910px, calc(100% - 32px))',
+    })
+    expect(screen.getByTestId('brand')).toHaveStyle({ display: 'flex' })
+    expect(styles).toContain('--message-list-max-width: 910px')
+    expect(styles).toContain('.ds-demo .ds-demo-sidebar-search-input')
+    expect(styles).toContain(".ds-demo .ds-demo-chip[data-active='true']")
   })
 
   it('keeps the official two-line input, 24px wrapper radius, and 34px send circle', () => {
@@ -52,7 +69,7 @@ describe('official chat layout contract', () => {
       </div>
     )
     expect(screen.getByRole('textbox', { name: 'Message' })).toHaveStyle({
-      'min-height': '60px',
+      'min-height': '84px',
       'line-height': '24px',
     })
     expect(screen.getByRole('button', { name: 'Send' })).toHaveStyle({

@@ -32,7 +32,10 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { formatTimestampToDate } from '@/lib/format'
-import { createServerError, getServerErrorMessage } from '@/lib/server-error-message'
+import {
+  createServerError,
+  getServerErrorMessage,
+} from '@/lib/server-error-message'
 
 import { getCheckinLogs } from '../api'
 import { CHECKIN_MESSAGES, checkinQueryKeys } from '../constants'
@@ -61,10 +64,7 @@ export function CheckinLogsSheet(props: CheckinLogsSheetProps) {
   })
 
   return (
-    <Sheet
-      open={props.account !== null}
-      onOpenChange={props.onOpenChange}
-    >
+    <Sheet open={props.account !== null} onOpenChange={props.onOpenChange}>
       <SheetContent className='flex w-full flex-col sm:max-w-xl'>
         <SheetHeader>
           <SheetTitle>

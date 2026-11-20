@@ -71,7 +71,10 @@ export function RouteRulesPrimaryButtons() {
       )}
       {maxPerUser !== null && (
         <span className='text-muted-foreground text-xs'>
-          {t('{{count}} / {{max}} rules', { count: ruleCount, max: maxPerUser })}
+          {t('{{count}} / {{max}} rules', {
+            count: ruleCount,
+            max: maxPerUser,
+          })}
         </span>
       )}
     </div>

@@ -70,6 +70,8 @@ function channel(name: string): Channel {
       multi_key_mode: 'random',
     },
     settings: '{}',
+    owner_id: 0,
+    tier: 'api',
   }
 }
 

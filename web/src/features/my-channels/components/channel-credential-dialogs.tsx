@@ -378,6 +378,10 @@ type TraeImportDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
   onChannelCreated: () => void
+  // When editing an existing channel the flow replaces its credential in
+  // place instead of navigating away to a newly created channel.
+  onCredentialReplaced?: (channelId: number) => void
+  existingChannelId?: number
 }
 
 export function TraeImportDialog(props: TraeImportDialogProps) {
@@ -396,8 +400,12 @@ export function TraeImportDialog(props: TraeImportDialogProps) {
         {props.open && (
           <ProviderAuthorizationCard
             provider='trae-cn'
-            onComplete={() => {
-              props.onChannelCreated()
+            onComplete={(channelId) => {
+              if (props.existingChannelId) {
+                props.onCredentialReplaced?.(channelId)
+              } else {
+                props.onChannelCreated()
+              }
               props.onOpenChange(false)
             }}
           />

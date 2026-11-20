@@ -60,6 +60,18 @@ func Init(db *gorm.DB) error {
 	return seedDefaultPolicies()
 }
 
+// Close stops the synced enforcer's background policy loader so tests can
+// dispose the underlying database handles. Idempotent.
+func Close() {
+	enforcerMu.Lock()
+	e := enforcer
+	enforcer = nil
+	enforcerMu.Unlock()
+	if e != nil {
+		e.StopAutoLoadPolicy()
+	}
+}
+
 func currentEnforcer() *casbin.SyncedEnforcer {
 	enforcerMu.RLock()
 	defer enforcerMu.RUnlock()

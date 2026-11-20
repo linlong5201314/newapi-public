@@ -73,6 +73,33 @@ func SetupLogger() {
 	}
 }
 
+// CloseCurrentLogger closes the active log descriptor and clears writers.
+// Tests use it so TempDir cleanup can unlink the file on Windows.
+func CloseCurrentLogger() {
+	currentLogPathMu.Lock()
+	file := currentLogFile
+	currentLogFile = nil
+	currentLogPath = ""
+	currentLogPathMu.Unlock()
+	common.LogWriterMu.Lock()
+	gin.DefaultWriter = os.Stdout
+	gin.DefaultErrorWriter = os.Stderr
+	common.LogWriterMu.Unlock()
+	if file != nil {
+		_ = file.Close()
+	}
+}
+
+// ResetCurrentLoggerForTest closes the active descriptor and clears the cached
+// path so the next SetupLogger always reopens a fresh file for a new directory.
+// Tests that swap common.LogDir must call this; otherwise the previously
+// opened file stays referenced even after CloseCurrentLogger.
+func ResetCurrentLoggerForTest() {
+	currentLogPathMu.Lock()
+	currentLogPath = ""
+	currentLogPathMu.Unlock()
+}
+
 func LogInfo(ctx context.Context, msg string) {
 	logHelper(ctx, loggerINFO, msg)
 }

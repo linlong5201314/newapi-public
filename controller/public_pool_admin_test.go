@@ -3,13 +3,22 @@ package controller
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -189,4 +198,233 @@ func TestPublicPoolAdminRejectsScopeAndStatusInjection(t *testing.T) {
 	var count int64
 	require.NoError(t, model.DB.Model(&model.Channel{}).Where("name = ?", "invalid").Count(&count).Error)
 	assert.Zero(t, count)
+}
+
+// ---------------------------------------------------------------------------
+// Public-pool IP-dimension probe (root, sampled batch through shared pipeline)
+// ---------------------------------------------------------------------------
+
+type publicPoolProbeFixture struct {
+	rootID    int
+	channel   *model.Channel
+	session   *model.UserSession
+	calls     atomic.Int32
+	endpoints []*model.ProxyEndpoint
+}
+
+// newPublicPoolProbeFixture builds a root-owned platform free channel whose
+// upstream is a local server, plus a set of public egress endpoints that all
+// resolve to the same local server so resolution succeeds and dedupe is
+// observable only through explicit duplicate rows.
+func newPublicPoolProbeFixture(t *testing.T, endpointRows int) *publicPoolProbeFixture {
+	t.Helper()
+	require.NoError(t, i18n.Init())
+	previousRatios := ratio_setting.ModelRatio2JSONString()
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"model-a":1,"model-b":1}`))
+	t.Cleanup(func() { require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(previousRatios)) })
+	rootID := setupChannelCreateTest(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.ModelEndpointHealth{}, &model.ProxyEndpoint{}, &model.ProxySubscription{}, &model.UserSession{}))
+	session := selfContractDS2Session(t, rootID)
+	require.NoError(t, model.DB.Model(&model.User{}).Where("id = ?", rootID).Updates(map[string]any{"role": common.RoleRootUser, "group": "default", "quota": 1000000, "setting": `{"billing_preference":"wallet_only"}`}).Error)
+	f := &publicPoolProbeFixture{rootID: rootID, session: session}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.calls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"fixture","model":"model-a","choices":[{"index":0,"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`))
+	}))
+	t.Cleanup(upstream.Close)
+	// A local HTTP proxy that forwards every sampled egress request to the
+	// upstream. Each public endpoint carries a distinct dial port so resolution
+	// yields unique egress URLs while still reaching a live listener.
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		target, _ := url.Parse(upstream.URL + r.URL.RequestURI())
+		out, _ := http.NewRequestWithContext(r.Context(), r.Method, target.String(), r.Body)
+		out.Header = r.Header.Clone()
+		resp, err := http.DefaultClient.Do(out)
+		if err != nil {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+		for key, values := range resp.Header {
+			for _, value := range values {
+				w.Header().Add(key, value)
+			}
+		}
+		w.WriteHeader(resp.StatusCode)
+		_, _ = io.Copy(w, resp.Body)
+	}))
+	t.Cleanup(proxy.Close)
+	settings := `{"proxy":"direct","proxy_policy":{"mode":"direct"}}`
+	f.channel = &model.Channel{OwnerId: 0, Tier: "free", Type: constant.ChannelTypeOpenAI, Name: "public probe fixture", Key: "fixture-public-key", Models: "model-a,model-b", Group: "default", BaseURL: &upstream.URL, Setting: &settings, Status: common.ChannelStatusEnabled}
+	require.NoError(t, model.DB.Create(f.channel).Error)
+	// Public egress endpoints. subscription_id=0 keeps the ACL simple; public=true
+	// is mandatory for root platform tests (ResolveModelProbeEndpoint rejects
+	// non-public exits for owner_id=0 channels). Distinct ports guarantee unique
+	// resolved egress URLs so the sampled batch is not deduplicated away.
+	for range endpointRows {
+		ep := &model.ProxyEndpoint{UserId: rootID, Enabled: true, Public: true, Url: proxy.URL}
+		require.NoError(t, model.DB.Create(ep).Error)
+		f.endpoints = append(f.endpoints, ep)
+	}
+	previousAll, previousSelf, previousPublic := operation_setting.AllModelsFreeBilling, operation_setting.SelfKeyFreeBilling, operation_setting.PlatformPublicFreeBilling
+	previousCount := constant.CountToken
+	previousTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	operation_setting.AllModelsFreeBilling, operation_setting.SelfKeyFreeBilling, operation_setting.PlatformPublicFreeBilling, constant.CountToken = false, false, false, false
+	t.Cleanup(func() {
+		operation_setting.AllModelsFreeBilling, operation_setting.SelfKeyFreeBilling, operation_setting.PlatformPublicFreeBilling, constant.CountToken = previousAll, previousSelf, previousPublic, previousCount
+		constant.StreamingTimeout = previousTimeout
+	})
+	service.InitHttpClient()
+	return f
+}
+
+// request issues an authenticated root request against the public-pool admin
+// probe handlers, wiring the same session keys the shared authorization reads.
+func (f *publicPoolProbeFixture) request(t *testing.T, handler gin.HandlerFunc, method, target, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	response := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(response)
+	c.Request = httptest.NewRequest(method, target, bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Set("id", f.rootID)
+	c.Set("role", common.RoleRootUser)
+	c.Set("session_id", f.session.SID)
+	c.Set("auth_version", int64(1))
+	c.Set("session_version", int64(1))
+	c.Params = gin.Params{{Key: "id", Value: fmt.Sprint(f.channel.Id)}}
+	handler(c)
+	return response
+}
+
+func TestPublicPoolProbeEndpointsPaginationAndEligibleTotal(t *testing.T) {
+	f := newPublicPoolProbeFixture(t, 5)
+	// Page 1 with a small limit exposes has_more and the full eligible total.
+	w := f.request(t, ListPublicPoolProbeEndpoints, http.MethodGet, "/?offset=0&limit=2", "")
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var page struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Endpoints          []model.ModelProbeEndpoint `json:"endpoints"`
+			EndpointHasMore    bool                       `json:"endpoint_has_more"`
+			EndpointNextOffset int                        `json:"endpoint_next_offset"`
+			EligibleTotal      int64                      `json:"eligible_total"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(w.Body.Bytes(), &page))
+	require.True(t, page.Success)
+	assert.Len(t, page.Data.Endpoints, 2)
+	assert.True(t, page.Data.EndpointHasMore)
+	assert.Equal(t, 2, page.Data.EndpointNextOffset)
+	assert.EqualValues(t, 5, page.Data.EligibleTotal)
+	// Page past the first window returns the remainder and clears has_more.
+	w = f.request(t, ListPublicPoolProbeEndpoints, http.MethodGet, "/?offset=2&limit=100", "")
+	require.NoError(t, common.Unmarshal(w.Body.Bytes(), &page))
+	assert.Len(t, page.Data.Endpoints, 3)
+	assert.False(t, page.Data.EndpointHasMore)
+	// Listing never leaks addresses or credentials.
+	assert.NotContains(t, w.Body.String(), "fixture-node")
+	// Invalid pagination is rejected.
+	w = f.request(t, ListPublicPoolProbeEndpoints, http.MethodGet, "/?offset=-1", "")
+	assert.Contains(t, w.Body.String(), `"success":false`)
+	w = f.request(t, ListPublicPoolProbeEndpoints, http.MethodGet, "/?limit=101", "")
+	assert.Contains(t, w.Body.String(), `"success":false`)
+}
+
+func TestPublicPoolProbeAllRunsSampledBatchAndDedupes(t *testing.T) {
+	f := newPublicPoolProbeFixture(t, 4)
+	w := f.request(t, PostPublicPoolProbeAllPublicEndpoints, http.MethodPost, "/", `{"models":["model-a"]}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var response struct {
+		Success bool                         `json:"success"`
+		Data    publicPoolProbeBatchResponse `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(w.Body.Bytes(), &response))
+	require.True(t, response.Success, w.Body.String())
+	// Configured egress (id 0) is excluded; only real public nodes are sampled.
+	assert.NotContains(t, response.Data.EndpointIDs, 0)
+	assert.Equal(t, len(response.Data.EndpointIDs), response.Data.SelectedCount)
+	assert.Equal(t, 4, response.Data.SelectedCount)
+	assert.EqualValues(t, 4, response.Data.EligibleTotal)
+	assert.True(t, response.Data.Sampled)
+	assert.True(t, response.Data.HealthNeverDeletes)
+	assert.Greater(t, response.Data.CheckedAt, int64(0))
+	assert.EqualValues(t, int64(model.ModelEndpointHealthTTL/time.Second), response.Data.TTLSeconds)
+	// IDs are deduplicated and unique.
+	seen := map[int]bool{}
+	for _, id := range response.Data.EndpointIDs {
+		assert.False(t, seen[id], "duplicate resolved endpoint id %d", id)
+		seen[id] = true
+	}
+	// Per-model counts reconcile: attempted = available + unavailable + unknown,
+	// and total_endpoints equals the sampled endpoint count.
+	require.Len(t, response.Data.Models, 1)
+	view := response.Data.Models[0]
+	assert.Equal(t, "model-a", view.Model)
+	assert.Equal(t, response.Data.SelectedCount, view.Total)
+	assert.Equal(t, view.Available+view.Unavailable+view.Unknown, view.Attempted)
+	assert.Equal(t, view.Total, view.Attempted+view.NotRun)
+	assert.Equal(t, response.Data.SelectedCount, view.Available, w.Body.String())
+	assert.Zero(t, view.Unknown)
+	assert.True(t, view.Passed)
+	// Each sampled endpoint was inferred exactly once for the single model.
+	assert.Equal(t, int32(response.Data.SelectedCount), f.calls.Load())
+	// Health was persisted per endpoint; nothing is deleted, only measured.
+	var stored []model.ModelEndpointHealth
+	require.NoError(t, model.DB.Where("channel_id = ?", f.channel.Id).Find(&stored).Error)
+	assert.Len(t, stored, response.Data.SelectedCount)
+	// Response never leaks endpoint addresses or the provider key.
+	assert.NotContains(t, w.Body.String(), "fixture-node")
+	assert.NotContains(t, w.Body.String(), "fixture-public-key")
+}
+
+func TestPublicPoolProbeAllRejectsUnauthorizedAndAccountEgress(t *testing.T) {
+	f := newPublicPoolProbeFixture(t, 2)
+	// Non-root role is rejected before any work.
+	gin.SetMode(gin.TestMode)
+	response := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(response)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"models":["model-a"]}`))
+	c.Set("id", f.rootID)
+	c.Set("role", common.RoleAdminUser)
+	c.Params = gin.Params{{Key: "id", Value: fmt.Sprint(f.channel.Id)}}
+	PostPublicPoolProbeAllPublicEndpoints(c)
+	assert.Equal(t, http.StatusForbidden, response.Code)
+	// Account-bound channels (credential pinned to configured egress) cannot
+	// rotate across public nodes.
+	require.NoError(t, model.DB.Model(f.channel).Update("type", constant.ChannelTypeCline).Error)
+	w := f.request(t, PostPublicPoolProbeAllPublicEndpoints, http.MethodPost, "/", `{"models":["model-a"]}`)
+	assert.Contains(t, w.Body.String(), "Account model tests must use configured egress")
+	require.NoError(t, model.DB.Model(f.channel).Update("type", constant.ChannelTypeOpenAI).Error)
+	// A model outside the channel catalog is rejected by the shared authorization.
+	w = f.request(t, PostPublicPoolProbeAllPublicEndpoints, http.MethodPost, "/", `{"models":["not-in-catalog"]}`)
+	assert.Contains(t, w.Body.String(), `"success":false`)
+	assert.Zero(t, f.calls.Load())
+}
+
+func TestPublicPoolProbeAllStopsOnFatalUpstream(t *testing.T) {
+	f := newPublicPoolProbeFixture(t, 4)
+	// Force the upstream to deny every request; the shared runner must stop the
+	// batch on the first fatal admission error rather than probe every node.
+	require.NoError(t, model.DB.Model(&model.User{}).Where("id = ?", f.rootID).Update("quota", 0).Error)
+	w := f.request(t, PostPublicPoolProbeAllPublicEndpoints, http.MethodPost, "/", `{"models":["model-a","model-b"]}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var response struct {
+		Success bool                         `json:"success"`
+		Data    publicPoolProbeBatchResponse `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(w.Body.Bytes(), &response))
+	require.True(t, response.Success, w.Body.String())
+	// Quota exhaustion is fatal: only one real attempt happened across both
+	// models; the rest of the Cartesian sample is marked not_run.
+	assert.Zero(t, f.calls.Load(), "quota exhaustion stops before any paid inference")
+	var attempted, notRun int
+	for _, view := range response.Data.Models {
+		attempted += view.Attempted
+		notRun += view.NotRun
+	}
+	assert.Equal(t, 1, attempted, "exactly one fatal attempt is recorded")
+	assert.Greater(t, notRun, 0, "remaining sample cells are not_run")
 }

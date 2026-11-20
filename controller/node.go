@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service/nodedeploy"
 	"github.com/QuantumNous/new-api/service/nodemonitor"
+	"github.com/QuantumNous/new-api/service/noderailway"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
@@ -418,6 +419,8 @@ func GetNodeSettings(c *gin.Context) {
 		"cloudflareKvNamespaceId":   operation_setting.CloudflareKvNamespaceId,
 		"cloudflareKvNodesKey":      operation_setting.CloudflareKvNodesKey,
 		"cloudflareKvConfigured":    kvConfigured,
+		// railwayServicesConfigured 只回布尔；具体登记表走 GET /api/node/railway-services 的 DTO（token 已剥离）。
+		"railwayServicesConfigured": len(operation_setting.NodeRailwayServicesList()) > 0,
 	}})
 }
 
@@ -442,6 +445,10 @@ func UpdateNodeSettings(c *gin.Context) {
 		CloudflareAccountId      *string  `json:"cloudflareAccountId"`
 		CloudflareKvNamespaceId  *string  `json:"cloudflareKvNamespaceId"`
 		CloudflareKvNodesKey     *string  `json:"cloudflareKvNodesKey"`
+		// RailwayServices 七台 Railway 服务登记表（JSON 字符串；
+		// 与 NodeRailwayServices Option 一致）。controller 透传给
+		// operation_setting.SetNodeRailwayServicesJSON 做校验和 token 加密。
+		RailwayServices *string `json:"railwayServices"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ApiErrorMsg(c, "invalid request body")
@@ -523,6 +530,15 @@ func UpdateNodeSettings(c *gin.Context) {
 		values["CloudflareKvNodesKey"] = strings.TrimSpace(*req.CloudflareKvNodesKey)
 		changed = append(changed, "cloudflareKvNodesKey")
 	}
+	if req.RailwayServices != nil {
+		// 先校验（含 token 加密），再把规范化后的 JSON 落库；非法输入拒绝。
+		if err := operation_setting.SetNodeRailwayServicesJSON(*req.RailwayServices); err != nil {
+			common.ApiErrorMsg(c, "invalid railwayServices: "+err.Error())
+			return
+		}
+		values["NodeRailwayServices"] = operation_setting.NodeRailwayServicesJSON()
+		changed = append(changed, "railwayServices")
+	}
 	if len(values) == 0 {
 		common.ApiErrorMsg(c, "no settings provided")
 		return
@@ -552,6 +568,21 @@ func GetNodeAudit(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"items": list, "total": total, "page": page, "page_size": pageSize}})
+}
+
+// GetNodeRailwayServices GET /api/node/railway-services
+//
+// 只读：返回 Option "NodeRailwayServices" 登记表中每台服务的最新部署快照 +
+// 按 workspace 去重的余额。失败降级为 unavailable，绝不抛 5xx；
+// token 仅服务端使用，响应只回 has_api_token 与 has 字段。
+func GetNodeRailwayServices(c *gin.Context) {
+	summary, err := noderailway.CollectSummary(c.Request.Context())
+	if err != nil {
+		// CollectSummary 设计上不返回错误（per-service 降级），这里兜底。
+		common.ApiError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": summary})
 }
 
 // respondNodeError 把服务层错误映射为稳定的 HTTP 语义。

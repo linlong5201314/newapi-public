@@ -36,7 +36,9 @@ type zcodePollClaim struct {
 
 func zcodeAuthorizationError(c *gin.Context, err error) {
 	if errors.Is(err, service.ErrZCodePlanUnavailable) {
-		c.JSON(http.StatusForbidden, gin.H{"success": false, "code": "ZCODE_PLAN_UNAVAILABLE", "message": common.NewMessage("ZCode Start Plan has no active supported model entitlement with available quota")})
+		body := accountAuthorizationBody("ZCode Start Plan has no active supported model entitlement with available quota")
+		body["code"] = "ZCODE_PLAN_UNAVAILABLE"
+		c.JSON(http.StatusForbidden, body)
 		return
 	}
 	desktopAccountError(c, err)

@@ -1,6 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">DeepSeek AI (NewAPI)</string>
+    <string name="app_name">NewAPI Client</string>
     <string name="connection_error">Unable to connect securely. Check your connection and retry. Your account uses the website login; no API key is required.</string>
     <string name="retry">Retry</string>
+    <string name="file_too_large">File is too large. Maximum size is 20 MB.</string>
+    <string name="mic_rationale_title">Microphone access</string>
+    <string name="mic_rationale_body">This page wants to use your microphone for voice input. Audio is sent only to this site and only while the recording control is active.</string>
+    <string name="mic_rationale_allow">Allow</string>
+    <string name="mic_rationale_deny">Deny</string>
+    <string name="update_banner_text">A newer app version is available.</string>
+    <string name="update_banner_action">Download</string>
 </resources>

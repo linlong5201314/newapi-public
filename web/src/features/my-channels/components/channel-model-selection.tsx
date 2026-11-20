@@ -59,6 +59,24 @@ export function ChannelModelSelection(props: ChannelModelSelectionProps) {
           size='sm'
           variant='outline'
           disabled={props.disabled || models.length === 0}
+          onClick={() => {
+            const enabledSet = new Set(props.enabledModels)
+            const nextEnabled = models.filter((model) => !enabledSet.has(model))
+            const nextEnabledSet = new Set(nextEnabled)
+            // Keep public models a subset of the inverted enabled selection.
+            props.onChange(
+              nextEnabled,
+              props.publicModels.filter((model) => nextEnabledSet.has(model))
+            )
+          }}
+        >
+          {t('Invert selection for my channels')}
+        </Button>
+        <Button
+          type='button'
+          size='sm'
+          variant='outline'
+          disabled={props.disabled || models.length === 0}
           onClick={() => props.onChange([...models], [...models])}
         >
           {t('Select all for the public pool')}
@@ -71,6 +89,23 @@ export function ChannelModelSelection(props: ChannelModelSelectionProps) {
           onClick={() => props.onChange(props.enabledModels, [])}
         >
           {t('Deselect all for the public pool')}
+        </Button>
+        <Button
+          type='button'
+          size='sm'
+          variant='outline'
+          disabled={props.disabled || models.length === 0}
+          onClick={() => {
+            const publicSet = new Set(props.publicModels)
+            const nextPublic = models.filter((model) => !publicSet.has(model))
+            // Publishing auto-enables; keep enabled a superset of public.
+            props.onChange(
+              [...new Set([...props.enabledModels, ...nextPublic])],
+              nextPublic
+            )
+          }}
+        >
+          {t('Invert selection for the public pool')}
         </Button>
       </div>
       <p className='text-muted-foreground text-xs'>

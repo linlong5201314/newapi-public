@@ -87,6 +87,14 @@ beforeEach(() => {
   })
 })
 afterEach(() => client.clear())
+// The dialog intentionally defaults to no models selected. Tests that assert
+// creation payloads first opt in explicitly via the visible bulk action.
+async function selectAllMyModels(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(
+    screen.getByRole('button', { name: 'Select all for my channels' })
+  )
+}
+
 function renderDialog() {
   return render(
     <QueryClientProvider client={client}>
@@ -106,6 +114,10 @@ it('filters model names without dropping hidden selections and preserves public 
   expect(screen.getByText('deepseek-chat')).toBeVisible()
   expect(screen.queryByText('qwen-coder')).not.toBeInTheDocument()
   await user.clear(search)
+  expect(
+    screen.getByRole('checkbox', { name: 'Enable qwen-coder in my channels' })
+  ).not.toBeChecked()
+  await selectAllMyModels(user)
   expect(
     screen.getByRole('checkbox', { name: 'Enable qwen-coder in my channels' })
   ).toBeChecked()
@@ -151,8 +163,12 @@ it('sends the complete discovered catalog while only selected models are enabled
   expect(
     screen.getByRole('checkbox', { name: 'Enable new-model in my channels' })
   ).not.toBeChecked()
+  await selectAllMyModels(user)
   await user.click(
     screen.getByRole('checkbox', { name: 'Enable qwen-coder in my channels' })
+  )
+  await user.click(
+    screen.getByRole('checkbox', { name: 'Enable new-model in my channels' })
   )
   await user.click(
     screen.getByRole('button', { name: /Create channel|创建渠道/ })
@@ -229,6 +245,7 @@ it('creates an IP free source privately using an owned outbound strategy', async
       'Platform IP-based free models are available to everyone through Public models. Your sources stay private unless you choose to share them.'
     )
   ).toBeVisible()
+  await selectAllMyModels(user)
   await user.click(
     screen.getByRole('button', { name: /Create channel|创建渠道/ })
   )
@@ -251,6 +268,7 @@ it('keeps manual model choices when the interface language changes', async () =>
   await user.click(
     await screen.findByRole('button', { name: /Search fixture/ })
   )
+  await selectAllMyModels(user)
   await user.click(
     screen.getByRole('checkbox', { name: 'Enable qwen-coder in my channels' })
   )
@@ -268,12 +286,17 @@ it('keeps manual model choices when the interface language changes', async () =>
   }
 })
 
-it('offers generated Raccoon browser authorization without helper downloads',async()=>{
- const user=userEvent.setup();renderDialog()
- await user.click(await screen.findByRole('button',{name:/Raccoon auth fixture/}))
- expect(screen.getByRole('button',{name:'Generate authorization URL'})).toBeInTheDocument()
- expect(screen.queryByText(/F12/)).not.toBeInTheDocument()
- expect(api.post).not.toHaveBeenCalled()
+it('offers generated Raccoon browser authorization without helper downloads', async () => {
+  const user = userEvent.setup()
+  renderDialog()
+  await user.click(
+    await screen.findByRole('button', { name: /Raccoon auth fixture/ })
+  )
+  expect(
+    screen.getByRole('button', { name: 'Generate authorization URL' })
+  ).toBeInTheDocument()
+  expect(screen.queryByText(/F12/)).not.toBeInTheDocument()
+  expect(api.post).not.toHaveBeenCalled()
 })
 
 it('opens the DS2 account login popup on the user gesture and closes it when start fails', async () => {

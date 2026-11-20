@@ -72,7 +72,7 @@ export function ExtLinkCards() {
                 openExtLink(link, navigate)
               }
             }}
-            className='hover:border-primary/60 hover:shadow-md flex cursor-pointer flex-col items-center gap-2 p-4 transition-all'
+            className='hover:border-primary/60 flex cursor-pointer flex-col items-center gap-2 p-4 transition-all hover:shadow-md'
           >
             <ExtLinkIcon
               icon={link.icon}

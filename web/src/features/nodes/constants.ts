@@ -133,6 +133,7 @@ export const NODE_MESSAGES = {
   SETTINGS_LOAD_FAILED: 'Failed to load node settings',
   SETTINGS_SAVE_FAILED: 'Failed to save node settings',
   AUDIT_LOAD_FAILED: 'Failed to load node audit logs',
+  RAILWAY_LOAD_FAILED: 'Failed to load Railway services',
   UNEXPECTED: 'An unexpected error occurred',
 } as const
 

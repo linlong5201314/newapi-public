@@ -98,9 +98,14 @@ func setupSecurityEnrollmentTest(t *testing.T) (*model.User, service.AuthIdentit
 		common.RedisEnabled, common.SessionSecret = previousRedis, previousSecret
 		common.PasswordLoginEncryptionEnabled = previousEncryption
 		*system_setting.GetPasskeySettings() = previousSettings
-		connection, err := db.DB()
-		if err == nil {
-			_ = connection.Close()
+		// Close every handle on the isolated databases; WAL files on Windows
+		// cannot be removed while a pooled connection is still open.
+		for _, handle := range []*gorm.DB{db, logDB} {
+			if handle != nil {
+				if connection, err := handle.DB(); err == nil && connection != nil {
+					_ = connection.Close()
+				}
+			}
 		}
 	})
 	password, err := common.Password2Hash("enrollment-password")

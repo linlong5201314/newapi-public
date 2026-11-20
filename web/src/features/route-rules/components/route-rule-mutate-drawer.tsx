@@ -47,10 +47,7 @@ import {
   sideDrawerSwitchItemClassName,
 } from '@/components/drawer-layout'
 import { MultiSelect } from '@/components/multi-select'
-import {
-  Alert,
-  AlertDescription,
-} from '@/components/ui/alert'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
   Collapsible,
@@ -89,7 +86,11 @@ import { handleServerError } from '@/lib/handle-server-error'
 import { cn } from '@/lib/utils'
 
 import { createRouteRule, updateRouteRule } from '../api'
-import { ERROR_MESSAGES, STRATEGY_OPTIONS, SUCCESS_MESSAGES } from '../constants'
+import {
+  ERROR_MESSAGES,
+  STRATEGY_OPTIONS,
+  SUCCESS_MESSAGES,
+} from '../constants'
 import {
   getRouteRuleFormDefaultValues,
   getRouteRuleFormSchema,
@@ -198,9 +199,7 @@ export function RouteRuleMutateDrawer({
       .filter((id) => Number.isInteger(id) && id > 0)
     const current = form.getValues('targets')
 
-    const kept = current.filter((target) =>
-      nextIds.includes(target.channelId)
-    )
+    const kept = current.filter((target) => nextIds.includes(target.channelId))
     const keptIds = new Set(kept.map((target) => target.channelId))
     const appended = nextIds
       .filter((id) => !keptIds.has(id))
@@ -240,7 +239,11 @@ export function RouteRuleMutateDrawer({
       } else {
         handleServerError(
           result,
-          t(isUpdate ? ERROR_MESSAGES.UPDATE_FAILED : ERROR_MESSAGES.CREATE_FAILED)
+          t(
+            isUpdate
+              ? ERROR_MESSAGES.UPDATE_FAILED
+              : ERROR_MESSAGES.CREATE_FAILED
+          )
         )
       }
     } catch (error) {
@@ -320,10 +323,7 @@ export function RouteRuleMutateDrawer({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>{t('Strategy')}</FormLabel>
-                    <Select
-                      value={field.value}
-                      onValueChange={field.onChange}
-                    >
+                    <Select value={field.value} onValueChange={field.onChange}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder={t('Select a strategy')} />
@@ -331,10 +331,7 @@ export function RouteRuleMutateDrawer({
                       </FormControl>
                       <SelectContent>
                         {STRATEGY_OPTIONS.map((option) => (
-                          <SelectItem
-                            key={option.value}
-                            value={option.value}
-                          >
+                          <SelectItem key={option.value} value={option.value}>
                             <div className='flex flex-col gap-0.5 py-0.5'>
                               <span>{t(option.labelKey)}</span>
                               <span className='text-muted-foreground text-xs'>
@@ -452,9 +449,7 @@ export function RouteRuleMutateDrawer({
                             variant='ghost'
                             size='icon-sm'
                             onClick={() => moveTarget(index, 1)}
-                            disabled={
-                              index === targetsArray.fields.length - 1
-                            }
+                            disabled={index === targetsArray.fields.length - 1}
                             aria-label={t('Move down')}
                           >
                             <ArrowDown className='size-4' />
@@ -636,11 +631,7 @@ export function RouteRuleMutateDrawer({
               </Button>
             }
           />
-          <Button
-            type='submit'
-            form='route-rule-form'
-            disabled={isSubmitting}
-          >
+          <Button type='submit' form='route-rule-form' disabled={isSubmitting}>
             {submitLabel}
           </Button>
         </SheetFooter>

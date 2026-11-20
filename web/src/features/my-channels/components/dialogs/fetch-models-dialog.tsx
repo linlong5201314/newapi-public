@@ -114,7 +114,8 @@ export function FetchModelsDialog({
         const list = await customFetcher()
         setFetchedModels(list)
         setCandidateModels(existingModels)
-        setSelectedModels(existingModels)
+        // Default to none selected: the user picks models explicitly, then applies.
+        setSelectedModels([])
         toast.success(t('Fetched {{count}} models', { count: list.length }))
       } else if (activeChannel) {
         const response = await fetchUpstreamModels(activeChannel.id)
@@ -122,7 +123,8 @@ export function FetchModelsDialog({
           const list = Array.isArray(response.data) ? response.data : []
           setFetchedModels(list)
           setCandidateModels(existingModels)
-          setSelectedModels(existingModels)
+          // Default to none selected: existing saved models are only candidates.
+          setSelectedModels([])
           toast.success(t('Fetched {{count}} models', { count: list.length }))
         } else {
           handleServerError(response, t('Failed to fetch models'))
@@ -138,6 +140,11 @@ export function FetchModelsDialog({
   }
 
   const handleSave = async () => {
+    // An empty apply must not overwrite the channel's saved models with none.
+    if (selectedModels.length === 0) {
+      toast.error(t('Select at least one model before applying'))
+      return
+    }
     // If onModelsSelected callback is provided, use it (form filling mode)
     if (onModelsSelected) {
       onModelsSelected(selectedModels)
@@ -249,7 +256,10 @@ export function FetchModelsDialog({
             <Button variant='outline' onClick={handleClose} disabled={isSaving}>
               {t('Cancel')}
             </Button>
-            <Button onClick={handleSave} disabled={isSaving}>
+            <Button
+              onClick={handleSave}
+              disabled={isSaving || selectedModels.length === 0}
+            >
               {isSaving && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
               {isSaving ? t('Saving...') : t('Save Models')}
             </Button>

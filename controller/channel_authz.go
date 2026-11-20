@@ -77,6 +77,13 @@ var channelSensitiveFields = map[string]struct{}{
 // of the general channel edit endpoint.
 var channelOperationalFields = map[string]struct{}{
 	"status": {},
+	// visibility 决定渠道是否进入公共池展示；由专门端点管理，普通编辑不得
+	// 顺带改写，与 status 一样属于受控操作字段。
+	"visibility": {},
+	// tier 区分免费层/密钥层，由公共池管理端点控制，普通编辑忽略。
+	"tier": {},
+	// allow_ips 限定免费渠道来源 IP 名单，由专门端点管理。
+	"allow_ips": {},
 }
 
 // channelReadOnlyFields lists server-managed/accounting fields that the general

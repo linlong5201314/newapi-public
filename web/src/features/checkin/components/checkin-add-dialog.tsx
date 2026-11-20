@@ -20,6 +20,7 @@ import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Info, Loader2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -54,18 +55,14 @@ import {
   CHANNEL_TYPE_WORKBUDDY,
 } from '@/features/my-channels/constants'
 import { cn } from '@/lib/utils'
-import { toast } from 'sonner'
 
-import {
-  CHECKIN_CHANNEL_SITES,
-  CHECKIN_SECRET_FIELD_KEYS,
-} from '../constants'
+import { CHECKIN_CHANNEL_SITES, CHECKIN_SECRET_FIELD_KEYS } from '../constants'
+import { getCheckinSiteIcon } from '../lib'
 import type {
   CheckinAccountPayload,
   CheckinSiteCredField,
   CheckinSiteTemplate,
 } from '../types'
-import { getCheckinSiteIcon } from '../lib'
 
 /** Map a channel-referencing check-in site onto its channel type number. */
 const SITE_CHANNEL_TYPE: Record<string, number> = {
@@ -306,9 +303,7 @@ export function CheckinAddDialog(props: CheckinAddDialogProps) {
       const data = (res.data ?? {}) as Record<string, unknown>
       const channel = data.channel as { id?: number } | undefined
       if (!res.success || !channel?.id) {
-        throw new Error(
-          res.message || t('Failed to import Trae credential')
-        )
+        throw new Error(res.message || t('Failed to import Trae credential'))
       }
       await channelsQuery.refetch()
       setChannelId(String(channel.id))
@@ -591,7 +586,10 @@ export function CheckinAddDialog(props: CheckinAddDialogProps) {
                 field={field}
                 value={credValues[field.key] ?? ''}
                 onChange={(value) =>
-                  setCredValues((current) => ({ ...current, [field.key]: value }))
+                  setCredValues((current) => ({
+                    ...current,
+                    [field.key]: value,
+                  }))
                 }
               />
             ))}

@@ -26,7 +26,12 @@ export type ProviderAuthorizationOptions = {
 }
 export type ProviderCapabilities = {
   provider: string
-  method: 'local_import' | 'xiaomi_qr' | 'zcode_cli' | 'device_poll' | 'callback_url'
+  method:
+    | 'local_import'
+    | 'xiaomi_qr'
+    | 'zcode_cli'
+    | 'device_poll'
+    | 'callback_url'
   browserLoginAvailable: boolean
   importAvailable: boolean
   officialUrl: string
@@ -95,7 +100,8 @@ function browserAccountEndpoint(provider: BrowserAccountProvider) {
   if (provider === 'trae-cn') return 'trae/url'
   if (provider === 'raccoon') return 'raccoon/url'
   if (provider === 'cline-account') return 'broker/cline'
-  if (provider === 'qoder-cn' || provider === 'qoder-global') return 'broker/qoder'
+  if (provider === 'qoder-cn' || provider === 'qoder-global')
+    return 'broker/qoder'
   if (provider === 'nous-portal') return 'broker/nous'
   if (provider === 'zcode-bigmodel' || provider === 'zcode-zai') return 'zcode'
   return 'mimo'
@@ -119,7 +125,8 @@ export async function startBrowserAuthorization(
       realm: provider === 'zcode-bigmodel' ? 'bigmodel' : 'zai',
     }
   }
-  if (provider === 'qoder-cn' || provider === 'qoder-global') payload = {...options,realm:provider === 'qoder-cn' ? 'cn' : 'global'}
+  if (provider === 'qoder-cn' || provider === 'qoder-global')
+    payload = { ...options, realm: provider === 'qoder-cn' ? 'cn' : 'global' }
   const response = await api.post<Envelope<NativeAuthorizationSession>>(
     `/api/channel/self/oauth/${endpoint}/start`,
     payload,
@@ -134,7 +141,7 @@ export async function pollBrowserAuthorization(
 ): Promise<NativeAuthorizationResult> {
   const response = await api.post<Envelope<NativeAuthorizationResult>>(
     `/api/channel/self/oauth/${browserAccountEndpoint(provider)}/poll`,
-    {sessionId},
+    { sessionId },
     accountConfig(true)
   )
   return requireServerSuccess(response.data).data
@@ -153,35 +160,72 @@ export async function cancelBrowserAuthorization(
   requireServerSuccess(response.data)
 }
 
-export async function startNativeAuthorization(provider: BrowserAccountProvider,options:ProviderAuthorizationOptions):Promise<NativeAuthorizationSession>{
- if(provider!=='trae-cn')return startBrowserAuthorization(provider,options)
- const response=await api.post<Envelope<NativeAuthorizationSession>>('/api/channel/self/oauth/trae/bridge/start',{...options,realm:'cn',confirmRotation:true},accountConfig(true))
- return requireServerSuccess(response.data).data
+export async function startNativeAuthorization(
+  provider: BrowserAccountProvider,
+  options: ProviderAuthorizationOptions
+): Promise<NativeAuthorizationSession> {
+  if (provider !== 'trae-cn')
+    return startBrowserAuthorization(provider, options)
+  const response = await api.post<Envelope<NativeAuthorizationSession>>(
+    '/api/channel/self/oauth/trae/bridge/start',
+    { ...options, realm: 'cn', confirmRotation: true },
+    accountConfig(true)
+  )
+  return requireServerSuccess(response.data).data
 }
-export async function pollNativeAuthorization(provider:BrowserAccountProvider,sessionId:string):Promise<NativeAuthorizationResult>{
- if(provider!=='trae-cn')return pollBrowserAuthorization(provider,sessionId)
- const response=await api.get<Envelope<NativeAuthorizationResult>>('/api/channel/self/oauth/trae/bridge/poll',{...accountConfig(),params:{sessionId},disableDuplicate:true})
- return requireServerSuccess(response.data).data
+export async function pollNativeAuthorization(
+  provider: BrowserAccountProvider,
+  sessionId: string
+): Promise<NativeAuthorizationResult> {
+  if (provider !== 'trae-cn')
+    return pollBrowserAuthorization(provider, sessionId)
+  const response = await api.get<Envelope<NativeAuthorizationResult>>(
+    '/api/channel/self/oauth/trae/bridge/poll',
+    { ...accountConfig(), params: { sessionId }, disableDuplicate: true }
+  )
+  return requireServerSuccess(response.data).data
 }
-export async function cancelNativeAuthorization(provider:BrowserAccountProvider,sessionId:string):Promise<void>{
- if(provider!=='trae-cn')return cancelBrowserAuthorization(provider,sessionId)
- const response=await api.post<Envelope<unknown>>('/api/channel/self/oauth/trae/bridge/cancel',{sessionId},accountConfig(true));requireServerSuccess(response.data)
+export async function cancelNativeAuthorization(
+  provider: BrowserAccountProvider,
+  sessionId: string
+): Promise<void> {
+  if (provider !== 'trae-cn')
+    return cancelBrowserAuthorization(provider, sessionId)
+  const response = await api.post<Envelope<unknown>>(
+    '/api/channel/self/oauth/trae/bridge/cancel',
+    { sessionId },
+    accountConfig(true)
+  )
+  requireServerSuccess(response.data)
 }
 
-export async function confirmBrowserAccount(provider: BrowserAccountProvider,sessionId: string,consentToken: string,uid: string): Promise<NativeAuthorizationResult> {
- if(provider==='trae-cn')return confirmTraeBridgeAccount(sessionId,consentToken,uid)
- const response=await api.post<Envelope<NativeAuthorizationResult>>('/api/channel/self/oauth/raccoon/url/consent',{sessionId,consentToken,uid},accountConfig(true))
- return requireServerSuccess(response.data).data
+export async function confirmBrowserAccount(
+  provider: BrowserAccountProvider,
+  sessionId: string,
+  consentToken: string,
+  uid: string
+): Promise<NativeAuthorizationResult> {
+  if (provider === 'trae-cn')
+    return confirmTraeBridgeAccount(sessionId, consentToken, uid)
+  const response = await api.post<Envelope<NativeAuthorizationResult>>(
+    '/api/channel/self/oauth/raccoon/url/consent',
+    { sessionId, consentToken, uid },
+    accountConfig(true)
+  )
+  return requireServerSuccess(response.data).data
 }
 
 export async function completeNativeAuthorization(
- provider: BrowserAccountProvider,sessionId: string,callbackUrl: string
+  provider: BrowserAccountProvider,
+  sessionId: string,
+  callbackUrl: string
 ): Promise<NativeAuthorizationResult> {
- const response=await api.post<Envelope<NativeAuthorizationResult>>(
-  `/api/channel/self/oauth/${browserAccountEndpoint(provider)}/complete`,
-  {sessionId,callbackUrl},accountConfig(true)
- )
- return requireServerSuccess(response.data).data
+  const response = await api.post<Envelope<NativeAuthorizationResult>>(
+    `/api/channel/self/oauth/${browserAccountEndpoint(provider)}/complete`,
+    { sessionId, callbackUrl },
+    accountConfig(true)
+  )
+  return requireServerSuccess(response.data).data
 }
 
 export async function importKimiWorkCredentials(

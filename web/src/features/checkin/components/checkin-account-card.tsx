@@ -16,14 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import {
-  Flame,
-  Gift,
-  History,
-  Loader2,
-  Play,
-  Trash2,
-} from 'lucide-react'
+import { Flame, Gift, History, Loader2, Play, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { StatusBadge } from '@/components/status-badge'
@@ -69,9 +62,7 @@ export function CheckinAccountCard(props: CheckinAccountCardProps) {
     return 'neutral' as const
   })()
 
-  const lastStatusLabel = isSuccessStatus
-    ? t('Success')
-    : account.last_status
+  const lastStatusLabel = isSuccessStatus ? t('Success') : account.last_status
 
   return (
     <Card className='flex min-w-0 flex-col'>

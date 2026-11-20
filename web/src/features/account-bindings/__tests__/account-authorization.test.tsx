@@ -407,13 +407,22 @@ it('cancels a pending WorkBuddy session when the template dialog closes', async 
   expect(popup.close).toHaveBeenCalled()
 })
 
-it('mounted Trae uses generated browser URLs and explicit token rotation consent without downloads',async()=>{
- const user=userEvent.setup();renderUI(false)
- await user.click(await screen.findByRole('button',{name:/Trae fixture/}))
- const start=screen.getByRole('button',{name:'Generate authorization URL'})
- expect(start).toBeDisabled()
- await user.click(screen.getByRole('checkbox',{name:'I understand that this Trae login may rotate tokens and sign out other clients.'}))
- expect(start).toBeEnabled()
- expect(screen.queryByText(/python -I trae-login-helper/)).not.toBeInTheDocument()
- expect(api.post).not.toHaveBeenCalled()
+it('mounted Trae uses generated browser URLs and explicit token rotation consent without downloads', async () => {
+  const user = userEvent.setup()
+  renderUI(false)
+  await user.click(await screen.findByRole('button', { name: /Trae fixture/ }))
+  const start = screen.getByRole('button', {
+    name: 'Generate authorization URL',
+  })
+  expect(start).toBeDisabled()
+  await user.click(
+    screen.getByRole('checkbox', {
+      name: 'I understand that this Trae login may rotate tokens and sign out other clients.',
+    })
+  )
+  expect(start).toBeEnabled()
+  expect(
+    screen.queryByText(/python -I trae-login-helper/)
+  ).not.toBeInTheDocument()
+  expect(api.post).not.toHaveBeenCalled()
 })

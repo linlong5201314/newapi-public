@@ -94,10 +94,7 @@ export async function setCheckinAccountEnabled(
 export async function deleteCheckinAccount(
   id: number
 ): Promise<CheckinActionResponse> {
-  const res = await api.delete(
-    `${BASE}/accounts/${id}`,
-    checkinActionConfig()
-  )
+  const res = await api.delete(`${BASE}/accounts/${id}`, checkinActionConfig())
   return res.data
 }
 

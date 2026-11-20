@@ -205,6 +205,7 @@ func InitOptionMap() {
 	common.OptionMap["NodeDeployPollTimeoutSeconds"] = strconv.Itoa(operation_setting.NodeDeployPollTimeoutSeconds)
 	common.OptionMap["NodeDenylist"] = operation_setting.NodeDenylistJSON()
 	common.OptionMap["NodeAllowlist"] = operation_setting.NodeAllowlistJSON()
+	common.OptionMap["NodeRailwayServices"] = operation_setting.NodeRailwayServicesJSON()
 	common.OptionMap["CloudflareApiToken"] = operation_setting.CloudflareApiToken
 	common.OptionMap["CloudflareZoneId"] = operation_setting.CloudflareZoneId
 	common.OptionMap["CloudflareZoneName"] = operation_setting.CloudflareZoneName
@@ -585,7 +586,7 @@ func updateOptionMap(key string, value string) (err error) {
 	case "NodeBalanceAlertThreshold", "NodeAlertWebhookUrl", "NodeAlertEmail",
 		"NodeMonitorEnabled", "NodeAutoFailover", "NodeDeployEnvTemplate",
 		"NodeDeployPruneVariables", "NodePrimaryDomain", "NodeDeployPollTimeoutSeconds",
-		"NodeDenylist", "NodeAllowlist", "CloudflareApiToken", "CloudflareZoneId",
+		"NodeDenylist", "NodeAllowlist", "NodeRailwayServices", "CloudflareApiToken", "CloudflareZoneId",
 		"CloudflareZoneName", "CloudflareAccountId", "CloudflareKvNamespaceId",
 		"CloudflareKvNodesKey":
 		operation_setting.ApplyNodeOption(key, value)

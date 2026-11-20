@@ -108,8 +108,9 @@ export function FreePiAuthorizationCard(props: FreePiAuthorizationProps) {
           !getServerErrorSources(error).some(
             (source) => source.code === 'FREEPI_REAUTH_REQUIRED'
           )
-        )
-          {throw error}
+        ) {
+          throw error
+        }
         const proof = await verification.requestVerification({
           scope: 'upstream.account.bind',
           context: { provider: 'freepi' },

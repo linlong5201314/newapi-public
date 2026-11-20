@@ -229,7 +229,9 @@ export function ExternalLinksSection() {
           label={t('Max Link Count')}
           value={options?.max_count ?? 20}
           disabled={updateOption.isPending}
-          onSave={(v) => updateOption.mutate({ key: 'ExtLinkMaxCount', value: v })}
+          onSave={(v) =>
+            updateOption.mutate({ key: 'ExtLinkMaxCount', value: v })
+          }
         />
         <ExtLinkTextOption
           label={t('Allow Hosts Whitelist')}
@@ -238,7 +240,9 @@ export function ExternalLinksSection() {
           )}
           value={options?.allow_hosts ?? ''}
           disabled={updateOption.isPending}
-          onSave={(v) => updateOption.mutate({ key: 'ExtLinkAllowHosts', value: v })}
+          onSave={(v) =>
+            updateOption.mutate({ key: 'ExtLinkAllowHosts', value: v })
+          }
         />
       </div>
 
@@ -261,10 +265,7 @@ export function ExternalLinksSection() {
         ) : (
           <div className='divide-y rounded-lg border'>
             {links.map((link) => (
-              <div
-                key={link.id}
-                className='flex items-center gap-3 p-3'
-              >
+              <div key={link.id} className='flex items-center gap-3 p-3'>
                 <ExtLinkIcon
                   icon={link.icon}
                   name={link.name}
@@ -523,9 +524,7 @@ function ExtLinkTextOption(props: {
         <div className='space-y-0.5'>
           <Label className='text-sm'>{props.label}</Label>
           {props.description && (
-            <p className='text-muted-foreground text-xs'>
-              {props.description}
-            </p>
+            <p className='text-muted-foreground text-xs'>{props.description}</p>
           )}
         </div>
         <Input

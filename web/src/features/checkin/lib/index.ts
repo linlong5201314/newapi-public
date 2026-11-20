@@ -48,7 +48,10 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return null
 }
 
-function pick<T>(record: Record<string, unknown>, keys: string[]): T | undefined {
+function pick<T>(
+  record: Record<string, unknown>,
+  keys: string[]
+): T | undefined {
   for (const key of keys) {
     if (record[key] !== undefined && record[key] !== null) {
       return record[key] as T
@@ -160,8 +163,12 @@ export function normalizeCheckinAccount(raw: unknown): CheckinAccount | null {
     mode: String(pick<string>(record, ['mode']) ?? 'api'),
     agent_url: String(pick<string>(record, ['agent_url', 'agentUrl']) ?? ''),
     enabled: toBoolean(pick(record, ['enabled']), true),
-    last_status: String(pick<string>(record, ['last_status', 'lastStatus']) ?? ''),
-    last_result: String(pick<string>(record, ['last_result', 'lastResult']) ?? ''),
+    last_status: String(
+      pick<string>(record, ['last_status', 'lastStatus']) ?? ''
+    ),
+    last_result: String(
+      pick<string>(record, ['last_result', 'lastResult']) ?? ''
+    ),
     streak: toNumber(pick(record, ['streak'])),
     total_reward: toNumber(pick(record, ['total_reward', 'totalReward'])),
     last_checkin_day: String(

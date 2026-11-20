@@ -16,11 +16,15 @@ import (
 )
 
 const (
-	ModelProbeMaxModels       = 3
-	ModelProbeMaxEndpoints    = 3
-	ModelProbeMaxOutputTokens = 8
-	ModelProbeAttemptTimeout  = 12 * time.Second
-	ModelProbeBatchTimeout    = 2 * time.Minute
+	ModelProbeMaxModels    = 3
+	ModelProbeMaxEndpoints = 3
+	// ModelProbeMaxPublicEndpoints bounds a root platform public-pool sample
+	// batch. It is larger than the per-user interactive cap but still a sampled
+	// batch, never a full sweep of every public node.
+	ModelProbeMaxPublicEndpoints = 10
+	ModelProbeMaxOutputTokens    = 8
+	ModelProbeAttemptTimeout     = 12 * time.Second
+	ModelProbeBatchTimeout       = 2 * time.Minute
 )
 
 var ErrModelProbeBusy = errors.New("A model test is already running. Please wait.")
@@ -30,11 +34,27 @@ var ErrModelProbeBusy = errors.New("A model test is already running. Please wait
 type ModelProbeRequest struct {
 	Models      []string `json:"models"`
 	EndpointIDs []int    `json:"endpoint_ids"`
+	// maxEndpoints is an internal cap override for sampled platform batches
+	// (public-pool IP testing). Zero selects ModelProbeMaxEndpoints. It is never
+	// decoded from a client payload.
+	maxEndpoints int
+}
+
+// WithMaxEndpoints returns a copy of the request that allows up to limit
+// endpoints. Used only by server-side platform probes that run a deliberately
+// larger sampled batch than the interactive per-user cap.
+func (request ModelProbeRequest) WithMaxEndpoints(limit int) ModelProbeRequest {
+	request.maxEndpoints = limit
+	return request
 }
 
 func (request *ModelProbeRequest) Validate() error {
-	if len(request.Models) < 1 || len(request.Models) > ModelProbeMaxModels || len(request.EndpointIDs) > ModelProbeMaxEndpoints {
-		return errors.New("Select one to three models and at most three endpoints")
+	limit := request.maxEndpoints
+	if limit <= 0 {
+		limit = ModelProbeMaxEndpoints
+	}
+	if len(request.Models) < 1 || len(request.Models) > ModelProbeMaxModels || len(request.EndpointIDs) > limit {
+		return errors.New("Select one to three models and at most the allowed number of endpoints")
 	}
 	models := map[string]bool{}
 	for i, name := range request.Models {

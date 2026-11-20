@@ -13,12 +13,13 @@ func registerNodeRoutes(apiRouter *gin.RouterGroup) {
 	nodeRoute := apiRouter.Group("/node")
 	nodeRoute.Use(middleware.RootAuth())
 	{
-		// 静态段先注册（settings/audit/deploy），避免与 :id 的同层歧义。
+		// 静态段先注册（settings/audit/deploy/railway-services），避免与 :id 的同层歧义。
 		nodeRoute.GET("/settings", controller.GetNodeSettings)
 		nodeRoute.PUT("/settings", controller.UpdateNodeSettings)
 		nodeRoute.GET("/audit", controller.GetNodeAudit)
 		nodeRoute.POST("/deploy/plan", controller.NodeDeployPlan)
 		nodeRoute.POST("/deploy/apply", controller.NodeDeployApply)
+		nodeRoute.GET("/railway-services", controller.GetNodeRailwayServices)
 
 		nodeRoute.GET("", controller.GetNodes)
 		nodeRoute.POST("", controller.CreateNode)

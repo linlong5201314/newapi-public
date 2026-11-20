@@ -19,6 +19,11 @@ export interface CatalogModel {
   channels: PublicChannelView[]
   status: CatalogStatus
   comments: number
+  healthScore: number | null
+  successRate24h: number | null
+  activeRequests: number | null
+  activeUsers: number | null
+  aliases: string[]
 }
 
 const VENDORS: { pattern: RegExp; name: string; icon: string }[] = [
@@ -106,6 +111,11 @@ export function projectCatalog(items: PublicModelItem[]): {
           channels: [],
           status: 'unknown',
           comments: item.comments,
+          healthScore: item.health_score ?? null,
+          successRate24h: item.success_rate_24h ?? null,
+          activeRequests: item.active_requests ?? null,
+          activeUsers: item.active_users ?? null,
+          aliases: item.aliases ?? [],
         }
         cards.set(key, card)
       }

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Own-brand whale silhouette for the NewAPI client launcher icon.
+
+  This is an original vector path, NOT the DeepSeek trademark. The whale
+  motif is generic (ocean / scale / "big model") and is drawn as a simple
+  side-profile silhouette with a small flipper and tail notch. The shape is
+  centered on the adaptive-icon safe zone (66dp content area within the
+  108dp canvas) so OEM masks never clip the recognizable features.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Whale body: smooth oval with a slight dorsal rise. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M 22 62 C 22 48 36 40 54 40 C 72 40 86 48 88 60 C 89 66 86 71 80 73 C 70 76 50 76 38 74 C 28 72 22 68 22 62 Z" />
+    <!-- Tail fluke: two triangles forming the characteristic notch. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M 86 62 L 96 56 L 94 66 L 96 76 L 84 68 Z" />
+    <!-- Pectoral fin: small teardrop below the body. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M 48 74 C 46 80 42 84 38 84 C 42 80 44 76 44 74 Z" />
+    <!-- Eye: a single small dot cut out of the body (uses background color). -->
+    <path
+        android:fillColor="#0A2540"
+        android:pathData="M 33 55 m -1.8 0 a 1.8 1.8 0 1 0 3.6 0 a 1.8 1.8 0 1 0 -3.6 0 Z" />
+    <!-- Blowhole spout: subtle two-stroke hint above the head. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M 36 38 C 34 34 34 30 36 28 C 38 30 38 34 36 38 Z M 42 38 C 40 33 40 29 42 26 C 44 29 44 33 42 38 Z" />
+</vector>

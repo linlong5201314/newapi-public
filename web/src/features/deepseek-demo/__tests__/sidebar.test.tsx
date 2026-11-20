@@ -90,4 +90,36 @@ describe('demo history sidebar', () => {
       screen.queryByRole('button', { name: 'Delete conversation' })
     ).not.toBeInTheDocument()
   })
+
+  it('filters history titles client-side through the search box', async () => {
+    await renderSidebar()
+    const search = await screen.findByRole('textbox', {
+      name: 'Search conversations',
+    })
+    expect(
+      screen.getByRole('button', { name: 'Current conversation' })
+    ).toBeInTheDocument()
+    fireEvent.change(search, { target: { value: 'no-such-title' } })
+    expect(
+      screen.queryByRole('button', { name: 'Current conversation' })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByText('No conversations match your search.')
+    ).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }))
+    expect(
+      screen.getByRole('button', { name: 'Current conversation' })
+    ).toBeInTheDocument()
+  })
+
+  it('matches history search case-insensitively', async () => {
+    await renderSidebar()
+    fireEvent.change(
+      await screen.findByRole('textbox', { name: 'Search conversations' }),
+      { target: { value: 'CURRENT' } }
+    )
+    expect(
+      screen.getByRole('button', { name: 'Current conversation' })
+    ).toBeInTheDocument()
+  })
 })

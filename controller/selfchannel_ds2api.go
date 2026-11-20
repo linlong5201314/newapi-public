@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -34,10 +35,12 @@ type ds2LoginOptions struct {
 	CSRF        string                    `json:"csrf"`
 	Proxy       string                    `json:"proxy"`
 	ProxyPolicy *dto.ChannelProxyPolicy   `json:"proxy_policy,omitempty"`
-	Models      []string                  `json:"models,omitempty"`
-	Public      bool                      `json:"public"`
-	Gateway     string                    `json:"gateway"`
-	EgressKey   string                    `json:"egress_key"`
+	// Models is a pointer so an omitted field (legacy default: whole catalog) is
+	// distinguishable from an explicit empty selection, which is rejected.
+	Models    *[]string `json:"models,omitempty"`
+	Public    bool      `json:"public"`
+	Gateway   string    `json:"gateway"`
+	EgressKey string    `json:"egress_key"`
 }
 
 // The compatibility route name contains oauth, but the protocol is password login,
@@ -195,22 +198,28 @@ func SelfDs2ApiOAuthCallback(c *gin.Context) {
 	uid, _ := strconv.Atoi(session.Phone)
 	proxy, err := model.ResolveStableChannelProxy(uid, 0, options.EgressKey, dto.ChannelSettings{Proxy: options.Proxy, ProxyPolicy: options.ProxyPolicy})
 	if err != nil {
-		failDS2Session(c, session.State, "Configured proxy is unavailable")
+		failDS2Session(c, session.State, errors.New("Configured proxy is unavailable"))
 		return
 	}
 	token, err := service.LoginDS2Account(c.Request.Context(), c.PostForm("account"), c.PostForm("password"), proxy)
 	if err != nil {
-		failDS2Session(c, session.State, err.Error())
+		failDS2Session(c, session.State, err)
 		return
 	}
 	catalog, verified, _ := FetchLiveFreeModelsForUpstream(options.Gateway, "ds2api", token, proxy)
 	if !verified || len(catalog) == 0 {
-		failDS2Session(c, session.State, "DS2API gateway model discovery failed. No channel was created")
+		failDS2Session(c, session.State, errors.New("DS2API gateway model discovery failed. No channel was created"))
 		return
 	}
-	selected := mergeModelCatalogs(options.Models)
-	if len(selected) == 0 {
-		selected = catalog
+	// An omitted models field keeps the legacy default of the whole catalog. An
+	// explicit empty selection is a user error: at least one model is required.
+	if options.Models != nil && len(mergeModelCatalogs(*options.Models)) == 0 {
+		failDS2Session(c, session.State, errors.New("Select at least one model before connecting the account"))
+		return
+	}
+	selected := catalog
+	if options.Models != nil {
+		selected = mergeModelCatalogs(*options.Models)
 	}
 	allowed := make(map[string]bool, len(catalog))
 	for _, id := range catalog {
@@ -218,13 +227,13 @@ func SelfDs2ApiOAuthCallback(c *gin.Context) {
 	}
 	for _, id := range selected {
 		if !allowed[id] {
-			failDS2Session(c, session.State, "Selected model is not available from DS2API")
+			failDS2Session(c, session.State, errors.New("Selected model is not available from DS2API"))
 			return
 		}
 	}
 	encrypted, err := common.EncryptSecret(token)
 	if err != nil || !common.IsEncryptedSecret(encrypted) {
-		failDS2Session(c, session.State, "Unable to securely store account credential")
+		failDS2Session(c, session.State, errors.New("Unable to securely store account credential"))
 		return
 	}
 	needsBinding := options.ProxyPolicy == nil && strings.TrimSpace(options.Proxy) == "" || options.Proxy == "userpool" || options.ProxyPolicy != nil && options.ProxyPolicy.Mode != "direct" && options.ProxyPolicy.Mode != "fixed"
@@ -245,7 +254,7 @@ func SelfDs2ApiOAuthCallback(c *gin.Context) {
 	// OpenAI keys use the existing gateway key storage contract. The binding and
 	// transient login credential are encrypted; the password is never persisted.
 	if err := binding.EncodeAccounts([]model.SelfAccountCred{{Account: strings.TrimSpace(c.PostForm("account")), Password: token}}); err != nil {
-		failDS2Session(c, session.State, "Unable to securely store account credential")
+		failDS2Session(c, session.State, errors.New("Unable to securely store account credential"))
 		return
 	}
 	err = model.DB.Transaction(func(tx *gorm.DB) error {
@@ -287,7 +296,7 @@ func SelfDs2ApiOAuthCallback(c *gin.Context) {
 		return nil
 	})
 	if err != nil {
-		failDS2Session(c, session.State, "Unable to create account channel. Start again")
+		failDS2Session(c, session.State, errors.New("Unable to create account channel. Start again"))
 		return
 	}
 	if needsBinding {
@@ -318,7 +327,7 @@ func SelfDs2ApiOAuthCallback(c *gin.Context) {
 			})
 		}
 		if err != nil {
-			failDS2Session(c, session.State, "Configured proxy is unavailable. The channel is disabled")
+			failDS2Session(c, session.State, errors.New("Configured proxy is unavailable. The channel is disabled"))
 			model.InitChannelCache()
 			return
 		}
@@ -329,12 +338,16 @@ func SelfDs2ApiOAuthCallback(c *gin.Context) {
 	c.String(http.StatusOK, `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=/my-channels"></head><body><h2>账号登录成功，渠道已连接。</h2><p><a href="/my-channels">返回我的渠道</a>。会话凭据不会显示在浏览器中。</p></body></html>`)
 }
 
-func failDS2Session(c *gin.Context, state, message string) {
+// failDS2Session renders the terminal login error. Verification-required is a
+// user-account state (400-class guidance page), never a gateway transport
+// failure; only real transport/protocol problems remain 502.
+func failDS2Session(c *gin.Context, state string, cause error) {
+	message := cause.Error()
 	_ = model.DB.Model(&model.SelfOAuthSession{}).Where("state = ? AND provider = ? AND status IN ?", state, "ds2api", []string{"exchanging", "binding"}).Updates(map[string]any{"status": "failed", "err": message, "access": "", "refresh": ""}).Error
-	// biz_code 11（需要官网验证）给用户一个验证后重试的引导页，而不是纯文本错误。
-	if strings.Contains(message, "requires verification") || strings.Contains(message, "验证") {
+	var verification service.DS2VerificationRequired
+	if errors.As(cause, &verification) {
 		c.Header("Content-Type", "text/html; charset=utf-8")
-		c.String(http.StatusBadGateway, `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>需要验证</title><style>body{font-family:system-ui;max-width:38rem;margin:3rem auto;padding:1rem}.warn{background:#fff8e6;border:1px solid #f0c36d;border-radius:8px;padding:1rem;margin:1rem 0}a{color:#0066cc}</style></head><body><h1>DeepSeek 账号需要验证</h1><div class="warn"><p>DeepSeek 要求此账号先在官网完成验证（滑块/邮箱/手机验证码）。</p><p><strong>步骤：</strong></p><ol><li><a href="https://chat.deepseek.com" target="_blank" rel="noopener noreferrer">打开 DeepSeek 官网</a>，用你的账号登录并完成验证</li><li>验证成功后，回到本平台重新开始授权（之前的会话已过期）</li></ol></div><p><a href="/my-channels">返回我的渠道</a></p></body></html>`)
+		c.String(http.StatusBadRequest, `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>需要验证</title><style>body{font-family:system-ui;max-width:38rem;margin:3rem auto;padding:1rem}.warn{background:#fff8e6;border:1px solid #f0c36d;border-radius:8px;padding:1rem;margin:1rem 0}a{color:#0066cc}</style></head><body><h1>DeepSeek 账号需要验证</h1><div class="warn"><p>DeepSeek 要求此账号先在官网完成验证（滑块/邮箱/手机验证码）。</p><p><strong>步骤：</strong></p><ol><li><a href="https://chat.deepseek.com" target="_blank" rel="noopener noreferrer">打开 DeepSeek 官网</a>，用你的账号登录并完成验证</li><li>验证成功后，回到本平台重新开始授权（之前的会话已过期）</li></ol></div><p><a href="/my-channels">返回我的渠道</a></p></body></html>`)
 		return
 	}
 	c.Header("Content-Type", "text/plain; charset=utf-8")

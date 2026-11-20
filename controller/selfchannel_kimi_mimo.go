@@ -35,9 +35,13 @@ type miMoPollClaim struct {
 func desktopAccountError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, service.ErrDesktopLoginExpired):
-		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "code": "DESKTOP_LOGIN_EXPIRED", "message": common.NewMessage("The provider login expired; sign in again")})
+		body := accountAuthorizationBody("The provider login expired; sign in again")
+		body["code"] = "DESKTOP_LOGIN_EXPIRED"
+		c.JSON(http.StatusUnauthorized, body)
 	case errors.Is(err, service.ErrMiMoRegion):
-		c.JSON(http.StatusForbidden, gin.H{"success": false, "code": "MIMO_REGION_UNAVAILABLE", "message": common.NewMessage("MiMo does not serve this Xiaomi account region")})
+		body := accountAuthorizationBody("MiMo does not serve this Xiaomi account region")
+		body["code"] = "MIMO_REGION_UNAVAILABLE"
+		c.JSON(http.StatusForbidden, body)
 	default:
 		accountAuthorizationError(c, err)
 	}

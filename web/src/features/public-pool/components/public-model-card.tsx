@@ -35,6 +35,14 @@ export function PublicModelCard(props: { item: CatalogModel }) {
   const titleId = useId()
   const sampleCount = channelSamples(channel)
   const status = channelStatus(channel)
+  let healthBarClass = 'h-full bg-rose-500'
+  if (props.item.healthScore !== null) {
+    if (props.item.healthScore >= 90) {
+      healthBarClass = 'h-full bg-emerald-500'
+    } else if (props.item.healthScore >= 70) {
+      healthBarClass = 'h-full bg-amber-500'
+    }
+  }
   const measured = sampleCount > 0
   const relayLogMetrics =
     channel.metric_source === 'relay_logs_24h' &&
@@ -156,6 +164,38 @@ export function PublicModelCard(props: { item: CatalogModel }) {
               })}
             </span>
           </div>
+          {(props.item.healthScore !== null ||
+            props.item.aliases.length > 0) && (
+            <div className='space-y-1.5'>
+              {props.item.healthScore !== null && (
+                <div aria-label={t('Model health')} className='space-y-1'>
+                  <div className='flex items-center justify-between text-xs'>
+                    <span className='text-muted-foreground'>
+                      {t('Model health')}
+                    </span>
+                    <span className='font-mono tabular-nums'>
+                      {props.item.healthScore.toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className='bg-muted h-1.5 w-full overflow-hidden rounded-full'>
+                    <div
+                      className={healthBarClass}
+                      style={{
+                        width: `${Math.max(2, Math.min(100, props.item.healthScore))}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+              {props.item.aliases.length > 0 && (
+                <p className='text-muted-foreground text-xs'>
+                  {t('Also answers as: {{aliases}}', {
+                    aliases: props.item.aliases.join(', '),
+                  })}
+                </p>
+              )}
+            </div>
+          )}
           <p className='text-muted-foreground text-xs leading-5'>
             {props.item.source === 'platform_free'
               ? t(
@@ -226,6 +266,25 @@ export function PublicModelCard(props: { item: CatalogModel }) {
                   : t('No samples yet')}
               </span>
             </div>
+            {(props.item.activeRequests !== null ||
+              props.item.activeUsers !== null) && (
+              <div className='flex flex-wrap gap-3 text-xs'>
+                {props.item.activeRequests !== null && (
+                  <span className='text-muted-foreground'>
+                    {t('{{count}} active requests', {
+                      count: props.item.activeRequests,
+                    })}
+                  </span>
+                )}
+                {props.item.activeUsers !== null && (
+                  <span className='text-muted-foreground'>
+                    {t('{{count}} active users', {
+                      count: props.item.activeUsers,
+                    })}
+                  </span>
+                )}
+              </div>
+            )}
             <dl
               aria-label={t('Observed channel metrics')}
               className='grid min-w-0 grid-cols-2 gap-x-3 gap-y-3 text-xs sm:grid-cols-3'

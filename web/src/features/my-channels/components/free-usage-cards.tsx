@@ -22,12 +22,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
@@ -64,17 +59,12 @@ function formatResetCountdown(
   const hours = Math.floor((totalMinutes % (60 * 24)) / 60)
   const minutes = totalMinutes % 60
   if (days > 0) return t('Resets in {{days}}d {{hours}}h', { days, hours })
-  if (hours > 0) return t('Resets in {{hours}}h {{minutes}}m', { hours, minutes })
+  if (hours > 0)
+    return t('Resets in {{hours}}h {{minutes}}m', { hours, minutes })
   return t('Resets in {{minutes}}m', { minutes: Math.max(minutes, 1) })
 }
 
-function FreeUsageCard({
-  pool,
-  now,
-}: {
-  pool: FreeUsagePool
-  now: number
-}) {
+function FreeUsageCard({ pool, now }: { pool: FreeUsagePool; now: number }) {
   const { t } = useTranslation()
 
   const monthly = pool.monthlyTokens ?? 0

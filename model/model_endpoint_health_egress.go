@@ -4,11 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"github.com/QuantumNous/new-api/relaykit/dto"
 	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"gorm.io/gorm"
 )
 
 // ModelProbeEndpoint intentionally excludes names, addresses and credentials.
@@ -36,20 +37,24 @@ func ModelProbeEndpointVisible(ctx context.Context, userID, endpointID int) (*Pr
 	return &endpoint, nil
 }
 
+// modelProbeEndpointQuery applies the visibility + subscription ACL shared by
+// the paginated listing and the eligible-total count. Names and addresses never
+// leave this package through the model-probe management contract.
+func modelProbeEndpointQuery(ctx context.Context, userID int, publicOnly bool) *gorm.DB {
+	query := DB.WithContext(ctx).Model(&ProxyEndpoint{}).Where("enabled = ? AND (user_id = ? OR public = ?)", true, userID, true)
+	if publicOnly {
+		query = query.Where("public = ?", true)
+	}
+	return query.Where("subscription_id = 0 OR subscription_id IN (?)", DB.Model(&ProxySubscription{}).Select("id").Where("enabled = ? AND (user_id = ? OR public = ?)", true, userID, true))
+}
+
 func ListModelProbeEndpoints(ctx context.Context, userID, offset, limit int, publicOnly bool) ([]ModelProbeEndpoint, bool, error) {
 	result := []ModelProbeEndpoint{}
 	if offset < 0 || offset > 1000000 || limit < 1 || limit > 100 {
 		return nil, false, fmt.Errorf("invalid endpoint pagination")
 	}
 	var endpoints []ProxyEndpoint
-	query := DB.WithContext(ctx).Where("enabled = ? AND (user_id = ? OR public = ?)", true, userID, true)
-	if publicOnly {
-		query = query.Where("public = ?", true)
-	}
-	// Subscription ACL is applied before pagination. Names and addresses never
-	// leave this package through the model-probe management contract.
-	query = query.Where("subscription_id = 0 OR subscription_id IN (?)", DB.Model(&ProxySubscription{}).Select("id").Where("enabled = ? AND (user_id = ? OR public = ?)", true, userID, true))
-	if err := query.Select("id, subscription_id, public").Order("id ASC").Offset(offset).Limit(limit + 1).Find(&endpoints).Error; err != nil {
+	if err := modelProbeEndpointQuery(ctx, userID, publicOnly).Select("id, subscription_id, public").Order("id ASC").Offset(offset).Limit(limit + 1).Find(&endpoints).Error; err != nil {
 		return nil, false, err
 	}
 	hasMore := len(endpoints) > limit
@@ -60,6 +65,15 @@ func ListModelProbeEndpoints(ctx context.Context, userID, offset, limit int, pub
 		result = append(result, ModelProbeEndpoint{ID: endpoint.Id, SubscriptionID: endpoint.SubscriptionId, Public: endpoint.Public, Status: ModelEndpointUnknown})
 	}
 	return result, hasMore, nil
+}
+
+// CountModelProbeEndpoints returns the total eligible endpoints under the same
+// ACL as ListModelProbeEndpoints, so a sampled batch can report its size
+// against the full eligible population without enumerating it.
+func CountModelProbeEndpoints(ctx context.Context, userID int, publicOnly bool) (int64, error) {
+	var total int64
+	err := modelProbeEndpointQuery(ctx, userID, publicOnly).Distinct("id").Count(&total).Error
+	return total, err
 }
 
 // PeekModelProbeConfiguredEndpoint does not select, hot-load or change an exit.

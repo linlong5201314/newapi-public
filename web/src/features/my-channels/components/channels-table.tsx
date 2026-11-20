@@ -49,8 +49,8 @@ import {
 import { channelsQueryKeys, getChannelTableRowId } from '../lib'
 import type { Channel, ChannelSortBy } from '../types'
 import { useChannelsColumns } from './channels-columns'
-import { useChannels } from './channels-provider'
 import { ChannelDetailProvider } from './channels-detail-context'
+import { useChannels } from './channels-provider'
 import { ChannelDetailDrawer } from './drawers/channel-detail-drawer'
 
 const route = getRouteApi('/_authenticated/my-channels/')
@@ -94,9 +94,7 @@ export function ChannelsTable() {
       defaultPageSize: isMobile ? 10 : DEFAULT_PAGE_SIZE,
     },
     globalFilter: { enabled: true, key: 'filter' },
-    columnFilters: [
-      { columnId: 'status', searchKey: 'status', type: 'array' },
-    ],
+    columnFilters: [{ columnId: 'status', searchKey: 'status', type: 'array' }],
   })
 
   // Extract filters from column filters
@@ -199,42 +197,46 @@ export function ChannelsTable() {
 
   return (
     <ChannelDetailProvider onOpen={setDetailChannel}>
-      <div role='region' aria-label={t('My Channels')} className='relative h-full min-h-0'>
-      <DataTablePage
-        table={table}
-        columns={columns}
-        isLoading={isLoading}
-        isFetching={isFetching}
-        emptyTitle={t('No Channels Found')}
-        emptyDescription={t(
-          'No channels available. Create your first channel to get started.'
-        )}
-        skeletonKeyPrefix='my-channel-skeleton'
-        applyHeaderSize
-        toolbarProps={{
-          collapsibleOnMobile: true,
-          searchPlaceholder: t('Filter by name...'),
-          searchDebounceMs: 500,
-          filters: [
-            {
-              columnId: 'status',
-              title: t('Status'),
-              options: [...CHANNEL_STATUS_OPTIONS],
-              singleSelect: true,
-            },
-          ],
-          preActions: (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant='ghost'
-                    size='icon'
-                    onClick={() => void refetch()}
-                    aria-label={t('Refresh')}
-                    aria-busy={isFetching}
-                    className='text-muted-foreground hover:text-foreground size-8'
-                  />
+      <div
+        role='region'
+        aria-label={t('My Channels')}
+        className='relative h-full min-h-0'
+      >
+        <DataTablePage
+          table={table}
+          columns={columns}
+          isLoading={isLoading}
+          isFetching={isFetching}
+          emptyTitle={t('No Channels Found')}
+          emptyDescription={t(
+            'No channels available. Create your first channel to get started.'
+          )}
+          skeletonKeyPrefix='my-channel-skeleton'
+          applyHeaderSize
+          toolbarProps={{
+            collapsibleOnMobile: true,
+            searchPlaceholder: t('Filter by name...'),
+            searchDebounceMs: 500,
+            filters: [
+              {
+                columnId: 'status',
+                title: t('Status'),
+                options: [...CHANNEL_STATUS_OPTIONS],
+                singleSelect: true,
+              },
+            ],
+            preActions: (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      variant='ghost'
+                      size='icon'
+                      onClick={() => void refetch()}
+                      aria-label={t('Refresh')}
+                      aria-busy={isFetching}
+                      className='text-muted-foreground hover:text-foreground size-8'
+                    />
                   }
                 >
                   <RefreshCw
@@ -243,26 +245,26 @@ export function ChannelsTable() {
                   />
                 </TooltipTrigger>
                 <TooltipContent>{t('Refresh')}</TooltipContent>
-            </Tooltip>
-          ),
-        }}
-        getRowClassName={(row, { isMobile }) => {
-          if (!isDisabledChannelRow(row.original)) {
-            return undefined
-          }
-          if (isMobile) {
-            return DISABLED_ROW_MOBILE
-          }
-          return DISABLED_ROW_DESKTOP
-        }}
-      />
-      <ChannelDetailDrawer
-        channel={detailChannel}
-        open={detailChannel !== null}
-        onOpenChange={(next) => {
-          if (!next) setDetailChannel(null)
-        }}
-      />
+              </Tooltip>
+            ),
+          }}
+          getRowClassName={(row, { isMobile }) => {
+            if (!isDisabledChannelRow(row.original)) {
+              return undefined
+            }
+            if (isMobile) {
+              return DISABLED_ROW_MOBILE
+            }
+            return DISABLED_ROW_DESKTOP
+          }}
+        />
+        <ChannelDetailDrawer
+          channel={detailChannel}
+          open={detailChannel !== null}
+          onOpenChange={(next) => {
+            if (!next) setDetailChannel(null)
+          }}
+        />
       </div>
     </ChannelDetailProvider>
   )

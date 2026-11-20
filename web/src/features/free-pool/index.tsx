@@ -17,7 +17,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ExternalLink, Link2, MessageSquare, Pencil, Plus, Star, Trash2 } from 'lucide-react'
+import {
+  ExternalLink,
+  Link2,
+  MessageSquare,
+  Pencil,
+  Plus,
+  Star,
+  Trash2,
+} from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -48,7 +56,15 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { handleServerError } from '@/lib/handle-server-error'
 
-import { deletePool, listPool, listReviews, ratePool, reviewPool, submitPool, updatePool } from './api'
+import {
+  deletePool,
+  listPool,
+  listReviews,
+  ratePool,
+  reviewPool,
+  submitPool,
+  updatePool,
+} from './api'
 import type { FreePoolEntry, PoolSort } from './types'
 
 const TAG_PRESETS = ['free', 'quota-limited', 'checkin'] as const
@@ -168,7 +184,10 @@ export function FreePoolPage() {
 
       <SubmitDialog open={submitOpen} onOpenChange={setSubmitOpen} />
       <EditDialog target={editTarget} onClose={() => setEditTarget(null)} />
-      <ReviewDialog target={reviewTarget} onClose={() => setReviewTarget(null)} />
+      <ReviewDialog
+        target={reviewTarget}
+        onClose={() => setReviewTarget(null)}
+      />
     </SectionPageLayout>
   )
 }
@@ -197,7 +216,8 @@ function PoolCard(props: PoolCardProps) {
               {entry.name}
             </CardTitle>
             <CardDescription className='truncate'>
-              {entry.submitter.name} · {new Date(entry.created_at).toLocaleDateString()}
+              {entry.submitter.name} ·{' '}
+              {new Date(entry.created_at).toLocaleDateString()}
             </CardDescription>
           </div>
           <div className='flex items-center gap-1'>
@@ -211,10 +231,20 @@ function PoolCard(props: PoolCardProps) {
             >
               <ExternalLink className='h-4 w-4' />
             </a>
-            <Button variant='ghost' size='icon' onClick={props.onEdit} title={t('Edit')}>
+            <Button
+              variant='ghost'
+              size='icon'
+              onClick={props.onEdit}
+              title={t('Edit')}
+            >
               <Pencil className='h-4 w-4' />
             </Button>
-            <Button variant='ghost' size='icon' onClick={props.onDelete} title={t('Delete')}>
+            <Button
+              variant='ghost'
+              size='icon'
+              onClick={props.onDelete}
+              title={t('Delete')}
+            >
               <Trash2 className='h-4 w-4' />
             </Button>
           </div>
@@ -228,14 +258,21 @@ function PoolCard(props: PoolCardProps) {
         ) : null}
 
         <div className='flex flex-wrap gap-1'>
-          {quota ? <Badge variant='secondary'>{t('Quota')}: {quota}</Badge> : null}
+          {quota ? (
+            <Badge variant='secondary'>
+              {t('Quota')}: {quota}
+            </Badge>
+          ) : null}
           {entry.proxy ? (
             <Badge variant='outline' className='font-mono text-xs'>
               {t('Proxy')}: {entry.proxy}
             </Badge>
           ) : null}
           {entry.api_base ? (
-            <Badge variant='outline' className='max-w-56 truncate font-mono text-xs'>
+            <Badge
+              variant='outline'
+              className='max-w-56 truncate font-mono text-xs'
+            >
               {entry.api_base}
             </Badge>
           ) : null}
@@ -249,7 +286,11 @@ function PoolCard(props: PoolCardProps) {
         {entry.models?.length ? (
           <div className='flex flex-wrap gap-1'>
             {entry.models.map((model) => (
-              <Badge key={model} variant='secondary' className='font-mono text-xs'>
+              <Badge
+                key={model}
+                variant='secondary'
+                className='font-mono text-xs'
+              >
                 {model}
               </Badge>
             ))}
@@ -375,7 +416,9 @@ function SubmitDialog(props: SubmitDialogProps) {
             />
           </div>
           <div className='space-y-1'>
-            <Label htmlFor='pool-signup-url'>{t('Signup / API key page')}</Label>
+            <Label htmlFor='pool-signup-url'>
+              {t('Signup / API key page')}
+            </Label>
             <Input
               id='pool-signup-url'
               value={signupUrl}
@@ -587,7 +630,9 @@ function EditDialog(props: EditDialogProps) {
             />
           </div>
           <div className='space-y-1'>
-            <Label htmlFor='edit-pool-apibase'>{t('API base (optional)')}</Label>
+            <Label htmlFor='edit-pool-apibase'>
+              {t('API base (optional)')}
+            </Label>
             <Input
               id='edit-pool-apibase'
               value={apiBase}
@@ -656,7 +701,10 @@ function ReviewDialog(props: ReviewDialogProps) {
   })
 
   return (
-    <Dialog open={Boolean(props.target)} onOpenChange={(open) => !open && props.onClose()}>
+    <Dialog
+      open={Boolean(props.target)}
+      onOpenChange={(open) => !open && props.onClose()}
+    >
       <DialogContent className='sm:max-w-lg'>
         <DialogHeader>
           <DialogTitle>{props.target?.name}</DialogTitle>
@@ -675,7 +723,9 @@ function ReviewDialog(props: ReviewDialogProps) {
               </div>
             ))
           ) : (
-            <p className='text-muted-foreground text-sm'>{t('No comments yet')}</p>
+            <p className='text-muted-foreground text-sm'>
+              {t('No comments yet')}
+            </p>
           )}
         </div>
         <div className='space-y-2'>

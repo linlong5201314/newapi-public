@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
@@ -834,6 +836,13 @@ func newAuditTestDatabase(t *testing.T, kind, dsn string) (*gorm.DB, string) {
 		path := t.TempDir() + "/audit.db"
 		db, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
 		require.NoError(t, err)
+		// Every isolated sqlite database must be closed before its TempDir is
+		// removed; Windows cannot unlink a file with an open pooled connection.
+		t.Cleanup(func() {
+			if sqlDB, err := db.DB(); err == nil && sqlDB != nil {
+				_ = sqlDB.Close()
+			}
+		})
 		return db, path
 	}
 	require.NotEmpty(t, dsn)
@@ -1031,12 +1040,43 @@ func TestAuditDatabaseMatrix(t *testing.T) {
 	previousMaster, previousSQLite := common.IsMasterNode, common.SQLitePath
 	common.IsMasterNode = true
 	common.RedisEnabled = false
+	// model.InitDB reopens the process logger against common.LogDir; close it
+	// before TempDir cleanup so Windows can unlink the database directory.
 	t.Cleanup(func() {
+		logger.CloseCurrentLogger()
 		common.IsMasterNode, common.SQLitePath = previousMaster, previousSQLite
 		model.DB, model.LOG_DB = previousDB, previousLogDB
 		common.SetDatabaseTypes(previousMain, previousLog)
 		common.RedisEnabled = previousRedis
 	})
+	// Close each subtest's isolated database immediately after its assertions so
+	// TempDir cleanup never races the still-open SQLite handle on Windows.
+	closeIsolated := func(t *testing.T, db *gorm.DB) {
+		t.Helper()
+		t.Cleanup(func() {
+			if db != nil {
+				if sqlDB, err := db.DB(); err == nil && sqlDB != nil {
+					_ = sqlDB.Close()
+				}
+			}
+		})
+	}
+	_ = closeIsolated
+	closeSwapped := func(t *testing.T) {
+		t.Helper()
+		t.Cleanup(func() {
+			// model.InitDB may replace model.DB/model.LOG_DB with new connections
+			// pointing at the same isolated file; close the swapped handles too.
+			for _, db := range []*gorm.DB{model.DB, model.LOG_DB} {
+				if db != nil {
+					if sqlDB, err := db.DB(); err == nil && sqlDB != nil {
+						_ = sqlDB.Close()
+					}
+				}
+			}
+		})
+	}
+	_ = closeSwapped
 	cases := []struct {
 		name, env string
 		typ       common.DatabaseType
@@ -1052,6 +1092,8 @@ func TestAuditDatabaseMatrix(t *testing.T) {
 			for _, upgrade := range []bool{false, true} {
 				t.Run(fmt.Sprintf("upgrade=%v", upgrade), func(t *testing.T) {
 					db, isolatedDSN := newAuditTestDatabase(t, tc.name, dsn)
+
+					closeIsolated(t, db)
 					t.Setenv("LOG_SQL_DSN", "")
 					if tc.name == "sqlite" {
 						common.SQLitePath = isolatedDSN
@@ -1074,9 +1116,11 @@ func TestAuditDatabaseMatrix(t *testing.T) {
 						require.NoError(t, db.Create(&releasedAuditUser{Username: "released-owner", Password: "placeholder", AccessToken: &legacy, AffCode: "released-aff", Quota: 1234}).Error)
 						require.NoError(t, db.Create(&releasedAuditLog{UserId: 1, Type: model.LogTypeLogin, Content: "historical login", CreatedAt: 100, RequestId: "legacy-request"}).Error)
 					}
+					handles := []*gorm.DB{db}
 					for range 2 {
 						require.NoError(t, model.InitDB())
 						require.NoError(t, model.InitLogDB())
+						handles = append(handles, model.DB, model.LOG_DB)
 					}
 					if !upgrade {
 						require.NoError(t, db.Create(&model.User{Username: "fresh-owner", Password: "placeholder", AffCode: "fresh-aff"}).Error)
@@ -1159,6 +1203,27 @@ func TestAuditDatabaseMatrix(t *testing.T) {
 					require.NoError(t, authz.ReloadPolicy())
 					assert.False(t, authz.Can(1, common.RoleAdminUser, authz.AuditRead))
 					assert.True(t, authz.Can(1, common.RoleRootUser, authz.AuditRead))
+					// Windows unlink requires every handle to the isolated file
+					// be closed before this subtest's TempDir cleanup runs. Stop
+					// the policy watcher first so it cannot reopen a connection,
+					// then close every pool and collect stragglers.
+					authz.Close()
+					for _, handle := range handles {
+						if handle != nil {
+							if sqlDB, err := handle.DB(); err == nil && sqlDB != nil {
+								_ = sqlDB.Close()
+							}
+						}
+					}
+					runtime.GC()
+					runtime.Gosched()
+					for _, handle := range handles {
+						if handle != nil {
+							if sqlDB, err := handle.DB(); err == nil && sqlDB != nil {
+								_ = sqlDB.Close()
+							}
+						}
+					}
 				})
 			}
 		})

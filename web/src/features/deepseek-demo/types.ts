@@ -20,6 +20,22 @@ export type DemoRole = 'user' | 'assistant'
 
 export type DemoMessageStatus = 'streaming' | 'complete' | 'error' | 'stopped'
 
+/** A composer attachment already read into memory for multimodal chat. */
+export interface DemoAttachment {
+  id: string
+  name: string
+  kind: 'image' | 'text'
+  dataUrl: string
+  /** Present for text attachments: the decoded file body. */
+  textContent?: string
+}
+
+/** A generated image rendered inside an assistant message. */
+export interface DemoImage {
+  url: string
+  kind: 'url' | 'b64'
+}
+
 export interface DemoMessage {
   id: string
   role: DemoRole
@@ -31,6 +47,10 @@ export interface DemoMessage {
   createdAt: number
   /** 首字延迟与总耗时，仅用于气泡下方的状态行。 */
   latencyMs?: number
+  /** 用户消息随附的附件（图片或文本）。 */
+  attachments?: DemoAttachment[]
+  /** 图像生成回复渲染的图片。 */
+  image?: DemoImage
 }
 
 export interface DemoConversation {

@@ -8,6 +8,7 @@ import (
 	_ "embed"
 	"encoding/base64"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -56,12 +57,29 @@ type traeBridgeCapability struct {
 	Nonce     string                    `json:"nonce"`
 }
 
+// traeBridgeOrigin derives the logical public origin from configuration alone.
+// Production must be a bare HTTPS origin. A loopback http://127.0.0.1[:port] or
+// http://localhost[:port] address is accepted so local development can run the
+// manual URL flow; the Origin check and capability binding stay exact either
+// way. Anything else is a misconfiguration, never a proxy/provider failure.
 func traeBridgeOrigin() (string, error) {
 	u, err := url.Parse(strings.TrimSpace(system_setting.ServerAddress))
-	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" && u.Path != "/" || u.Opaque != "" {
-		return "", service.ErrAccountEgress
+	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" && u.Path != "/" || u.Opaque != "" {
+		return "", service.ErrAccountServerAddress
 	}
-	return "https://" + strings.ToLower(u.Host), nil
+	host := strings.ToLower(u.Host)
+	switch u.Scheme {
+	case "https":
+		return "https://" + host, nil
+	case "http":
+		if name, _, err := net.SplitHostPort(host); err == nil {
+			host = name
+		}
+		if host == "127.0.0.1" || host == "localhost" || host == "[::1]" || host == "::1" {
+			return "http://" + strings.ToLower(u.Host), nil
+		}
+	}
+	return "", service.ErrAccountServerAddress
 }
 
 func traeBridgeIdentity(c *gin.Context) (model.AuthSessionIdentity, string, bool) {
@@ -78,10 +96,15 @@ func traeBridgeIdentity(c *gin.Context) (model.AuthSessionIdentity, string, bool
 	}
 	// Reuse the shared session/JSON/fetch-metadata guard with its logical public
 	// Host, not the reverse proxy's internal node address. Preserve its body cap.
+	originURL, err := url.Parse(origin)
+	if err != nil {
+		accountAuthorizationError(c, service.ErrAccountServerAddress)
+		return model.AuthSessionIdentity{}, "", false
+	}
 	actual := c.Request
 	c.Request = actual.Clone(actual.Context())
-	c.Request.Host = strings.TrimPrefix(origin, "https://")
-	c.Request.URL.Scheme, c.Request.URL.Host = "https", c.Request.Host
+	c.Request.Host = originURL.Host
+	c.Request.URL.Scheme, c.Request.URL.Host = originURL.Scheme, originURL.Host
 	identity, ok := accountAuthorizationIdentity(c)
 	actual.Body = c.Request.Body
 	c.Request = actual

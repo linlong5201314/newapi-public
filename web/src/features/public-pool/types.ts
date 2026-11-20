@@ -46,6 +46,12 @@ export interface PublicModelItem {
   comments: number
   owners: PublicOwner[]
   channels: PublicChannelView[]
+  // Model-level aggregates; null when no authorized sample exists.
+  health_score?: number | null
+  success_rate_24h?: number | null
+  active_requests?: number | null
+  active_users?: number | null
+  aliases?: string[]
 }
 
 export interface PublicComment {

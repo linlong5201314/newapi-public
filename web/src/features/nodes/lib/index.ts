@@ -42,6 +42,11 @@ import type {
   NodeProvider,
   NodeSettings,
   NodeTestResult,
+  RailwayServiceDeployment,
+  RailwayServiceEntry,
+  RailwayServiceStatus,
+  RailwayServicesSummary,
+  RailwayWorkspaceBilling,
 } from '../types'
 
 export const nodesQueryKeys = {
@@ -53,6 +58,7 @@ export const nodesQueryKeys = {
   audit: (nodeId: number) => [...nodesQueryKeys.all, 'audit', nodeId] as const,
   deployStatus: (nodeId: number) =>
     [...nodesQueryKeys.all, 'deploy-status', nodeId] as const,
+  railwayServices: () => [...nodesQueryKeys.all, 'railway-services'] as const,
 }
 
 export function asRecord(value: unknown): Record<string, unknown> | null {
@@ -986,5 +992,139 @@ export function getNodeProvider(provider: string): NodeProvider {
       return provider.toLowerCase() as NodeProvider
     default:
       return 'other'
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Railway services summary normalizers
+// ---------------------------------------------------------------------------
+
+function normalizeRailwayStatus(value: unknown): RailwayServiceStatus {
+  const text = toText(value).toLowerCase()
+  if (text === 'ok') return 'ok'
+  if (text === 'unavailable') return 'unavailable'
+  if (text === 'error') return 'error'
+  return 'unknown'
+}
+
+function normalizeDeployment(value: unknown): RailwayServiceDeployment | null {
+  const record = asRecord(value)
+  if (!record) return null
+  return {
+    id: toText(firstValue(record, ['id', 'Id', 'deployment_id'])),
+    status: toText(firstValue(record, ['status', 'Status', 'state'])),
+    url: toText(firstValue(record, ['url', 'Url'])),
+    staticUrl: toText(firstValue(record, ['static_url', 'staticUrl'])),
+    createdAt: toText(firstValue(record, ['created_at', 'createdAt'])),
+    updatedAt: toText(firstValue(record, ['updated_at', 'updatedAt'])),
+    commitSha: toText(firstValue(record, ['commit_sha', 'commitSha'])),
+    commitShortSha: toText(
+      firstValue(record, ['commit_short_sha', 'commitShortSha'])
+    ),
+  }
+}
+
+function normalizeRailwayServiceEntry(value: unknown): RailwayServiceEntry | null {
+  const record = asRecord(value)
+  if (!record) return null
+  const name = toText(firstValue(record, ['name', 'Name']))
+  const serviceId = toText(firstValue(record, ['service_id', 'serviceId']))
+  const environmentId = toText(
+    firstValue(record, ['environment_id', 'environmentId'])
+  )
+  if (!name && !serviceId) return null
+  return {
+    name: name || serviceId,
+    workspaceId: toText(firstValue(record, ['workspace_id', 'workspaceId'])),
+    projectId: toText(firstValue(record, ['project_id', 'projectId'])),
+    environmentId,
+    serviceId,
+    serviceDomain: toText(
+      firstValue(record, ['service_domain', 'serviceDomain'])
+    ),
+    domain: toText(firstValue(record, ['domain', 'Domain'])),
+    hasApiToken: toBoolean(
+      firstValue(record, ['has_api_token', 'hasApiToken'])
+    ),
+    latestDeployment: normalizeDeployment(
+      firstValue(record, ['latest_deployment', 'latestDeployment'])
+    ),
+    status: normalizeRailwayStatus(firstValue(record, ['status'])),
+    error: toText(firstValue(record, ['error', 'Error'])),
+  }
+}
+
+function normalizeWorkspaceBilling(value: unknown): RailwayWorkspaceBilling | null {
+  const record = asRecord(value)
+  if (!record) return null
+  const workspaceId = toText(firstValue(record, ['workspace_id', 'workspaceId']))
+  if (!workspaceId) return null
+  return {
+    workspaceId,
+    unit: toText(firstValue(record, ['unit'])) || 'USD',
+    currency: toText(firstValue(record, ['currency'])) || 'USD',
+    period: toText(firstValue(record, ['period'])) || 'monthly',
+    creditBalance: toNumber(firstValue(record, ['credit_balance', 'creditBalance'])),
+    currentUsage: toNumber(firstValue(record, ['current_usage', 'currentUsage'])),
+    remainingUsageCreditBalance: toNumber(
+      firstValue(record, [
+        'remaining_usage_credit_balance',
+        'remainingUsageCreditBalance',
+      ])
+    ),
+    hasExhaustedFreePlan: toBoolean(
+      firstValue(record, ['has_exhausted_free_plan', 'hasExhaustedFreePlan'])
+    ),
+    trialDaysRemaining: toNumber(
+      firstValue(record, ['trial_days_remaining', 'trialDaysRemaining'])
+    ),
+    usageLimitSoft: toNumber(
+      firstValue(record, ['usage_limit_soft', 'usageLimitSoft'])
+    ),
+    usageLimitHard: toNumber(
+      firstValue(record, ['usage_limit_hard', 'usageLimitHard'])
+    ),
+    usageLimitIsOver: toBoolean(
+      firstValue(record, ['usage_limit_is_over', 'usageLimitIsOver'])
+    ),
+    estimatedUsage: toNumber(
+      firstValue(record, ['estimated_usage', 'estimatedUsage'])
+    ),
+    estimatedUsageIsEstimate: toBoolean(
+      firstValue(record, [
+        'estimated_usage_is_estimate',
+        'estimatedUsageIsEstimate',
+      ])
+    ),
+    sampledAt: toNumber(firstValue(record, ['sampled_at', 'sampledAt'])) ?? 0,
+    fresh: toBoolean(firstValue(record, ['fresh'])),
+    status: normalizeRailwayStatus(firstValue(record, ['status'])),
+    error: toText(firstValue(record, ['error', 'Error'])),
+  }
+}
+
+/**
+ * Normalize the GET /api/node/railway-services payload. Accepts the full
+ * envelope or just the inner data, and tolerates snake_case / camelCase.
+ * Returns a deterministic empty summary when nothing is configured.
+ */
+export function normalizeRailwayServicesSummary(
+  value: unknown
+): RailwayServicesSummary {
+  const envelope = asRecord(value)
+  const data = asRecord(envelope?.data) ?? envelope ?? {}
+  const services = asArray(
+    firstValue(data, ['services', 'Services', 'items'])
+  )
+    .map((item) => normalizeRailwayServiceEntry(item))
+    .filter((entry): entry is RailwayServiceEntry => entry !== null)
+  const billing = asArray(firstValue(data, ['billing', 'Billing', 'workspaces']))
+    .map((item) => normalizeWorkspaceBilling(item))
+    .filter((entry): entry is RailwayWorkspaceBilling => entry !== null)
+  return {
+    services,
+    billing,
+    sampledAt: toNumber(firstValue(data, ['sampled_at', 'sampledAt'])) ?? 0,
+    configured: toBoolean(firstValue(data, ['configured', 'Configured'])),
   }
 }

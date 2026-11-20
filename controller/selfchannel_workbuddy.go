@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"io"
+	"maps"
 	"mime"
 	"net/http"
 	"net/url"
@@ -40,6 +41,12 @@ func accountAuthorizationError(c *gin.Context, err error) {
 	case errors.Is(err, service.ErrAccountPollEarly):
 		status, code, message = http.StatusTooManyRequests, "ACCOUNT_POLL_EARLY", "Wait before polling authorization again"
 		c.Header("Retry-After", "2")
+	case errors.Is(err, model.ErrProxyPoolEmpty):
+		status, code, message = http.StatusServiceUnavailable, "ACCOUNT_PROXY_POOL_EMPTY", "No usable proxy endpoint in the selected proxy scope; add an endpoint or choose direct egress"
+	case errors.Is(err, model.ErrProxyEndpointNotReady):
+		status, code, message = http.StatusServiceUnavailable, "ACCOUNT_PROXY_ENDPOINT_DOWN", "Selected proxy endpoint has no usable listener; reload the proxy kernel or choose another endpoint"
+	case errors.Is(err, service.ErrAccountServerAddress):
+		status, code, message = http.StatusServiceUnavailable, "ACCOUNT_SERVER_ADDRESS_INVALID", "Server address (ServerAddress) is missing or invalid; set the public HTTPS address of this gateway before account authorization"
 	case errors.Is(err, service.ErrAccountEgress):
 		status, code, message = http.StatusServiceUnavailable, "ACCOUNT_PROXY_UNAVAILABLE", "Account proxy changed or is unavailable; restart authorization"
 	case errors.Is(err, service.ErrAccountUpstream), errors.Is(err, service.ErrAccountProtocol):
@@ -47,7 +54,20 @@ func accountAuthorizationError(c *gin.Context, err error) {
 	}
 	// Static context only: never log transport errors, upstream state, or credentials.
 	common.SysLog("account authorization rejected: " + code)
-	c.JSON(status, gin.H{"success": false, "code": code, "message": common.NewMessage(message)})
+	// The web console reads a string message plus message_key; the object form
+	// hid every authorization failure behind the generic axios status text.
+	body := gin.H{"success": false, "code": code, "message": message}
+	maps.Copy(body, common.NewMessage(message).Fields())
+	c.JSON(status, body)
+}
+
+// accountAuthorizationBody renders a user-facing failure the web console can
+// translate: a plain string message for generic clients and message_key for
+// i18n. Never place transport errors, upstream payloads, or credentials here.
+func accountAuthorizationBody(message string) gin.H {
+	body := gin.H{"success": false, "message": message}
+	maps.Copy(body, common.NewMessage(message).Fields())
+	return body
 }
 
 func accountAuthorizationIdentity(c *gin.Context) (model.AuthSessionIdentity, bool) {
@@ -57,7 +77,7 @@ func accountAuthorizationIdentity(c *gin.Context) (model.AuthSessionIdentity, bo
 	identity, ok := middleware.GetSessionAuthIdentity(c)
 	_, pat := model.ParseAccessTokenSessionID(identity.SessionID)
 	if !ok || pat || c.GetBool("use_access_token") {
-		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": common.NewMessage("A dashboard login session is required for account authorization")})
+		c.JSON(http.StatusUnauthorized, accountAuthorizationBody("A dashboard login session is required for account authorization"))
 		return model.AuthSessionIdentity{}, false
 	}
 	guard := http.NewCrossOriginProtection()
@@ -77,13 +97,13 @@ func accountAuthorizationIdentity(c *gin.Context) (model.AuthSessionIdentity, bo
 	probe := c.Request.Clone(c.Request.Context())
 	probe.Method = http.MethodPost
 	if rejected || guard.Check(probe) != nil {
-		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": common.NewMessage("Account authorization origin was rejected")})
+		c.JSON(http.StatusForbidden, accountAuthorizationBody("Account authorization origin was rejected"))
 		return model.AuthSessionIdentity{}, false
 	}
 	if c.Request.Method == http.MethodPost {
 		media, _, err := mime.ParseMediaType(c.GetHeader("Content-Type"))
 		if err != nil || media != "application/json" {
-			c.JSON(http.StatusForbidden, gin.H{"success": false, "message": common.NewMessage("Account authorization requires a JSON request")})
+			c.JSON(http.StatusForbidden, accountAuthorizationBody("Account authorization requires a JSON request"))
 			return model.AuthSessionIdentity{}, false
 		}
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 65536)
@@ -204,7 +224,9 @@ func selfTraeCredentialImport(c *gin.Context) {
 		return
 	}
 	if req.RefreshToken != "" && !req.ConfirmRotation || req.CallbackURL != "" && !req.ConfirmRotation {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "code": "TRAE_ROTATION_CONFIRMATION_REQUIRED", "message": common.NewMessage("Trae token rotation may sign out other clients; confirm before importing")})
+		body := accountAuthorizationBody("Trae token rotation may sign out other clients; confirm before importing")
+		body["code"] = "TRAE_ROTATION_CONFIRMATION_REQUIRED"
+		c.JSON(http.StatusBadRequest, body)
 		return
 	}
 	settings := accountLoginProxySettings("cn", req.Proxy, req.ProxyPolicy)
@@ -283,6 +305,11 @@ func newAccountFlow(identity model.AuthSessionIdentity, provider, realm, name st
 	egress := provider + ":" + realm + ":" + common.GenerateHMACWithKey(opaque, "account-egress")
 	proxy, err := model.ResolveStableChannelProxy(identity.UserID, 0, egress, settings)
 	if err != nil {
+		// Start-time selection failures name the actual problem (empty pool,
+		// dead listener); a mid-flow change keeps the generic egress error.
+		if errors.Is(err, model.ErrProxyPoolEmpty) || errors.Is(err, model.ErrProxyEndpointNotReady) {
+			return "", err
+		}
 		return "", service.ErrAccountEgress
 	}
 	endpointID, endpointFingerprint := 0, ""

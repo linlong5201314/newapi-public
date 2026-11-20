@@ -111,16 +111,16 @@ export function RouteRulesTable() {
                     aria-busy={isFetching}
                     className='text-muted-foreground hover:text-foreground size-8'
                   />
-                  }
-                >
-                  <RefreshCw
-                    aria-hidden
-                    className={cn(isFetching && 'animate-spin')}
-                  />
-                </TooltipTrigger>
-                <TooltipContent>{t('Refresh')}</TooltipContent>
-              </Tooltip>
-            ),
+                }
+              >
+                <RefreshCw
+                  aria-hidden
+                  className={cn(isFetching && 'animate-spin')}
+                />
+              </TooltipTrigger>
+              <TooltipContent>{t('Refresh')}</TooltipContent>
+            </Tooltip>
+          ),
         }}
       />
     </div>

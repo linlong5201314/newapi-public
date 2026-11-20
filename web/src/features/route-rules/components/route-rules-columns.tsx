@@ -95,9 +95,7 @@ function StrategyCell({ rule }: { rule: RouteRule }) {
     <TooltipProvider delay={200}>
       <Tooltip>
         <TooltipTrigger
-          render={
-            <span className='inline-flex max-w-full cursor-help' />
-          }
+          render={<span className='inline-flex max-w-full cursor-help' />}
         >
           <StatusBadge
             label={t(meta.labelKey)}

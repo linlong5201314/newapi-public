@@ -22,6 +22,7 @@ import {
   normalizeDeployStatus,
   normalizeNodeList,
   normalizeNodeTestResult,
+  normalizeRailwayServicesSummary,
 } from './lib'
 import type {
   DeployApplyResponse,
@@ -36,6 +37,7 @@ import type {
   NodeSettingsPayload,
   NodeSettingsResponse,
   NodeTestResult,
+  RailwayServicesResponse,
 } from './types'
 
 /**
@@ -231,6 +233,29 @@ export async function getNodeAudit(nodeId: number): Promise<NodeAuditResponse> {
     skipErrorHandler: true,
   })
   return res.data
+}
+
+/**
+ * GET /api/node/railway-services → server-side Railway registry summary.
+ *
+ * The seven-service registry is declared server-side via the
+ * `NodeRailwayServices` option. Tokens never leave the server; the response
+ * only carries sanitized status/deployment/billing fields. The endpoint is
+ * read-only and safe to poll.
+ */
+export async function getRailwayServices(): Promise<RailwayServicesResponse> {
+  const res = await api.get(`${BASE}/railway-services`, nodeRequestConfig())
+  return res.data
+}
+
+/**
+ * Normalized variant of {@link getRailwayServices}. Throws a server error
+ * when the envelope is unsuccessful; the promise always resolves to a
+ * RailwayServicesSummary even on partial data.
+ */
+export async function fetchRailwayServicesSummary() {
+  const res = await getRailwayServices()
+  return { envelope: res, summary: normalizeRailwayServicesSummary(res) }
 }
 
 /**

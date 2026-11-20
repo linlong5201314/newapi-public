@@ -8,7 +8,20 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+	"sync"
+
+	"github.com/QuantumNous/new-api/common"
 )
+
+// encryptNodeRailwayTokenIfNeeded 与 model 包 node 的 encryptNodeTokenIfNeeded 同语义：
+// 已加密（crypto:）或显式 plain: 前缀的值不再处理，否则按明文加密。
+// 与 model.CreateNode 同一份实现，避免循环 import，保留副本。
+func encryptNodeRailwayTokenIfNeeded(token string) string {
+	if common.IsEncryptedSecret(token) || common.IsPlainPrefixedSecret(token) {
+		return token
+	}
+	return common.EncryptSecretBestEffort(token)
+}
 
 // DefaultNodeDeployEnvTemplate 一键部署的默认环境变量模板（KEY=VALUE 行）。
 // 键存在而值为空 → plan 输出 warnings 要求 envOverrides 补齐；值非空 → 作为默认值。
@@ -57,7 +70,95 @@ var (
 var (
 	nodeDenylist  = []string{}
 	nodeAllowlist = []string{}
+	// nodeRailwayServicesMu 保护 nodeRailwayServices（Option 写入与并发请求并发访问）。
+	nodeRailwayServicesMu sync.RWMutex
+	// nodeRailwayServices 七台 Railway 服务的服务器端登记表（不落前端代码）。
+	// 键 "NodeRailwayServices" 是 JSON 数组：[{name,workspace_id,project_id,environment_id,service_id,service_domain?,domain?,api_token?}, ...]。
+	// api_token 入库前由 controller 加密；读取时通过 DecryptedToken 还原。
+	nodeRailwayServices = []NodeRailwayServiceEntry{}
 )
+
+// NodeRailwayServiceEntry 单个受管 Railway 服务的注册项（不落前端代码）。
+// 全部字段都是 Railway 标识符或脱敏后的展示字段；api_token_enc 绝不回给前端。
+type NodeRailwayServiceEntry struct {
+	Name          string `json:"name"`
+	WorkspaceId   string `json:"workspace_id"`
+	ProjectId     string `json:"project_id"`
+	EnvironmentId string `json:"environment_id"`
+	ServiceId     string `json:"service_id"`
+	ServiceDomain string `json:"service_domain,omitempty"`
+	Domain        string `json:"domain,omitempty"`
+	// ApiTokenEnc 平台 token 密文（AES-GCM），由 controller 写入；
+	// 留空表示该项没有独立 token，回退到第一个匹配 workspace 的本地 Node.ApiTokenEnc。
+	ApiTokenEnc string `json:"api_token,omitempty"`
+}
+
+// NodeRailwayServicesList 返回当前注册的 Railway 服务清单（已脱敏副本）。
+func NodeRailwayServicesList() []NodeRailwayServiceEntry {
+	nodeRailwayServicesMu.RLock()
+	defer nodeRailwayServicesMu.RUnlock()
+	out := make([]NodeRailwayServiceEntry, len(nodeRailwayServices))
+	copy(out, nodeRailwayServices)
+	return out
+}
+
+// NodeRailwayServicesJSON 序列化当前注册表（用于 Option 默认值）。
+func NodeRailwayServicesJSON() string {
+	nodeRailwayServicesMu.RLock()
+	defer nodeRailwayServicesMu.RUnlock()
+	encoded, err := json.Marshal(nodeRailwayServices)
+	if err != nil || encoded == nil {
+		return "[]"
+	}
+	return string(encoded)
+}
+
+// SetNodeRailwayServicesJSON 校验并覆盖注册表。输入接受 JSON 数组；
+// 空白值视为显式清空（节点管理页随后显示「未配置」状态）。
+func SetNodeRailwayServicesJSON(raw string) error {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		nodeRailwayServicesMu.Lock()
+		nodeRailwayServices = []NodeRailwayServiceEntry{}
+		nodeRailwayServicesMu.Unlock()
+		return nil
+	}
+	var entries []NodeRailwayServiceEntry
+	if err := json.Unmarshal([]byte(trimmed), &entries); err != nil {
+		return err
+	}
+	normalized := make([]NodeRailwayServiceEntry, 0, len(entries))
+	for _, entry := range entries {
+		entry.Name = strings.TrimSpace(entry.Name)
+		entry.WorkspaceId = strings.TrimSpace(entry.WorkspaceId)
+		entry.ProjectId = strings.TrimSpace(entry.ProjectId)
+		entry.EnvironmentId = strings.TrimSpace(entry.EnvironmentId)
+		entry.ServiceId = strings.TrimSpace(entry.ServiceId)
+		entry.ServiceDomain = strings.TrimSpace(entry.ServiceDomain)
+		entry.Domain = strings.TrimSpace(entry.Domain)
+		entry.ApiTokenEnc = strings.TrimSpace(entry.ApiTokenEnc)
+		if entry.Name == "" || entry.ServiceId == "" || entry.EnvironmentId == "" {
+			return errNodeRailwayServiceInvalid
+		}
+		// 写入侧统一加密：已有 crypto: / plain: 前缀幂等跳过；否则按明文加密。
+		// 与 model.CreateNode 的 encryptNodeTokenIfNeeded 语义对齐。
+		if entry.ApiTokenEnc != "" {
+			entry.ApiTokenEnc = encryptNodeRailwayTokenIfNeeded(entry.ApiTokenEnc)
+		}
+		normalized = append(normalized, entry)
+	}
+	nodeRailwayServicesMu.Lock()
+	nodeRailwayServices = normalized
+	nodeRailwayServicesMu.Unlock()
+	return nil
+}
+
+// errNodeRailwayServiceInvalid 单测可读校验错误（避免依赖 errors.New 文本匹配）。
+var errNodeRailwayServiceInvalid = &nodeRailwayServiceError{"name, service_id and environment_id are required for each railway service entry"}
+
+type nodeRailwayServiceError struct{ msg string }
+
+func (e *nodeRailwayServiceError) Error() string { return e.msg }
 
 // NodeDenylistList 返回内置 denylist（JSON 数组配置的解析结果）。
 func NodeDenylistList() []string { return nodeDenylist }
@@ -177,6 +278,8 @@ func ApplyNodeOption(key, value string) bool {
 		if trimmed := strings.TrimSpace(value); trimmed != "" {
 			CloudflareKvNodesKey = trimmed
 		}
+	case "NodeRailwayServices":
+		_ = SetNodeRailwayServicesJSON(value)
 	default:
 		return false
 	}

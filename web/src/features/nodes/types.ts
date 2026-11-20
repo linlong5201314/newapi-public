@@ -209,3 +209,65 @@ export type DeployApplyResponse = NodeActionResponse<unknown>
 export type FailoverPlanResponse = NodeActionResponse<unknown>
 
 export type FailoverApplyResponse = NodeActionResponse<unknown>
+
+// ============================================================================
+// Railway service summary (read-only registry — declared server-side via the
+// NodeRailwayServices option; the frontend never holds service ids or tokens).
+// ============================================================================
+
+export type RailwayServiceDeployment = {
+  id: string
+  status: string
+  url: string
+  staticUrl: string
+  createdAt: string
+  updatedAt: string
+  commitSha: string
+  commitShortSha: string
+}
+
+export type RailwayServiceStatus = 'ok' | 'unavailable' | 'error' | 'unknown'
+
+export type RailwayServiceEntry = {
+  name: string
+  workspaceId: string
+  projectId: string
+  environmentId: string
+  serviceId: string
+  serviceDomain: string
+  domain: string
+  hasApiToken: boolean
+  latestDeployment: RailwayServiceDeployment | null
+  status: RailwayServiceStatus
+  error: string
+}
+
+export type RailwayWorkspaceBilling = {
+  workspaceId: string
+  unit: string
+  currency: string
+  period: string
+  creditBalance: number | null
+  currentUsage: number | null
+  remainingUsageCreditBalance: number | null
+  hasExhaustedFreePlan: boolean
+  trialDaysRemaining: number | null
+  usageLimitSoft: number | null
+  usageLimitHard: number | null
+  usageLimitIsOver: boolean
+  estimatedUsage: number | null
+  estimatedUsageIsEstimate: boolean
+  sampledAt: number
+  fresh: boolean
+  status: RailwayServiceStatus
+  error: string
+}
+
+export type RailwayServicesSummary = {
+  services: RailwayServiceEntry[]
+  billing: RailwayWorkspaceBilling[]
+  sampledAt: number
+  configured: boolean
+}
+
+export type RailwayServicesResponse = NodeActionResponse<unknown>

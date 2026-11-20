@@ -17,15 +17,20 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Link } from '@tanstack/react-router'
-import { Key, Radio, FlaskConical, Trash2 } from 'lucide-react'
-import { useState } from 'react'
+import { Key, Radio, FlaskConical, Search, Trash2, X } from 'lucide-react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 
 import type { DemoConversation } from '../types'
-import { IconPanelLeftOutline16, NewChatIcon } from './official-icons'
+import {
+  IconPanelLeftOutline16,
+  IconWhaleBrand28,
+  NewChatIcon,
+} from './official-icons'
 
 interface DemoSidebarProps {
   conversations: DemoConversation[]
@@ -41,29 +46,35 @@ interface DemoSidebarProps {
 export function DemoSidebar(props: DemoSidebarProps) {
   const { t } = useTranslation()
   const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
   const now = new Date()
   const today = new Date(
     now.getFullYear(),
     now.getMonth(),
     now.getDate()
   ).getTime()
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    if (!needle) return props.conversations
+    return props.conversations.filter((item) =>
+      item.title.toLowerCase().includes(needle)
+    )
+  }, [props.conversations, query])
   const sections = [
     {
       label: t('Today'),
-      items: props.conversations.filter((item) => item.updatedAt >= today),
+      items: filtered.filter((item) => item.updatedAt >= today),
     },
     {
       label: t('Previous 7 days'),
-      items: props.conversations.filter(
+      items: filtered.filter(
         (item) =>
           item.updatedAt < today && item.updatedAt >= today - 6 * 86400000
       ),
     },
     {
       label: t('Earlier'),
-      items: props.conversations.filter(
-        (item) => item.updatedAt < today - 6 * 86400000
-      ),
+      items: filtered.filter((item) => item.updatedAt < today - 6 * 86400000),
     },
   ]
 
@@ -97,7 +108,10 @@ export function DemoSidebar(props: DemoSidebarProps) {
     <>
       <aside aria-label={t('Chat history')} className='ds-demo-sidebar'>
         <div className='ds-demo-sidebar-top'>
-          <span className='ds-demo-app-name'>DeepSeek · NewAPI</span>
+          <span className='ds-demo-brand'>
+            <IconWhaleBrand28 />
+            <span className='ds-demo-app-name'>DeepSeek · NewAPI</span>
+          </span>
           <Button
             variant='ghost'
             size='icon'
@@ -108,7 +122,7 @@ export function DemoSidebar(props: DemoSidebarProps) {
             <IconPanelLeftOutline16 />
           </Button>
         </div>
-        <div>
+        <div className='ds-demo-sidebar-actions'>
           <Button
             onClick={props.onNew}
             variant='secondary'
@@ -118,10 +132,36 @@ export function DemoSidebar(props: DemoSidebarProps) {
             {t('New chat')}
           </Button>
         </div>
+        <div className='ds-demo-sidebar-search'>
+          <Search className='ds-demo-sidebar-search-icon' aria-hidden='true' />
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={t('Search conversations')}
+            aria-label={t('Search conversations')}
+            className='ds-demo-sidebar-search-input'
+          />
+          {query && (
+            <Button
+              variant='ghost'
+              size='icon'
+              aria-label={t('Clear search')}
+              onClick={() => setQuery('')}
+              className='ds-demo-sidebar-search-clear'
+            >
+              <X className='size-3.5' aria-hidden='true' />
+            </Button>
+          )}
+        </div>
         <nav aria-label={t('Conversations')} className='ds-demo-sidebar-nav'>
           {props.conversations.length === 0 && (
             <p className='text-muted-foreground px-3 py-6 text-xs'>
               {t('Your conversations will appear here.')}
+            </p>
+          )}
+          {props.conversations.length > 0 && filtered.length === 0 && (
+            <p className='text-muted-foreground px-3 py-6 text-xs'>
+              {t('No conversations match your search.')}
             </p>
           )}
           {sections

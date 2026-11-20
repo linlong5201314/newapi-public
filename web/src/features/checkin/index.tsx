@@ -91,7 +91,10 @@ export function Checkin() {
     queryFn: async () => {
       const result = await getCheckinAccounts()
       if (!result.success) {
-        throw createServerError(result, t(CHECKIN_MESSAGES.LOAD_ACCOUNTS_FAILED))
+        throw createServerError(
+          result,
+          t(CHECKIN_MESSAGES.LOAD_ACCOUNTS_FAILED)
+        )
       }
       return normalizeCheckinAccounts(result.data)
     },
@@ -166,9 +169,7 @@ export function Checkin() {
           : undefined
       const summary =
         (record?.message as string) || (record?.result as string) || ''
-      toast.success(
-        summary ? String(summary) : t(CHECKIN_MESSAGES.RUN_STARTED)
-      )
+      toast.success(summary ? String(summary) : t(CHECKIN_MESSAGES.RUN_STARTED))
       void invalidateAccounts()
       if (logsAccount) {
         void queryClient.invalidateQueries({
@@ -251,8 +252,7 @@ export function Checkin() {
                 account={account}
                 template={siteByKey.get(account.site)}
                 running={
-                  runMutation.isPending &&
-                  runMutation.variables === account.id
+                  runMutation.isPending && runMutation.variables === account.id
                 }
                 toggling={
                   toggleMutation.isPending &&

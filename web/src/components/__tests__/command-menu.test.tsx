@@ -25,7 +25,7 @@ import {
 } from '@tanstack/react-router'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterAll, afterEach, beforeAll, expect, test } from 'vitest'
+import { afterAll, afterEach, beforeAll, expect, test, vi } from 'vitest'
 
 import { SearchProvider } from '@/context/search-provider'
 import { ROLE } from '@/lib/roles'
@@ -33,6 +33,7 @@ import { STATUS_QUERY_KEY } from '@/lib/status-query'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { CommandMenu } from '../command-menu'
+import { api } from '@/lib/api'
 import { Search } from '../search'
 
 const adminEntries = ['Channels', 'Models', 'Users', 'Redemption Codes']
@@ -70,6 +71,23 @@ afterEach(() => {
 
 async function searchEntriesFor(role: number, sidebarModulesAdmin = '') {
   useAuthStore.getState().auth.setUser({ id: 1, username: 'alice', role })
+  // Seed both the shared status cache and the fetch path: useStatus refetches
+  // /api/status on mount, so a setQueryData-only seed is overwritten by the
+  // empty mocked response and collapses the sidebar to the user-only default.
+  vi.spyOn(api, 'get').mockImplementation(async (url) => {
+    if (url === '/api/status') {
+      return {
+        data: {
+          success: true,
+          data: { SidebarModulesAdmin: sidebarModulesAdmin },
+        },
+      }
+    }
+    if (url === '/api/extlink/enabled') {
+      return { data: { success: true, data: [] } }
+    }
+    return { data: { success: true, data: {} } }
+  })
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })

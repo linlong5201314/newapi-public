@@ -60,9 +60,12 @@ import {
   startWorkbuddyOAuth,
   type OAuthSession,
 } from '@/features/account-bindings/api'
+import {
+  BrowserAccountConnection,
+  type WebAccountProvider,
+} from '@/features/account-bindings/browser-account-connection'
 import { FreePiAuthorizationCard } from '@/features/account-bindings/freepi-authorization'
 import { ProviderAuthorizationCard } from '@/features/account-bindings/provider-authorization'
-import {BrowserAccountConnection,type WebAccountProvider} from '@/features/account-bindings/browser-account-connection'
 import { createSubscription, listEndpoints } from '@/features/proxy-pool/api'
 import { handleServerError } from '@/lib/handle-server-error'
 import {
@@ -295,7 +298,9 @@ export function FromTemplateDialog({
     if (!open || !selected) return
     const list = [...new Set(selected.models ?? [])]
     setAvailableModels(list)
-    setMyModels(list)
+    // Default to none selected: the user picks models explicitly. Fetched models
+    // only merge into the candidate list below, never into the selection.
+    setMyModels([])
     setPublicModels([])
     setProbedCount(null)
     setProbeError(null)
@@ -444,9 +449,21 @@ export function FromTemplateDialog({
   const templateKind = selected ? classifyTemplate(selected) : 'api'
   const isSubscription = templateKind === 'sub'
   const isAuthTemplate = templateKind === 'auth'
-  const webAccountProvider = (() : WebAccountProvider | null => {
+  const webAccountProvider = ((): WebAccountProvider | null => {
     if (selected?.id === 'xiaohuanxiong') return 'raccoon'
-    if (['trae-cn','cline-account','qoder-cn','qoder-global','zcode-bigmodel','zcode-zai','nous-portal'].includes(selected?.id ?? '')) return selected?.id as WebAccountProvider
+    if (
+      [
+        'trae-cn',
+        'cline-account',
+        'qoder-cn',
+        'qoder-global',
+        'zcode-bigmodel',
+        'zcode-zai',
+        'nous-portal',
+      ].includes(selected?.id ?? '')
+    ) {
+      return selected?.id as WebAccountProvider
+    }
     return null
   })()
   const isZCodeTemplate = Boolean(webAccountProvider)
@@ -1154,10 +1171,58 @@ export function FromTemplateDialog({
                 />
               )}
               {webAccountProvider && (
-                <BrowserAccountConnection key={webAccountProvider} provider={webAccountProvider} options={{displayName:customName.trim()||undefined,public:visibility,proxy:proxySelectionTouched?resolveOutboundProxy():undefined,proxyPolicy}} disabled={isSubmitting || !isChannelProxySelectionComplete(proxyPolicy,proxyUrl)} onComplete={()=>{void queryClient.invalidateQueries({queryKey:channelsQueryKeys.all});onOpenChange(false)}}/>
+                <BrowserAccountConnection
+                  key={webAccountProvider}
+                  provider={webAccountProvider}
+                  options={{
+                    displayName: customName.trim() || undefined,
+                    public: visibility,
+                    proxy: proxySelectionTouched
+                      ? resolveOutboundProxy()
+                      : undefined,
+                    proxyPolicy,
+                  }}
+                  disabled={
+                    isSubmitting ||
+                    !isChannelProxySelectionComplete(proxyPolicy, proxyUrl)
+                  }
+                  onComplete={() => {
+                    void queryClient.invalidateQueries({
+                      queryKey: channelsQueryKeys.all,
+                    })
+                    onOpenChange(false)
+                  }}
+                />
               )}
-              {(['kimi-work','xiaomi-mimo'] as const).map((provider)=> selected.id===provider && <ProviderAuthorizationCard key={provider} provider={provider} options={{displayName:customName.trim()||undefined,public:visibility,proxy:proxySelectionTouched?resolveOutboundProxy():undefined,proxyPolicy}} disabled={isSubmitting||!isChannelProxySelectionComplete(proxyPolicy,proxyUrl)} onComplete={()=>{void queryClient.invalidateQueries({queryKey:channelsQueryKeys.all});onOpenChange(false)}}/>)}
-              {isAuthTemplate && !webAccountProvider &&
+              {(['kimi-work', 'xiaomi-mimo'] as const).map(
+                (provider) =>
+                  selected.id === provider && (
+                    <ProviderAuthorizationCard
+                      key={provider}
+                      provider={provider}
+                      options={{
+                        displayName: customName.trim() || undefined,
+                        public: visibility,
+                        proxy: proxySelectionTouched
+                          ? resolveOutboundProxy()
+                          : undefined,
+                        proxyPolicy,
+                      }}
+                      disabled={
+                        isSubmitting ||
+                        !isChannelProxySelectionComplete(proxyPolicy, proxyUrl)
+                      }
+                      onComplete={() => {
+                        void queryClient.invalidateQueries({
+                          queryKey: channelsQueryKeys.all,
+                        })
+                        onOpenChange(false)
+                      }}
+                    />
+                  )
+              )}
+              {isAuthTemplate &&
+                !webAccountProvider &&
                 ![
                   'freepi',
                   'kimi-work',

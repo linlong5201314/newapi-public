@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { ErrorState } from '@/components/error-state'
 import { AppDownload } from '@/components/layout/components/app-download'
@@ -40,6 +41,7 @@ import {
   IconMenuOutline20,
   IconNewChatOutline20,
 } from './components/official-icons'
+import { isImageModel, isVisionModel } from './model-capabilities'
 import { useDemoChat } from './use-demo-chat'
 
 import './official-theme.css'
@@ -85,6 +87,20 @@ function DemoSession(props: { userId: number }) {
     modelsQuery.isError ||
     (modelsQuery.isSuccess && models.length === 0)
   const canSend = !!selectedModel && !unavailable && !modelsQuery.isFetching
+  const imageModel = isImageModel(selectedModel)
+  const visionModel = isVisionModel(selectedModel)
+
+  const handleAttach = async (files: File[]) => {
+    const result = await chat.addAttachmentFiles(files)
+    if (result.rejected.length) {
+      const names = result.rejected.map((item) => item.name).join(', ')
+      toast.error(
+        t('Some files were not added: {{names}}. Up to 3 files, 2 MB each.', {
+          names,
+        })
+      )
+    }
+  }
 
   useEffect(() => {
     try {
@@ -231,10 +247,33 @@ function DemoSession(props: { userId: number }) {
                 ? t('Message {{model}}', { model: selectedModel })
                 : t('Message DeepSeek')
             }
+            thinkingEnabled={chat.thinkingEnabled}
+            onThinkingChange={chat.setThinkingEnabled}
+            canGenerateImage={imageModel && canSend}
+            attachmentsEnabled={visionModel && !imageModel}
+            attachments={chat.attachments}
+            onAttach={(files) => void handleAttach(files)}
+            onRemoveAttachment={chat.removeAttachment}
+            onGenerateImage={() => {
+              if (imageModel && canSend) {
+                void chat
+                  .generateImage(input, selectedModel, effectiveGroup)
+                  .then((started) => {
+                    if (started) {
+                      setInput('')
+                      chat.clearAttachments()
+                    }
+                  })
+              }
+            }}
             onChange={setInput}
             onSubmit={() => {
-              if (canSend && chat.send(input, selectedModel, effectiveGroup)) {
+              if (
+                canSend &&
+                chat.send(input, selectedModel, effectiveGroup, chat.attachments)
+              ) {
                 setInput('')
+                chat.clearAttachments()
               }
             }}
             onStop={chat.stop}

@@ -2,10 +2,31 @@ import { nanoid } from 'nanoid'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { useStreamRequest } from '@/features/playground/hooks/use-stream-request'
-import type { ChatCompletionRequest } from '@/features/playground/types'
+import type {
+  ChatCompletionMessage,
+  ChatCompletionRequest,
+} from '@/features/playground/types'
 
+import {
+  buildAttachmentContentParts,
+  MAX_ATTACHMENTS,
+  readDemoAttachments,
+  type AttachmentRejectReason,
+} from './attachments'
+import { generateDemoImage } from './image-generation'
 import { loadConversations, saveConversations } from './storage'
-import type { DemoConversation, DemoMessage } from './types'
+import type { DemoAttachment, DemoConversation, DemoMessage } from './types'
+
+export type { AttachmentRejectReason }
+
+interface DemoChatCompletionRequest extends ChatCompletionRequest {
+  /**
+   * Passed through to the gateway verbatim; DeepSeek/OpenAI-compatible
+   * reasoning channels map it to their native effort control. Only set
+   * when the user enables the Deep thinking chip.
+   */
+  reasoning_effort?: string
+}
 
 export function useDemoChat(userId: number) {
   const [conversations, setConversations] = useState(() =>
@@ -13,11 +34,22 @@ export function useDemoChat(userId: number) {
   )
   const [activeId, setActiveId] = useState(conversations[0]?.id ?? '')
   const [pending, setPending] = useState(false)
+  const [thinkingEnabled, setThinkingEnabledState] = useState(false)
+  const [attachments, setAttachments] = useState<DemoAttachment[]>([])
+  const [attachmentRejections, setAttachmentRejections] = useState<
+    { name: string; reason: AttachmentRejectReason }[]
+  >([])
   const requestRef = useRef<{
     conversationId: string
     messageId: string
   } | null>(null)
+  const thinkingRef = useRef(false)
   const { sendStreamRequest, stopStream } = useStreamRequest()
+
+  const setThinkingEnabled = useCallback((enabled: boolean) => {
+    thinkingRef.current = enabled
+    setThinkingEnabledState(enabled)
+  }, [])
 
   useEffect(() => {
     saveConversations(userId, conversations)
@@ -88,7 +120,7 @@ export function useDemoChat(userId: number) {
     setPending(true)
     const startedAt = Date.now()
     let firstChunkAt = 0
-    const payload: ChatCompletionRequest = {
+    const payload: DemoChatCompletionRequest = {
       model: conversation.model,
       group: conversation.group,
       stream: true,
@@ -98,7 +130,21 @@ export function useDemoChat(userId: number) {
             message.role === 'user' ||
             (message.status === 'complete' && message.content.trim())
         )
-        .map((message) => ({ role: message.role, content: message.content })),
+        .map(
+          (message): ChatCompletionMessage => ({
+            role: message.role,
+            content:
+              message.role === 'user'
+                ? buildAttachmentContentParts(
+                    message.content,
+                    message.attachments ?? []
+                  )
+                : message.content,
+          })
+        ),
+    }
+    if (thinkingRef.current) {
+      payload.reasoning_effort = 'medium'
     }
     const finish = (status: 'complete' | 'error', error?: string) => {
       if (requestRef.current !== request) return
@@ -132,15 +178,22 @@ export function useDemoChat(userId: number) {
   }
 
   const activeConversation = conversations.find((item) => item.id === activeId)
-  const send = (text: string, model: string, group: string): boolean => {
+  const send = (
+    text: string,
+    model: string,
+    group: string,
+    attachments: DemoAttachment[] = []
+  ): boolean => {
     if (!text.trim() || !model || requestRef.current) return false
     const now = Date.now()
+    const trimmed = text.trim()
     const userMessage: DemoMessage = {
       id: nanoid(),
       role: 'user',
-      content: text.trim(),
+      content: trimmed,
       status: 'complete',
       createdAt: now,
+      ...(attachments.length ? { attachments } : {}),
     }
     const assistantMessage: DemoMessage = {
       id: nanoid(),
@@ -152,7 +205,7 @@ export function useDemoChat(userId: number) {
     const history = [...(activeConversation?.messages ?? []), userMessage]
     const conversation: DemoConversation = {
       id: activeConversation?.id ?? nanoid(),
-      title: activeConversation?.title ?? text.trim().slice(0, 50),
+      title: activeConversation?.title ?? trimmed.slice(0, 50),
       model,
       group,
       messages: [...history, assistantMessage],
@@ -204,15 +257,126 @@ export function useDemoChat(userId: number) {
     stop()
     setActiveId(id)
   }
+
+  const clearAttachments = useCallback(() => {
+    setAttachments([])
+    setAttachmentRejections([])
+  }, [])
+
+  const addAttachmentFiles = useCallback(
+    async (files: Iterable<File>) => {
+      const result = await readDemoAttachments(files, attachments)
+      if (result.added.length) {
+        setAttachments((prev) =>
+          [...prev, ...result.added].slice(0, MAX_ATTACHMENTS)
+        )
+      }
+      setAttachmentRejections(result.rejected)
+      return result
+    },
+    [attachments]
+  )
+
+  const removeAttachment = useCallback((id: string) => {
+    setAttachments((prev) => prev.filter((item) => item.id !== id))
+  }, [])
+
+  const generateImage = async (
+    prompt: string,
+    model: string,
+    group: string
+  ): Promise<boolean> => {
+    const trimmed = prompt.trim()
+    if (!trimmed || !model || requestRef.current) return false
+    const now = Date.now()
+    const userMessage: DemoMessage = {
+      id: nanoid(),
+      role: 'user',
+      content: trimmed,
+      status: 'complete',
+      createdAt: now,
+    }
+    const assistantMessage: DemoMessage = {
+      id: nanoid(),
+      role: 'assistant',
+      content: '',
+      status: 'streaming',
+      createdAt: now,
+    }
+    const history = [...(activeConversation?.messages ?? []), userMessage]
+    const conversation: DemoConversation = {
+      id: activeConversation?.id ?? nanoid(),
+      title: activeConversation?.title ?? trimmed.slice(0, 50),
+      model,
+      group,
+      messages: [...history, assistantMessage],
+      createdAt: activeConversation?.createdAt ?? now,
+      updatedAt: now,
+    }
+    setConversations((prev) => [
+      conversation,
+      ...prev.filter((item) => item.id !== conversation.id),
+    ])
+    setActiveId(conversation.id)
+
+    const request = {
+      conversationId: conversation.id,
+      messageId: assistantMessage.id,
+    }
+    requestRef.current = request
+    setPending(true)
+    const startedAt = Date.now()
+    try {
+      const image = await generateDemoImage({
+        model,
+        group,
+        prompt: trimmed,
+      })
+      if (requestRef.current !== request) return false
+      requestRef.current = null
+      setPending(false)
+      patchMessage(conversation.id, assistantMessage.id, (message) => ({
+        ...message,
+        status: 'complete',
+        image,
+        latencyMs: Date.now() - startedAt,
+      }))
+      return true
+    } catch (error) {
+      if (requestRef.current === request) {
+        requestRef.current = null
+        setPending(false)
+      }
+      patchMessage(conversation.id, assistantMessage.id, (message) => ({
+        ...message,
+        status: 'error',
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Image generation failed. Check your connection and try again.',
+        latencyMs: Date.now() - startedAt,
+      }))
+      return false
+    }
+  }
+
   return {
     conversations,
     activeId,
     activeConversation,
     pending,
+    thinkingEnabled,
+    setThinkingEnabled,
     stop,
     send,
     regenerate,
     remove,
     select,
+    attachments,
+    attachmentRejections,
+    addAttachmentFiles,
+    removeAttachment,
+    clearAttachments,
+    generateImage,
   }
 }

@@ -1,6 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">DeepSeek AI (NewAPI)</string>
+    <string name="app_name">NewAPI 客户端</string>
     <string name="connection_error">无法安全连接，请检查网络后重试。使用本站账号登录，无需 API 密钥。</string>
     <string name="retry">重试</string>
+    <string name="file_too_large">文件过大，最大支持 20 MB。</string>
+    <string name="mic_rationale_title">麦克风权限</string>
+    <string name="mic_rationale_body">当前页面希望使用麦克风进行语音输入。音频仅发送到本站，且仅在录音控件激活时使用。</string>
+    <string name="mic_rationale_allow">允许</string>
+    <string name="mic_rationale_deny">拒绝</string>
+    <string name="update_banner_text">新版本应用已发布。</string>
+    <string name="update_banner_action">下载</string>
 </resources>

@@ -16,7 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { DemoConversation, DemoMessage } from './types'
+import type {
+  DemoAttachment,
+  DemoConversation,
+  DemoImage,
+  DemoMessage,
+} from './types'
 
 const MAX_CONVERSATIONS = 50
 
@@ -59,6 +64,28 @@ export function saveConversations(
   }
 }
 
+function isAttachment(value: unknown): value is DemoAttachment {
+  if (!value || typeof value !== 'object') return false
+  const record = value as Partial<DemoAttachment>
+  return (
+    typeof record.id === 'string' &&
+    typeof record.name === 'string' &&
+    (record.kind === 'image' || record.kind === 'text') &&
+    typeof record.dataUrl === 'string' &&
+    (record.textContent === undefined ||
+      typeof record.textContent === 'string')
+  )
+}
+
+function isImage(value: unknown): value is DemoImage {
+  if (!value || typeof value !== 'object') return false
+  const record = value as Partial<DemoImage>
+  return (
+    typeof record.url === 'string' &&
+    (record.kind === 'url' || record.kind === 'b64')
+  )
+}
+
 function isMessage(value: unknown): value is DemoMessage {
   if (!value || typeof value !== 'object') return false
   const record = value as Partial<DemoMessage>
@@ -72,7 +99,12 @@ function isMessage(value: unknown): value is DemoMessage {
       record.status ?? ''
     ) &&
     (record.reasoning === undefined || typeof record.reasoning === 'string') &&
-    (record.error === undefined || typeof record.error === 'string')
+    (record.error === undefined || typeof record.error === 'string') &&
+    (record.latencyMs === undefined || typeof record.latencyMs === 'number') &&
+    (record.image === undefined || isImage(record.image)) &&
+    (record.attachments === undefined ||
+      (Array.isArray(record.attachments) &&
+        record.attachments.every(isAttachment)))
   )
 }
 

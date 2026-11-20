@@ -86,6 +86,21 @@ func TestLogExportDatabaseMatrix(t *testing.T) {
 	previousMaster := common.IsMasterNode
 	common.IsMasterNode = true
 	t.Cleanup(func() { common.IsMasterNode = previousMaster })
+	// Track every handle created per case so the sqlite file can be unlinked
+	// on Windows once the case finishes.
+	dispose := func(t *testing.T, dbs ...*gorm.DB) {
+		t.Helper()
+		t.Cleanup(func() {
+			for _, db := range dbs {
+				if db != nil {
+					if sqlDB, err := db.DB(); err == nil && sqlDB != nil {
+						_ = sqlDB.Close()
+					}
+				}
+			}
+		})
+	}
+	_ = dispose
 	for _, tc := range []struct {
 		kind, env string
 		typ       common.DatabaseType
@@ -105,7 +120,9 @@ func TestLogExportDatabaseMatrix(t *testing.T) {
 			if tc.kind == "clickhouse" {
 				mainDB, _ = newAuditTestDatabase(t, "sqlite", "")
 				mainType = common.DatabaseTypeSQLite
+				dispose(t, mainDB)
 			}
+			dispose(t, db, model.DB, model.LOG_DB)
 			useLogExportDatabases(t, mainDB, db, mainType, tc.typ)
 			require.NoError(t, mainDB.AutoMigrate(&model.Channel{}))
 			if tc.kind == "clickhouse" {

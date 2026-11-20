@@ -80,7 +80,9 @@ export function ExtLinkAppView({ slug }: { slug: string }) {
 
   const openInNewWindow = () => {
     const href =
-      link.mode === 'iframe' ? link.url : `${window.location.origin}/app/${link.slug}/`
+      link.mode === 'iframe'
+        ? link.url
+        : `${window.location.origin}/app/${link.slug}/`
     window.open(href, '_blank', 'noopener,noreferrer')
   }
 
@@ -96,7 +98,9 @@ export function ExtLinkAppView({ slug }: { slug: string }) {
         <p className='text-muted-foreground text-sm'>
           {t('This app opens in a new window.')}
         </p>
-        <Button onClick={() => window.open(link.url, '_blank', 'noopener,noreferrer')}>
+        <Button
+          onClick={() => window.open(link.url, '_blank', 'noopener,noreferrer')}
+        >
           <ExternalLink className='mr-2 size-4' />
           {t('Open in New Window')}
         </Button>
@@ -104,8 +108,7 @@ export function ExtLinkAppView({ slug }: { slug: string }) {
     )
   }
 
-  const iframeSrc =
-    link.mode === 'iframe' ? link.url : `/app/${link.slug}/`
+  const iframeSrc = link.mode === 'iframe' ? link.url : `/app/${link.slug}/`
 
   return (
     <div className='flex h-full min-h-0 flex-col'>

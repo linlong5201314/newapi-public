@@ -3471,7 +3471,7 @@ export function ChannelMutateDrawer({
                 <ModelTestButton
                   key={channelId ?? 0}
                   channelId={
-                    channelData?.data?.id === channelId ? channelId ?? 0 : 0
+                    channelData?.data?.id === channelId ? (channelId ?? 0) : 0
                   }
                   models={[
                     ...new Set([...currentModelsArray, ...upstreamModelList]),
@@ -5327,6 +5327,18 @@ export function ChannelMutateDrawer({
       <TraeImportDialog
         open={traeImportOpen}
         onOpenChange={setTraeImportOpen}
+        existingChannelId={isEditing ? currentRow?.id : undefined}
+        onCredentialReplaced={(channelId) => {
+          // In-place re-authorization: the flow finished against the same
+          // channel, so just refresh and stay in the drawer.
+          queryClient.invalidateQueries({
+            queryKey: channelsQueryKeys.lists(),
+          })
+          queryClient.invalidateQueries({
+            queryKey: ['self-channel-detail', channelId],
+          })
+          setTraeImportOpen(false)
+        }}
         onChannelCreated={() => {
           queryClient.invalidateQueries({
             queryKey: channelsQueryKeys.lists(),

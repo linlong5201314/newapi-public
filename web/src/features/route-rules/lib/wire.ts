@@ -165,11 +165,13 @@ export function normalizeRouteRule(raw: unknown): RouteRule | null {
     config: normalizeConfig(record.config ?? record.Config),
     enabled: asBoolean(record.enabled ?? record.Enabled) ?? true,
     created_time:
-      asNumber(record.created_time ?? record.createdTime ?? record.CreatedTime) ??
-      0,
+      asNumber(
+        record.created_time ?? record.createdTime ?? record.CreatedTime
+      ) ?? 0,
     updated_time:
-      asNumber(record.updated_time ?? record.updatedTime ?? record.UpdatedTime) ??
-      0,
+      asNumber(
+        record.updated_time ?? record.updatedTime ?? record.UpdatedTime
+      ) ?? 0,
   }
 }
 
@@ -223,4 +225,3 @@ export function extractRouteRuleListMeta(
 export function getRouteRuleTableRowId(rule: RouteRule) {
   return String(rule.id)
 }
-

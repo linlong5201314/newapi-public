@@ -78,19 +78,28 @@ describe('Magpie plugin operations', () => {
     vi.mocked(api.get).mockResolvedValue({
       data: { success: true, data: { items: [plugin], total: 1 } },
     })
-    vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(new Error('denied'))
+    vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(
+      new Error('denied')
+    )
     let selected = ''
     const previous = Object.getOwnPropertyDescriptor(document, 'execCommand')
-    Object.defineProperty(document, 'execCommand', { configurable: true, value: () => {
-      selected = (document.activeElement as HTMLTextAreaElement).value
-      return true
-    } })
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: () => {
+        selected = (document.activeElement as HTMLTextAreaElement).value
+        return true
+      },
+    })
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
       renderCard()
-      await user.click(await screen.findByRole('button', { name: 'Copy CLI command' }))
+      await user.click(
+        await screen.findByRole('button', { name: 'Copy CLI command' })
+      )
       expect(selected).toBe(plugin.install)
-      expect(await screen.findByRole('button', { name: 'Copied' })).toBeVisible()
+      expect(
+        await screen.findByRole('button', { name: 'Copied' })
+      ).toBeVisible()
     } finally {
       if (previous) Object.defineProperty(document, 'execCommand', previous)
       else Reflect.deleteProperty(document, 'execCommand')

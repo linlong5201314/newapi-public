@@ -88,3 +88,59 @@ it('prevents model selection changes while saving', async () => {
     screen.getByRole('button', { name: 'Select all for my channels' })
   ).toBeDisabled()
 })
+
+it('inverts the enabled selection and drops public models that are no longer enabled', async () => {
+  const user = userEvent.setup()
+  render(<SelectionFixture />)
+  // Initially deepseek-chat is enabled; qwen-coder is not.
+  expect(
+    screen.getByRole('checkbox', { name: 'Enable deepseek-chat in my channels' })
+  ).toBeChecked()
+  await user.click(
+    screen.getByRole('button', { name: 'Invert selection for my channels' })
+  )
+  expect(
+    screen.getByRole('checkbox', { name: 'Enable deepseek-chat in my channels' })
+  ).not.toBeChecked()
+  expect(
+    screen.getByRole('checkbox', { name: 'Enable qwen-coder in my channels' })
+  ).toBeChecked()
+  // Inverting back restores the original selection.
+  await user.click(
+    screen.getByRole('button', { name: 'Invert selection for my channels' })
+  )
+  expect(
+    screen.getByRole('checkbox', { name: 'Enable deepseek-chat in my channels' })
+  ).toBeChecked()
+  expect(
+    screen.getByRole('checkbox', { name: 'Enable qwen-coder in my channels' })
+  ).not.toBeChecked()
+})
+
+it('inverts the public pool selection and auto-enables newly published models', async () => {
+  const user = userEvent.setup()
+  render(<SelectionFixture />)
+  // Publish deepseek-chat only, then invert the public pool.
+  await user.click(
+    screen.getByRole('checkbox', {
+      name: 'Publish deepseek-chat to the public pool',
+    })
+  )
+  await user.click(
+    screen.getByRole('button', { name: 'Invert selection for the public pool' })
+  )
+  expect(
+    screen.getByRole('checkbox', {
+      name: 'Publish deepseek-chat to the public pool',
+    })
+  ).not.toBeChecked()
+  expect(
+    screen.getByRole('checkbox', {
+      name: 'Publish qwen-coder to the public pool',
+    })
+  ).toBeChecked()
+  // Publishing qwen-coder auto-enabled it in my channels.
+  expect(
+    screen.getByRole('checkbox', { name: 'Enable qwen-coder in my channels' })
+  ).toBeChecked()
+})

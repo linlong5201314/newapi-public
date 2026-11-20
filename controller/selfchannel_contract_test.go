@@ -555,6 +555,77 @@ func TestDS2AccountLoginSessionEndToEnd(t *testing.T) {
 	assert.Contains(t, expired.Body.String(), `"success":false`)
 }
 
+// An explicit empty models selection is a user error and must fail without
+// creating a channel. Omitting the field keeps the legacy whole-catalog default.
+func TestDS2ModelSelectionEmptyVsOmitted(t *testing.T) {
+	cases := []struct {
+		name              string
+		startBody         string
+		wantCode          int
+		wantChannel       bool
+		wantChannelModels string
+		wantErrSubstr     string
+	}{
+		{name: "explicit_empty_fails", startBody: `{"proxy":"direct","models":[]}`, wantCode: http.StatusBadGateway, wantChannel: false, wantErrSubstr: "Select at least one model"},
+		{name: "omitted_defaults_to_catalog", startBody: `{"proxy":"direct"}`, wantCode: http.StatusOK, wantChannel: true, wantChannelModels: "deepseek-chat,deepseek-reasoner"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			uid := setupChannelCreateTest(t)
+			require.NoError(t, model.DB.AutoMigrate(&model.SelfOAuthSession{}, &model.SelfAccountBinding{}))
+			oldAddress, oldSecret, oldConfigured := system_setting.ServerAddress, common.CryptoSecret, common.CryptoSecretConfigured
+			system_setting.ServerAddress, common.CryptoSecret, common.CryptoSecretConfigured = "https://newapi.example", "ds2-modelsel-test-key", true
+			t.Cleanup(func() {
+				system_setting.ServerAddress, common.CryptoSecret, common.CryptoSecretConfigured = oldAddress, oldSecret, oldConfigured
+			})
+			t.Setenv("DS2API_BASE_URL", "https://ds2.example/v1")
+			previousLimit := operation_setting.SelfChannelMaxPerUser
+			operation_setting.SelfChannelMaxPerUser = 20
+			t.Cleanup(func() { operation_setting.SelfChannelMaxPerUser = previousLimit })
+			setSelfContractTransport(t, func(r *http.Request) (*http.Response, error) {
+				if r.URL.Host == "chat.deepseek.com" {
+					return selfContractResponse(200, `{"code":0,"data":{"biz_code":0,"biz_data":{"user":{"token":"fixture-modelsel-token"}}}}`)
+				}
+				return selfContractResponse(200, `{"data":[{"id":"deepseek-chat"},{"id":"deepseek-reasoner"}]}`)
+			})
+			platform := selfContractDS2Session(t, uid)
+			start := selfContractDS2Start(platform, tc.startBody)
+			require.Contains(t, start.Body.String(), `"success":true`)
+			var response struct {
+				Data struct {
+					State string `json:"sessionId"`
+				} `json:"data"`
+			}
+			require.NoError(t, common.Unmarshal(start.Body.Bytes(), &response))
+			var flow model.SelfOAuthSession
+			require.NoError(t, model.DB.Where("state = ?", ds2SessionKey(response.Data.State)).First(&flow).Error)
+			var options ds2LoginOptions
+			require.NoError(t, common.UnmarshalJsonStr(common.DecryptSecretOrLegacy(flow.Refresh), &options))
+			form := url.Values{"state": {response.Data.State}, "csrf": {options.CSRF}, "account": {"test@example.com"}, "password": {"fixture-password"}}
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "https://newapi.example/api/user/auth/ds2api/credentials", strings.NewReader(form.Encode()))
+			c.Request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			c.Request.Header.Set("Origin", "https://newapi.example")
+			c.Request.AddCookie(start.Result().Cookies()[0])
+			c.Request.AddCookie(&http.Cookie{Name: service.RefreshCookieName, Value: platform.SID + ".fixture-refresh"})
+			SelfDs2ApiOAuthCallback(c)
+			require.Equal(t, tc.wantCode, recorder.Code, recorder.Body.String())
+			var channel model.Channel
+			channelErr := model.DB.Where("owner_id = ?", uid).Last(&channel).Error
+			if tc.wantChannel {
+				require.NoError(t, channelErr)
+				assert.Equal(t, tc.wantChannelModels, channel.Models)
+			} else {
+				assert.Error(t, channelErr)
+				assert.Contains(t, recorder.Body.String(), tc.wantErrSubstr)
+				require.NoError(t, model.DB.Where("state = ?", flow.State).First(&flow).Error)
+				assert.Equal(t, "failed", flow.Status)
+			}
+		})
+	}
+}
+
 func TestDS2LoginFailuresDoNotCreateChannel(t *testing.T) {
 	uid := setupChannelCreateTest(t)
 	require.NoError(t, model.DB.AutoMigrate(&model.SelfOAuthSession{}, &model.SelfAccountBinding{}))
@@ -618,14 +689,14 @@ func TestDS2LoginFailuresDoNotCreateChannel(t *testing.T) {
 	c.Request.AddCookie(start.Result().Cookies()[0])
 	c.Request.AddCookie(&http.Cookie{Name: service.RefreshCookieName, Value: platform.SID + ".fixture-refresh"})
 	SelfDs2ApiOAuthCallback(c)
-	assert.Equal(t, http.StatusBadGateway, verification.Code)
-	assert.Equal(t, "DeepSeek requires verification on its official website before this account can be linked", verification.Body.String())
+	assert.Equal(t, http.StatusBadRequest, verification.Code)
+	assert.Contains(t, verification.Body.String(), "DeepSeek")
 	assert.Equal(t, "no-referrer", verification.Header().Get("Referrer-Policy"))
 	assert.Equal(t, "no-store", verification.Header().Get("Cache-Control"))
 	assert.Equal(t, 1, calls)
 	require.NoError(t, model.DB.Where("state = ?", flow.State).First(&flow).Error)
 	assert.Equal(t, "failed", flow.Status)
-	assert.Equal(t, verification.Body.String(), flow.Err)
+	assert.Equal(t, "DeepSeek requires verification on its official website before this account can be linked", flow.Err)
 	assert.Empty(t, flow.Access)
 	assert.Empty(t, flow.Refresh)
 	for _, target := range []any{&model.Channel{}, &model.SelfAccountBinding{}, &model.Ability{}} {

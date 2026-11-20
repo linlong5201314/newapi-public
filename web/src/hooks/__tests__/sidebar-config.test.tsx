@@ -233,14 +233,24 @@ describe('model pricing badge', () => {
     role: number,
     issues: () => ModelPricingIssue[]
   ) {
-    const get = vi.spyOn(api, 'get').mockImplementation(async (url) => ({
-      data: {
-        success: true,
-        data: url === '/api/option/model_pricing/issues' ? issues() : {},
-      },
-    }))
+    const get = vi.spyOn(api, 'get').mockImplementation(async (url) => {
+      if (url === '/api/option/model_pricing/issues') {
+        return { data: { success: true, data: issues() } }
+      }
+      if (url === '/api/extlink/enabled') {
+        return { data: { success: true, data: [] } }
+      }
+      return { data: { success: true, data: {} } }
+    })
     const client = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
+      defaultOptions: {
+        queries: {
+          retry: false,
+          // The invalidation refetch must re-render: equal-content arrays
+          // would otherwise be structurally shared and the badge stays stale.
+          structuralSharing: false,
+        },
+      },
     })
     client.setQueryData(['status'], { SidebarModulesAdmin: '' })
     useAuthStore.getState().auth.setUser({ id: 1, username: 'root', role })
@@ -298,7 +308,16 @@ describe('model pricing badge', () => {
     await act(() =>
       client.invalidateQueries({ queryKey: MODEL_PRICING_ISSUES_QUERY_KEY })
     )
-    expect(await screen.findByText('System Settings: 2')).toBeInTheDocument()
+    // The invalidation refetches /api/option/model_pricing/issues; under a
+    // contended full-suite worker the refetch+rerender can exceed the default
+    // 1s findBy timeout without any product bug.
+    await waitFor(
+      () => {
+        const entries = Array.from(badgedEntries()).map((el) => el.textContent)
+        expect(entries).toContain('System Settings: 2')
+      },
+      { timeout: 10_000 }
+    )
 
     // Every pricing save runs this invalidation.
     issues = []

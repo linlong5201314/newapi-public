@@ -22,7 +22,7 @@ import {
   PUBLIC_ADMIN_CHANNELS_KEY,
   setPublicAdminChannelStatus,
   type PublicAdminChannel,
-  type PublicPoolModelIPView,
+  type PublicPoolProbeAllResponse,
 } from '../admin-api'
 import { PUBLIC_CATALOG_QUERY_KEY } from '../constants'
 import { PublicAdminChannelEditor } from './admin-channel-editor'
@@ -30,6 +30,62 @@ import { PublicAdminChannelEditor } from './admin-channel-editor'
 type Action = {
   channel: PublicAdminChannel
   kind: 'copy' | 'delete' | 'enable' | 'disable'
+}
+
+// PublicPoolProbeBatchView renders one sampled probe batch. It shows how many
+// of the eligible public endpoints were actually tested, breaks down each
+// model's sample into available / unknown / not-run, and states that failing
+// results never delete models — they only mark endpoint health.
+function PublicPoolProbeBatchView(props: { batch: PublicPoolProbeAllResponse }) {
+  const { t } = useTranslation()
+  const batch = props.batch
+  return (
+    <>
+      <p className='mb-2 text-xs font-medium'>
+        {t(
+          'IP availability: tested {{tested}} of {{eligible}} eligible public endpoints',
+          { tested: batch.selected_count, eligible: batch.eligible_total }
+        )}
+      </p>
+      <ul className='space-y-1'>
+        {batch.models.map((view) => (
+          <li
+            key={view.model}
+            className='flex flex-wrap items-center gap-2 text-xs'
+          >
+            <span className='font-mono'>{view.model}</span>
+            <Badge variant={view.passed ? 'default' : 'destructive'}>
+              {view.available_endpoints}/{view.total_endpoints} {t('available')}
+            </Badge>
+            {view.unknown_endpoints > 0 && (
+              <Badge variant='secondary'>
+                {view.unknown_endpoints} {t('unknown')}
+              </Badge>
+            )}
+            {view.not_run_endpoints > 0 && (
+              <Badge variant='outline'>
+                {view.not_run_endpoints} {t('not run')}
+              </Badge>
+            )}
+            {!view.passed && (
+              <span className='text-muted-foreground'>
+                {view.results
+                  .filter((result) => result.status !== 'available')
+                  .slice(0, 3)
+                  .map((result) => `#${result.endpoint_id}:${result.reason}`)
+                  .join(', ')}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+      <p className='text-muted-foreground mt-2 text-xs'>
+        {t(
+          'Sampled batch. Results never delete models; they only mark endpoint health.'
+        )}
+      </p>
+    </>
+  )
 }
 
 export function PublicPoolAdminChannels() {
@@ -43,9 +99,12 @@ export function PublicPoolAdminChannels() {
     channel: PublicAdminChannel | null
   } | null>(null)
   const [action, setAction] = useState<Action | null>(null)
-  // IP 维度实测结果：channelId -> 模型视图
+  // IP 维度实测结果：channelId -> 抽样批次的模型视图
   const [ipProbes, setIpProbes] = useState<
-    Record<number, { loading: boolean; models: PublicPoolModelIPView[]; endpointCount: number }>
+    Record<
+      number,
+      { loading: boolean; batch: PublicPoolProbeAllResponse | null }
+    >
   >({})
   const ipProbeMutation = useMutation({
     mutationFn: async (channel: PublicAdminChannel) => {
@@ -59,23 +118,19 @@ export function PublicPoolAdminChannels() {
     onMutate: (channel) => {
       setIpProbes((previous) => ({
         ...previous,
-        [channel.id]: { loading: true, models: [], endpointCount: 0 },
+        [channel.id]: { loading: true, batch: null },
       }))
     },
     onSuccess: (data, channel) => {
       setIpProbes((previous) => ({
         ...previous,
-        [channel.id]: {
-          loading: false,
-          models: data.models,
-          endpointCount: data.endpoint_count,
-        },
+        [channel.id]: { loading: false, batch: data },
       }))
     },
     onError: (error, channel) => {
       setIpProbes((previous) => ({
         ...previous,
-        [channel.id]: { loading: false, models: [], endpointCount: 0 },
+        [channel.id]: { loading: false, batch: null },
       }))
       handleServerError(error)
     },
@@ -196,7 +251,9 @@ export function PublicPoolAdminChannels() {
       )}
       {query.isSuccess && (
         <div className='space-y-3'>
-          {query.data.items.map((channel) => (
+          {query.data.items.map((channel) => {
+            const ipProbe = ipProbes[channel.id]
+            return (
             <article
               key={channel.id}
               aria-label={channel.name}
@@ -219,55 +276,18 @@ export function PublicPoolAdminChannels() {
               <p className='text-muted-foreground mt-1 text-xs break-all'>
                 {t('Group')}: {channel.group}
               </p>
-              {ipProbes[channel.id] &&
-                (ipProbes[channel.id].loading ||
-                  ipProbes[channel.id].models.length > 0) && (
-                  <div className='mt-3 rounded-lg border border-dashed p-3'>
-                    {ipProbes[channel.id].loading ? (
-                      <p className='text-muted-foreground text-xs'>
-                        {t('Testing models across public endpoints...')}
-                      </p>
-                    ) : (
-                      <>
-                        <p className='mb-2 text-xs font-medium'>
-                          {t('IP availability ({{count}} endpoints tested)', {
-                            count: ipProbes[channel.id].endpointCount,
-                          })}
-                        </p>
-                        <ul className='space-y-1'>
-                          {ipProbes[channel.id].models.map((view) => (
-                            <li
-                              key={view.model}
-                              className='flex flex-wrap items-center gap-2 text-xs'
-                            >
-                              <span className='font-mono'>{view.model}</span>
-                              <Badge
-                                variant={
-                                  view.passed ? 'default' : 'destructive'
-                                }
-                              >
-                                {view.available_endpoints}/{view.total_endpoints}{' '}
-                                {t('available')}
-                              </Badge>
-                              {!view.passed && (
-                                <span className='text-muted-foreground'>
-                                  {view.results
-                                    .filter((r) => r.status !== 'available')
-                                    .slice(0, 3)
-                                    .map(
-                                      (r) =>
-                                        `#${r.endpoint_id}:${r.reason}`
-                                    )
-                                    .join(', ')}
-                                </span>
-                              )}
-                            </li>
-                          ))}
-                        </ul>
-                      </>
-                    )}
-                  </div>
-                )}
+              {ipProbe && (ipProbe.loading || ipProbe.batch !== null) && (
+                <div className='mt-3 rounded-lg border border-dashed p-3'>
+                  {ipProbe.loading && (
+                    <p className='text-muted-foreground text-xs'>
+                      {t('Testing models across public endpoints...')}
+                    </p>
+                  )}
+                  {!ipProbe.loading && ipProbe.batch !== null && (
+                    <PublicPoolProbeBatchView batch={ipProbe.batch} />
+                  )}
+                </div>
+              )}
               <div className='mt-3 flex flex-wrap gap-2'>
                 <ModelTestButton
                   channelId={channel.id}
@@ -326,7 +346,8 @@ export function PublicPoolAdminChannels() {
                 </Button>
               </div>
             </article>
-          ))}
+            )
+          })}
           <nav
             aria-label={t('Public free channels pagination')}
             className='flex flex-wrap items-center justify-end gap-2'

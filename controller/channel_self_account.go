@@ -44,7 +44,10 @@ func SelfImportTrae(c *gin.Context) { selfTraeCredentialImport(c) }
 // synthesize OAuth or accept legacy bearer/code callbacks without a real client.
 func SelfRaccoonOAuthStart(c *gin.Context) {
 	c.Header("Cache-Control", "no-store")
-	c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "code": "RACCOON_AUTH_UNAVAILABLE", "message": common.NewMessage("Raccoon browser authorization only supports an official local client. Gateway callbacks are not supported"), "data": gin.H{"available": false, "flow": "unavailable", "reason": "loopback_only_protocol", "officialUrl": "https://xiaohuanxiong.com"}})
+	body := accountAuthorizationBody("Raccoon browser authorization only supports an official local client. Gateway callbacks are not supported")
+	body["code"] = "RACCOON_AUTH_UNAVAILABLE"
+	body["data"] = gin.H{"available": false, "flow": "unavailable", "reason": "loopback_only_protocol", "officialUrl": "https://xiaohuanxiong.com"}
+	c.JSON(http.StatusServiceUnavailable, body)
 }
 
 func SelfRaccoonOAuthCallback(c *gin.Context) {

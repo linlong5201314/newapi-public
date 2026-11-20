@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { RotateCcw } from 'lucide-react'
+import { Download, ExternalLink, Paperclip, RotateCcw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -34,7 +34,7 @@ import { CopyButton } from '@/components/copy-button'
 import { Button } from '@/components/ui/button'
 import { Markdown } from '@/components/ui/markdown'
 
-import type { DemoMessage } from '../types'
+import type { DemoImage, DemoMessage } from '../types'
 
 interface MessageListProps {
   messages: DemoMessage[]
@@ -74,6 +74,41 @@ export function DemoMessageList(props: MessageListProps) {
   )
 }
 
+function GeneratedImageBlock(props: { image: DemoImage }) {
+  const { t } = useTranslation()
+  const fileName = `generated-image-${Date.now()}.png`
+  return (
+    <figure className='ds-demo-generated-image'>
+      <img
+        src={props.image.url}
+        alt={t('Generated image')}
+        className='ds-demo-generated-image-img'
+      />
+      <figcaption className='ds-demo-generated-image-actions'>
+        <a
+          href={props.image.url}
+          target='_blank'
+          rel='noopener noreferrer'
+          aria-label={t('Open image in new tab')}
+          className='ds-demo-generated-image-action'
+        >
+          <ExternalLink className='size-4' aria-hidden='true' />
+          {t('Open')}
+        </a>
+        <a
+          href={props.image.url}
+          download={fileName}
+          aria-label={t('Download image')}
+          className='ds-demo-generated-image-action'
+        >
+          <Download className='size-4' aria-hidden='true' />
+          {t('Download')}
+        </a>
+      </figcaption>
+    </figure>
+  )
+}
+
 function MessageBubble(props: {
   message: DemoMessage
   isLast: boolean
@@ -85,7 +120,29 @@ function MessageBubble(props: {
   if (message.role === 'user') {
     return (
       <div className='ds-demo-user-message'>
-        <div className='ds-demo-user-bubble'>{message.content}</div>
+        <div className='ds-demo-user-bubble'>
+          {message.attachments?.length ? (
+            <ul className='ds-demo-message-attachments'>
+              {message.attachments.map((attachment) =>
+                attachment.kind === 'image' ? (
+                  <li key={attachment.id}>
+                    <img
+                      src={attachment.dataUrl}
+                      alt={attachment.name}
+                      className='ds-demo-message-attachment-image'
+                    />
+                  </li>
+                ) : (
+                  <li key={attachment.id} className='ds-demo-message-attachment'>
+                    <Paperclip className='size-3.5' aria-hidden='true' />
+                    <span>{attachment.name}</span>
+                  </li>
+                )
+              )}
+            </ul>
+          ) : null}
+          {message.content}
+        </div>
       </div>
     )
   }
@@ -107,6 +164,7 @@ function MessageBubble(props: {
             {message.content}
           </Markdown>
         )}
+        {message.image && <GeneratedImageBlock image={message.image} />}
         {streaming && (
           <span
             role='status'
@@ -143,6 +201,17 @@ function MessageBubble(props: {
                 aria-label={t('Copy response')}
                 className='size-9'
               />
+            )}
+            {message.latencyMs !== undefined && message.status !== 'error' && (
+              <span className='text-muted-foreground self-center text-xs'>
+                {message.latencyMs < 1000
+                  ? t('{{value}}ms', {
+                      value: Math.max(1, Math.round(message.latencyMs)),
+                    })
+                  : t('{{value}}s', {
+                      value: (message.latencyMs / 1000).toFixed(2),
+                    })}
+              </span>
             )}
             {props.isLast && (
               <Button

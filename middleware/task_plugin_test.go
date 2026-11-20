@@ -2185,11 +2185,11 @@ func TestRouteTaskPluginEndpointUsesSelectedChannel(t *testing.T) {
 								require.NoError(t, err)
 								t.Cleanup(func() { require.NoError(t, jsplugin.DefaultRegistry.Unregister(key)) })
 							}
-							ordinary := &model.Channel{Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Name: "ordinary", Key: "ordinary-key", Group: "route-test", Models: modelName, Priority: common.GetPointer(tc.ordinaryPriority + 1)}
+							ordinary := &model.Channel{Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Name: "ordinary", Key: "ordinary-key", Group: "route-test", Models: modelName, Priority: common.GetPointer(tc.ordinaryPriority + 1), OwnerId: 7}
 							if tc.ordinaryType != 0 {
 								ordinary.Type = tc.ordinaryType
 							}
-							plugin := &model.Channel{Type: constant.ChannelTypeTaskPlugin, Status: common.ChannelStatusEnabled, Name: "plugin", Key: "plugin-key", Group: "route-test", Models: modelName, Priority: &tc.pluginPriority}
+							plugin := &model.Channel{Type: constant.ChannelTypeTaskPlugin, Status: common.ChannelStatusEnabled, Name: "plugin", Key: "plugin-key", Group: "route-test", Models: modelName, Priority: &tc.pluginPriority, OwnerId: 7}
 							if tc.pluginType != 0 {
 								plugin.Type = tc.pluginType
 							}
