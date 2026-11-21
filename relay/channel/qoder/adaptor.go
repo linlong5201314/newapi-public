@@ -261,19 +261,33 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, body io
 		return nil, service.QoderRequestError(c.Request.Context(), err)
 	}
 	if resp.StatusCode != http.StatusOK {
+		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 400))
 		resp.Body.Close()
+		// Operator-facing diagnostic only: never surfaced to the API caller.
+		common.SysLog("qoder inference rejected: status=" + strconv.Itoa(resp.StatusCode) + " body=" + qoderSnippet(snippet))
 		if resp.StatusCode == http.StatusUnauthorized {
 			return nil, service.ErrDesktopLoginExpired
 		}
 		return nil, service.ErrAccountUpstream
 	}
 	if !strings.HasPrefix(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream") {
+		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 400))
 		resp.Body.Close()
+		common.SysLog("qoder inference non-sse: content_type=" + resp.Header.Get("Content-Type") + " body=" + qoderSnippet(snippet))
 		return nil, service.ErrAccountProtocol
 	}
 	// No provider cookies, credentials or diagnostic response headers are exposed.
 	resp.Header = http.Header{"Content-Type": {"text/event-stream"}}
 	return resp, nil
+}
+
+// qoderSnippet bounds and flattens an upstream diagnostic fragment.
+func qoderSnippet(raw []byte) string {
+	text := strings.Join(strings.Fields(string(raw)), " ")
+	if len(text) > 320 {
+		text = text[:320]
+	}
+	return text
 }
 
 func containsModel(models, key string) bool {
