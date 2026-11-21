@@ -29,6 +29,7 @@ const MiMoAppVersion = "26.929.292248"
 
 var ErrDesktopLoginExpired = errors.New("The provider login expired; sign in again")
 var ErrMiMoRegion = errors.New("MiMo does not serve this Xiaomi account region")
+var ErrQoderQueued = errors.New("Qoder is queueing this account on its free tier; retry shortly")
 
 // AccountEgress is stored only inside encrypted credentials or encrypted flows.
 // Endpoint identity survives runtime listener changes; the endpoint configuration

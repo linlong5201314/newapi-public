@@ -32,6 +32,29 @@ type nativeStream struct {
 	err      error
 }
 
+// qoderQueueNotice reports whether a rejected native frame is the provider's
+// free-tier queue notice rather than a failure of the account or credential.
+// The notice is a doubly encoded JSON string with subCode RESOURCE_LIMIT.
+func qoderQueueNotice(body string) bool {
+	if body == "" {
+		return false
+	}
+	var outer struct {
+		Message string `json:"message"`
+	}
+	if common.Unmarshal([]byte(body), &outer) != nil || outer.Message == "" {
+		return false
+	}
+	var inner struct {
+		SubCode  string `json:"subCode"`
+		IsQueued bool   `json:"isQueued"`
+	}
+	if common.Unmarshal([]byte(outer.Message), &inner) != nil {
+		return false
+	}
+	return inner.IsQueued && inner.SubCode == "RESOURCE_LIMIT"
+}
+
 func newNativeStream(body io.ReadCloser) *nativeStream {
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 4096), 1<<20)
@@ -113,6 +136,10 @@ func (s *nativeStream) next() (*dto.ChatCompletionsStreamResponse, error) {
 					}
 				}
 				common.SysLog("qoder stream rejected: status=" + strconv.Itoa(code) + " body=" + detail)
+				if qoderQueueNotice(*outer.Body) {
+					s.err = service.ErrQoderQueued
+					return nil, s.err
+				}
 				s.err = service.ErrAccountUpstream
 				return nil, s.err
 			}
