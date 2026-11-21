@@ -142,3 +142,14 @@ func TestQoderAdapterDestinationAndClose(t *testing.T) {
 	assert.False(t, containsModel("one,two", "tw"))
 	assert.Equal(t, "", http.Header{}.Get("Cookie"))
 }
+
+func TestQoderQueueNoticeNestedEnvelope(t *testing.T) {
+	// Real shape captured from the live provider: the native body is stringified
+	// JSON whose message is stringified again; isQueued lives innermost.
+	body := `{"code":"403","message":"{\"code\":\"10605\",\"message\":\"{\\\"errorCode\\\":0,\\\"isQueued\\\":true,\\\"modelKey\\\":\\\"auto\\\",\\\"queueCount\\\":1,\\\"queueType\\\":\\\"p4\\\",\\\"retryAfterSeconds\\\":60,\\\"serviceAvailable\\\":true,\\\"subCode\\\":\\\"RESOURCE_LIMIT\\\",\\\"waitTime\\\":60}\",\"subCode\":\"RESOURCE_LIMIT\"}"}`
+	require.True(t, qoderQueueNotice(body))
+
+	require.False(t, qoderQueueNotice(`{"code":"403","message":"{\"code\":\"10605\",\"message\":\"{\\\"isQueued\\\":false,\\\"subCode\\\":\\\"RESOURCE_LIMIT\\\"}\",\"subCode\":\"RESOURCE_LIMIT\"}"}`))
+	require.False(t, qoderQueueNotice(`{"code":"403","message":"ordinary rejection"}`))
+	require.False(t, qoderQueueNotice(""))
+}

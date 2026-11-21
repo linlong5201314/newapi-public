@@ -34,25 +34,25 @@ type nativeStream struct {
 
 // qoderQueueNotice reports whether a rejected native frame is the provider's
 // free-tier queue notice rather than a failure of the account or credential.
-// The notice is a doubly encoded JSON string with subCode RESOURCE_LIMIT.
+// The notice is nested up to three levels of escaped JSON; the innermost level
+// carries isQueued plus subCode RESOURCE_LIMIT.
 func qoderQueueNotice(body string) bool {
-	if body == "" {
-		return false
+	raw := body
+	for depth := 0; depth < 4 && raw != ""; depth++ {
+		var level struct {
+			Message  string `json:"message"`
+			SubCode  string `json:"subCode"`
+			IsQueued bool   `json:"isQueued"`
+		}
+		if common.Unmarshal([]byte(raw), &level) != nil {
+			return false
+		}
+		if level.IsQueued && level.SubCode == "RESOURCE_LIMIT" {
+			return true
+		}
+		raw = level.Message
 	}
-	var outer struct {
-		Message string `json:"message"`
-	}
-	if common.Unmarshal([]byte(body), &outer) != nil || outer.Message == "" {
-		return false
-	}
-	var inner struct {
-		SubCode  string `json:"subCode"`
-		IsQueued bool   `json:"isQueued"`
-	}
-	if common.Unmarshal([]byte(outer.Message), &inner) != nil {
-		return false
-	}
-	return inner.IsQueued && inner.SubCode == "RESOURCE_LIMIT"
+	return false
 }
 
 func newNativeStream(body io.ReadCloser) *nativeStream {
