@@ -229,12 +229,19 @@ func (c *qoderClient) fetchModels(ctx context.Context, cred *QoderCredential) ([
 	}
 	status, raw, err := c.request(ctx, http.MethodGet, base+qoderModelsPath, headers, []byte(body))
 	if err != nil {
+		common.SysLog("qoder catalog transport error: " + err.Error())
 		return nil, err
 	}
 	if status == http.StatusUnauthorized {
 		return nil, ErrDesktopLoginExpired
 	}
 	if status != http.StatusOK {
+		// Operator-facing diagnostic only; never surfaced to the API caller.
+		snippet := strings.Join(strings.Fields(string(raw)), " ")
+		if len(snippet) > 320 {
+			snippet = snippet[:320]
+		}
+		common.SysLog("qoder catalog rejected: status=" + strconv.Itoa(status) + " body=" + snippet)
 		return nil, ErrAccountUpstream
 	}
 	var payload struct {

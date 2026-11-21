@@ -18,6 +18,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -375,6 +376,11 @@ func (c *qoderClient) renewCredential(ctx context.Context, cred *QoderCredential
 		return nil, ErrDesktopLoginExpired
 	}
 	if status != http.StatusOK {
+		snippet := strings.Join(strings.Fields(string(raw)), " ")
+		if len(snippet) > 320 {
+			snippet = snippet[:320]
+		}
+		common.SysLog("qoder token refresh rejected: status=" + strconv.Itoa(status) + " body=" + snippet)
 		return nil, ErrAccountUpstream
 	}
 	var data qoderTokenResponse
