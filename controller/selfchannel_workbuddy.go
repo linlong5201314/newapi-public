@@ -52,8 +52,10 @@ func accountAuthorizationError(c *gin.Context, err error) {
 	case errors.Is(err, service.ErrAccountUpstream), errors.Is(err, service.ErrAccountProtocol):
 		status, code, message = http.StatusBadGateway, "ACCOUNT_UPSTREAM_FAILED", "Account provider request failed; retry or restart authorization"
 	}
-	// Static context only: never log transport errors, upstream state, or credentials.
-	common.SysLog("account authorization rejected: " + code)
+	// Static context plus the sentinel/wrapped cause text: sentinels are fixed
+	// strings and wrappers carry only status codes or hosts, never payloads or
+	// credentials.
+	common.SysLog("account authorization rejected: " + code + " cause=" + err.Error())
 	// The web console reads a string message plus message_key; the object form
 	// hid every authorization failure behind the generic axios status text.
 	body := gin.H{"success": false, "code": code, "message": message}
