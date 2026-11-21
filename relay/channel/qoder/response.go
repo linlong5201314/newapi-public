@@ -103,6 +103,16 @@ func (s *nativeStream) next() (*dto.ChatCompletionsStreamResponse, error) {
 				return nil, s.err
 			}
 			if code != http.StatusOK {
+				// Operator-facing diagnostic only: the native envelope carries
+				// the provider's reason while the caller gets a generic error.
+				detail := ""
+				if outer.Body != nil {
+					detail = strings.Join(strings.Fields(*outer.Body), " ")
+					if len(detail) > 320 {
+						detail = detail[:320]
+					}
+				}
+				common.SysLog("qoder stream rejected: status=" + strconv.Itoa(code) + " body=" + detail)
 				s.err = service.ErrAccountUpstream
 				return nil, s.err
 			}
