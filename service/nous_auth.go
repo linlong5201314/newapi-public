@@ -324,6 +324,15 @@ func RenewNousCredential(ctx context.Context, proxy string, cred *NousCredential
 	return nousParseCredential(raw, time.Now())
 }
 
+// nousHostOf reduces a base URL to its host for diagnostics; never logs paths
+// or credentials.
+func nousHostOf(base string) string {
+	if u, err := url.Parse(strings.TrimSpace(base)); err == nil && u.Host != "" {
+		return u.Host
+	}
+	return "invalid"
+}
+
 // FetchNousModels 拉取当前账号可用的推理模型列表。
 func FetchNousModels(ctx context.Context, proxy string, cred *NousCredential) ([]string, error) {
 	if cred == nil || cred.AccessToken == "" {
@@ -348,7 +357,8 @@ func FetchNousModels(ctx context.Context, proxy string, cred *NousCredential) ([
 	req.Header.Set("Authorization", "Bearer "+cred.AccessToken)
 	res, err := copyClient.Do(req)
 	if err != nil {
-		return nil, ErrAccountUpstream
+		common.SysLog(fmt.Sprintf("nous model discovery transport error: host=%s err=%v", nousHostOf(cred.BaseURL), err))
+		return nil, fmt.Errorf("nous model discovery unreachable: %w", ErrAccountUpstream)
 	}
 	defer res.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(res.Body, (1<<20)+1))
@@ -356,7 +366,8 @@ func FetchNousModels(ctx context.Context, proxy string, cred *NousCredential) ([
 		return nil, ErrAccountProtocol
 	}
 	if res.StatusCode != http.StatusOK {
-		return nil, ErrAccountUpstream
+		common.SysLog(fmt.Sprintf("nous model discovery rejected: host=%s status=%d", nousHostOf(cred.BaseURL), res.StatusCode))
+		return nil, fmt.Errorf("nous model discovery rejected with status %d: %w", res.StatusCode, ErrAccountUpstream)
 	}
 	var body struct {
 		Data []NousModel `json:"data"`
