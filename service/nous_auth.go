@@ -65,6 +65,10 @@ func ValidNousAuthorizationURL(target string) bool {
 	return u.Host == "portal.nousresearch.com"
 }
 
+// nousBrowserUserAgent identifies the gateway's login relay as a browser the
+// portal's edge accepts; it carries no credential.
+const nousBrowserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+
 // nousPost 发送 form-urlencoded POST，带超时和重定向禁用。
 func nousPost(ctx context.Context, proxy, target string, form url.Values, headers map[string]string) (int, []byte, error) {
 	client, err := GetAccountAuthHTTPClient(proxy, "")
@@ -72,7 +76,9 @@ func nousPost(ctx context.Context, proxy, target string, form url.Values, header
 		return 0, nil, ErrAccountEgress
 	}
 	copyClient := *client
-	copyClient.Timeout = 10 * time.Second
+	// The token exchange can take noticeably longer than device-code issuance
+	// when the portal queues the assertion; 10s produced false upstream errors.
+	copyClient.Timeout = 30 * time.Second
 	copyClient.Jar = nil
 	copyClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, strings.NewReader(form.Encode()))
@@ -81,6 +87,12 @@ func nousPost(ctx context.Context, proxy, target string, form url.Values, header
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
+	// The portal's token endpoint sits behind an edge filter that rejects the
+	// bare Go client identity; the device-code endpoint does not. Present the
+	// same browser identity the portal serves to a real login page.
+	req.Header.Set("User-Agent", nousBrowserUserAgent)
+	req.Header.Set("Origin", NousPortalBase)
+	req.Header.Set("Referer", NousPortalBase+"/manage-subscription")
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}

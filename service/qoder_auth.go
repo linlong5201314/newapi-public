@@ -145,7 +145,9 @@ func NewQoderHTTPClient(proxy string) (*http.Client, error) {
 		return nil, ErrAccountEgress
 	}
 	copyClient := *client
-	copyClient.Timeout = 20 * time.Second
+	// Device polling against the regional gateway occasionally exceeds 20s end
+	// to end; a premature deadline surfaced as a false upstream failure.
+	copyClient.Timeout = 30 * time.Second
 	copyClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return &copyClient, nil
 }
