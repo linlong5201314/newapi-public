@@ -110,8 +110,11 @@ func StartNousSignIn(ctx context.Context, proxy string) (*NousTicket, string, er
 		DeviceCode      string `json:"device_code"`
 		UserCode        string `json:"user_code"`
 		VerificationURI string `json:"verification_uri"`
-		ExpiresIn       int    `json:"expires_in"`
-		Interval        int    `json:"interval"`
+		// verification_uri_complete pre-fills the device code so the user lands
+		// on a ready-to-confirm page instead of having to type the code.
+		VerificationURIComplete string `json:"verification_uri_complete"`
+		ExpiresIn               int    `json:"expires_in"`
+		Interval                int    `json:"interval"`
 	}
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		return nil, "", ErrAccountProtocol
@@ -121,6 +124,17 @@ func StartNousSignIn(ctx context.Context, proxy string) (*NousTicket, string, er
 	}
 	if !ValidNousAuthorizationURL(resp.VerificationURI) {
 		return nil, "", ErrAccountProtocol
+	}
+	// Prefer the complete URI (code pre-filled) when the portal supplies it;
+	// fall back to the bare verification page otherwise. Guard against a
+	// mismatched embedded code.
+	verificationURI := resp.VerificationURI
+	if resp.VerificationURIComplete != "" && ValidNousAuthorizationURL(resp.VerificationURIComplete) {
+		if u, parseErr := url.Parse(resp.VerificationURIComplete); parseErr == nil {
+			if embedded := u.Query().Get("user_code"); embedded == "" || embedded == resp.UserCode {
+				verificationURI = resp.VerificationURIComplete
+			}
+		}
 	}
 	interval := resp.Interval
 	if interval < 1 {
@@ -133,11 +147,11 @@ func StartNousSignIn(ctx context.Context, proxy string) (*NousTicket, string, er
 	ticket := &NousTicket{
 		DeviceCode:      resp.DeviceCode,
 		UserCode:        resp.UserCode,
-		VerificationURI: resp.VerificationURI,
+		VerificationURI: verificationURI,
 		Interval:        interval,
 		Until:           until,
 	}
-	return ticket, resp.VerificationURI, nil
+	return ticket, verificationURI, nil
 }
 
 // nousJWTClaims 只解 JWT payload 的 exp/scope，不验签（TLS 保护传输，服务端验签）。
