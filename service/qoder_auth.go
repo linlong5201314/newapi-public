@@ -177,6 +177,8 @@ func (c *qoderClient) request(ctx context.Context, method, target string, header
 		if ctx.Err() != nil {
 			return 0, nil, ctx.Err()
 		}
+		// Operator-facing diagnostic only: host plus transport error text.
+		common.SysLog("qoder transport error: host=" + nousHostOf(target) + " err=" + err.Error())
 		return 0, nil, ErrAccountUpstream
 	}
 	defer resp.Body.Close()
@@ -185,6 +187,7 @@ func (c *qoderClient) request(ctx context.Context, method, target string, header
 		if ctx.Err() != nil {
 			return 0, nil, ctx.Err()
 		}
+		common.SysLog("qoder read error: host=" + nousHostOf(target) + " err=" + err.Error())
 		return 0, nil, ErrAccountUpstream
 	}
 	if len(raw) > 2<<20 {
