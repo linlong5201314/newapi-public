@@ -465,6 +465,22 @@ export function BrowserAccountConnection({
               {t('Generate authorization URL')}
             </Button>
           )}
+          {session?.userCode && (
+            <div className='rounded-lg border p-3'>
+              <p className='text-muted-foreground text-xs'>
+                {t('Enter this device code on the official page')}
+              </p>
+              <div className='mt-1 flex items-center gap-2'>
+                <code className='bg-muted rounded px-2 py-1 font-mono text-lg tracking-widest'>
+                  {session.userCode}
+                </code>
+                <CopyButton
+                  value={session.userCode}
+                  aria-label={t('Copy device code')}
+                />
+              </div>
+            </div>
+          )}
           {session?.authUrl && (
             <>
               <div className='flex items-center gap-2'>

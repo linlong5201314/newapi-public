@@ -152,7 +152,19 @@ func SelfBrokerAccountStart(c *gin.Context) {
 		accountAuthorizationError(c, upstreamErr)
 		return
 	}
-	common.ApiSuccess(c, gin.H{"sessionId": token, "authUrl": grant.AuthURL, "expiresIn": max(1, int(grant.Until-time.Now().Unix())), "interval": grant.Interval, "automaticCallbackSupported": false, "manualCallbackSupported": false, "automaticPollingSupported": true, "completionMode": "device_poll"})
+	common.ApiSuccess(c, gin.H{"sessionId": token, "authUrl": grant.AuthURL, "expiresIn": max(1, int(grant.Until-time.Now().Unix())), "interval": grant.Interval, "automaticCallbackSupported": false, "manualCallbackSupported": false, "automaticPollingSupported": true, "completionMode": "device_poll", "userCode": nousUserCode(grant.Ticket)})
+}
+
+// nousUserCode extracts the Nous Portal device user code from a start ticket
+// so the page can display it for manual entry on the official verification page.
+func nousUserCode(ticket common.RawMessage) string {
+	var nous struct {
+		UserCode string `json:"user_code"`
+	}
+	if common.Unmarshal(ticket, &nous) != nil {
+		return ""
+	}
+	return nous.UserCode
 }
 
 // Device grants are bound to the server-held verifier and original login. A

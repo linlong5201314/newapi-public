@@ -48,6 +48,8 @@ export type NativeAuthorizationSession = {
   manualCallbackSupported?: boolean
   expectedCallback?: string
   completionMode?: string
+  // Device-grant user code for manual entry on the official page (Nous).
+  userCode?: string
 }
 export type NativeAuthorizationResult = {
   done: boolean
