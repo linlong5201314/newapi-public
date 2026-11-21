@@ -67,9 +67,10 @@ func ValidNousAuthorizationURL(target string) bool {
 	return u.Host == "portal.nousresearch.com"
 }
 
-// nousBrowserUserAgent identifies the gateway's login relay as a browser the
-// portal's edge accepts; it carries no credential.
-const nousBrowserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+// NousBrowserUserAgent identifies the gateway's login relay and inference
+// client as a browser the portal's edge accepts; the models endpoint answers
+// 403 to the bare Go client identity. It carries no credential.
+const NousBrowserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
 // nousPost 发送 form-urlencoded POST，带超时和重定向禁用。
 func nousPost(ctx context.Context, proxy, target string, form url.Values, headers map[string]string) (int, []byte, error) {
@@ -92,7 +93,7 @@ func nousPost(ctx context.Context, proxy, target string, form url.Values, header
 	// The portal's token endpoint sits behind an edge filter that rejects the
 	// bare Go client identity; the device-code endpoint does not. Present the
 	// same browser identity the portal serves to a real login page.
-	req.Header.Set("User-Agent", nousBrowserUserAgent)
+	req.Header.Set("User-Agent", NousBrowserUserAgent)
 	req.Header.Set("Origin", NousPortalBase)
 	req.Header.Set("Referer", NousPortalBase+"/manage-subscription")
 	for k, v := range headers {
@@ -355,6 +356,8 @@ func FetchNousModels(ctx context.Context, proxy string, cred *NousCredential) ([
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", "Bearer "+cred.AccessToken)
+	// The inference edge rejects the bare Go client identity with 403.
+	req.Header.Set("User-Agent", NousBrowserUserAgent)
 	res, err := copyClient.Do(req)
 	if err != nil {
 		common.SysLog(fmt.Sprintf("nous model discovery transport error: host=%s err=%v", nousHostOf(cred.BaseURL), err))

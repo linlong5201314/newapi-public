@@ -94,6 +94,8 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, h *http.Header, info *relay
 	}
 	h.Set("Authorization", "Bearer "+cred.AccessToken)
 	h.Set("Content-Type", "application/json")
+	// The inference edge rejects the bare Go client identity with 403.
+	h.Set("User-Agent", service.NousBrowserUserAgent)
 	return nil
 }
 
