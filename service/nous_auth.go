@@ -16,6 +16,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/QuantumNous/new-api/common"
 )
 
 const (
@@ -269,9 +271,15 @@ func PollNousSignIn(ctx context.Context, proxy string, ticket *NousTicket) (*Nou
 	}
 	status, raw, err := nousPost(ctx, proxy, nousTokenURL, form, nil)
 	if err != nil {
+		common.SysLog(fmt.Sprintf("nous token exchange transport error: proxy=%t err=%v", proxy != "", err))
 		return nil, err
 	}
 	if status != http.StatusOK {
+		fragment := strings.TrimSpace(string(raw))
+		if len(fragment) > 160 {
+			fragment = fragment[:160]
+		}
+		common.SysLog(fmt.Sprintf("nous token exchange rejected: status=%d body=%s", status, fragment))
 		// RFC 8628: authorization_pending 继续等，其他错误终止。
 		var errResp struct {
 			Error string `json:"error"`
