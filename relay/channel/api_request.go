@@ -322,6 +322,19 @@ func applyHeaderOverrideToRequest(req *http.Request, headerOverride map[string]s
 	}
 }
 
+// defaultUpstreamUserAgent replaces Go's transport default. Some upstreams reject
+// unknown clients outright ("client_not_allowed"), and Go's Go-http-client/1.1 is
+// the most recognisable non-client signature. A channel-level header override
+// still wins because it is applied after this default.
+const defaultUpstreamUserAgent = "ZCode/1.0 (Windows NT 10.0; Win64; x64)"
+
+func ensureUpstreamUserAgent(req *http.Request) {
+	if req == nil || req.Header.Get("User-Agent") != "" {
+		return
+	}
+	req.Header.Set("User-Agent", defaultUpstreamUserAgent)
+}
+
 func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody io.Reader) (*http.Response, error) {
 	fullRequestURL, err := a.GetRequestURL(info)
 	if err != nil {
@@ -345,6 +358,7 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	if err = ApplyHeaderOverride(info, c, req); err != nil {
 		return nil, err
 	}
+	ensureUpstreamUserAgent(req)
 	resp, err := doRequest(c, req, info)
 	if err != nil {
 		return nil, fmt.Errorf("do request failed: %w", err)
@@ -375,6 +389,7 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
 	if err = ApplyHeaderOverride(info, c, req); err != nil {
 		return nil, err
 	}
+	ensureUpstreamUserAgent(req)
 	resp, err := doRequest(c, req, info)
 	if err != nil {
 		return nil, fmt.Errorf("do request failed: %w", err)
@@ -633,6 +648,7 @@ func DoTaskApiRequest(a TaskAdaptor, c *gin.Context, info *common.RelayInfo, req
 	if err = ApplyHeaderOverride(info, c, req); err != nil {
 		return nil, err
 	}
+	ensureUpstreamUserAgent(req)
 	resp, err := doRequest(c, req, info)
 	if err != nil {
 		return nil, fmt.Errorf("do request failed: %w", err)
