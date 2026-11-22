@@ -31,12 +31,25 @@ const (
 )
 
 // defaultModels 渠道创建时的默认模型清单（get_detail_param 实测常见配置名）。
+// 2026-11 通过渠道 #87 对上游 fetch_models 目录逐个实测，仅保留当前账号
+// 真实可调用的对话模型；子代理/占位/内部模型及 access denied 的付费档不列入。
 var defaultModels = []string{
+	"glm-5.3",
+	"glm-5.3-flash",
+	"glm-5.3-flashx",
 	"glm-5.2",
-	"deepseek-v3.2",
-	"kimi-k2.5",
-	"gpt-5.5",
-	"claude-sonnet-4.5",
+	"kimi-k3",
+	"deepseek-v4.1-flash",
+	"DeepSeek-V4-Pro",
+	"Doubao-Seed-2.1-Pro",
+	"Doubao-Seed-2.1-Turbo",
+	"Doubao-Seed-2.0-Code",
+	"Doubao-Seed-Evolving",
+	"seed-code-pro-0430",
+	"mimo-v2.6-pro",
+	"minimax-m3",
+	"step-5-preview",
+	"aquila",
 }
 
 // Adaptor Trae 渠道 adaptor（无状态；凭据每请求从 info.ApiKey 解析）。
