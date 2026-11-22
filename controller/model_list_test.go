@@ -392,6 +392,46 @@ func TestListModelsIncludesTieredBillingModel(t *testing.T) {
 	require.Empty(t, missingExprPricing.BillingExpr)
 }
 
+// Regression: with the production default (SelfUseModeEnabled=false) the billing
+// allowlist must not hide models the viewer reaches through their own channel or
+// another user's explicitly shared channel. Those channels carry no platform
+// billing entry, yet their models are the viewer's routable capacity and must be
+// listable. Another tenant's private channel stays hidden.
+func TestListModelsOwnerAndSharedChannelsBypassBillingAllowlist(t *testing.T) {
+	withSelfUseModeDisabled(t)
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.Create(&[]model.User{
+		{Id: 9101, Username: "relay-owner", AffCode: "own9101", Group: "default", Status: common.UserStatusEnabled},
+		{Id: 9102, Username: "relay-sharer", AffCode: "shr9102", Group: "default", Status: common.UserStatusEnabled},
+	}).Error)
+	channels := []model.Channel{
+		{Id: 9101, OwnerId: 9101, Name: "own-private", Type: constant.ChannelTypeOpenAI, Models: "own-unpriced-model", Group: "default", Status: common.ChannelStatusEnabled},
+		{Id: 9102, OwnerId: 9102, Visibility: 1, Name: "sharer-public", Type: constant.ChannelTypeOpenAI, Models: "shared-unpriced-model", Group: "default", Status: common.ChannelStatusEnabled},
+		{Id: 9103, OwnerId: 9102, Name: "sharer-private", Type: constant.ChannelTypeOpenAI, Models: "sharer-secret-model", Group: "default", Status: common.ChannelStatusEnabled},
+	}
+	require.NoError(t, db.Create(&channels).Error)
+	for _, channel := range channels {
+		for name := range strings.SplitSeq(channel.Models, ",") {
+			require.NoError(t, db.Create(&model.Ability{Group: channel.Group, Model: name, ChannelId: channel.Id, Enabled: true}).Error)
+		}
+	}
+
+	// The viewer owns 9101 and may see sharer-public 9102, but not sharer-private 9103.
+	// None of these models carry a billing entry; the owner/shared ones must still list.
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	ctx.Set("id", 9101)
+	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
+
+	ListModels(ctx, constant.ChannelTypeOpenAI)
+
+	ids := decodeListModelsResponse(t, recorder)
+	require.Contains(t, ids, "own-unpriced-model", "own channel model must be listable without a billing entry")
+	require.Contains(t, ids, "shared-unpriced-model", "shared channel model must be listable without a billing entry")
+	require.NotContains(t, ids, "sharer-secret-model", "another tenant's private channel must stay hidden")
+}
+
 func TestListModelsUsesAdvancedCustomEndpointTypesFromPricingCache(t *testing.T) {
 	withSelfUseModeEnabled(t)
 	db := setupModelListControllerTestDB(t)

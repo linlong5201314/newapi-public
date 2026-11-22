@@ -282,6 +282,32 @@ func ChannelModelVisibleToOwner(channel *Channel, modelName string, ownerUserID 
 	return subset == nil || subset[servedName]
 }
 
+// ChannelModelTenantOwned reports whether a channel grants this viewer access by
+// tenant ownership rather than by being a platform-catalog entry: the viewer's own
+// channel, or another user's channel explicitly shared (visibility=1). Platform
+// channels (owner_id=0) are catalog entries and deliberately excluded, so a model
+// reachable only through them still answers to the platform billing allowlist.
+func ChannelModelTenantOwned(channel *Channel, ownerUserID int) bool {
+	if channel == nil {
+		return false
+	}
+	if ownerUserID > 0 && channel.OwnerId == ownerUserID {
+		return true
+	}
+	return channel.OwnerId > 0 && channel.Visibility == 1
+}
+
+// HasTenantOwnedChannel reports whether any channel in the list grants access by
+// tenant ownership (own or shared), as opposed to a bare platform-catalog entry.
+func HasTenantOwnedChannel(channels []*Channel, ownerUserID int) bool {
+	for _, channel := range channels {
+		if ChannelModelTenantOwned(channel, ownerUserID) {
+			return true
+		}
+	}
+	return false
+}
+
 func parsePublicModelsSubset(otherInfoRaw string) map[string]bool {
 	trimmed := strings.TrimSpace(otherInfoRaw)
 	if trimmed == "" {

@@ -265,6 +265,16 @@ func ListModels(c *gin.Context, modelType int) {
 		return
 	}
 	models := service.GetGroupsEnabledModelsForOwner(ownerGroups, viewerId)
+	// Resolve channel ownership before the billing-config filter: a model reachable
+	// through the viewer's own channel or another user's explicitly shared channel
+	// must stay listable for this viewer even without a platform billing entry. The
+	// billing allowlist still gates models reachable only through platform-catalog
+	// channels (owner_id=0), which carry no tenant entitlement.
+	channelsByModel, err := model.GetModelChannelsForOwner(models, ownerGroups, viewerId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	for _, modelName := range models {
 		if modelLimitEnable {
 			matchingName := ratio_setting.RoutingMatchModelName(modelName)
@@ -272,16 +282,19 @@ func ListModels(c *gin.Context, modelType int) {
 				continue
 			}
 		}
-		if !acceptUnsetRatioModel && !helper.HasModelBillingConfig(modelName) {
+		tenantOwned := model.HasTenantOwnedChannel(channelsByModel[modelName], viewerId)
+		if !acceptUnsetRatioModel && !tenantOwned && !helper.HasModelBillingConfig(modelName) {
 			continue
 		}
 		userModelNames = append(userModelNames, modelName)
 	}
 
-	channelsByModel, err := model.GetModelChannelsForOwner(userModelNames, ownerGroups, viewerId)
-	if err != nil {
-		common.ApiError(c, err)
-		return
+	if len(userModelNames) != len(models) {
+		filtered := make(map[string][]*model.Channel, len(userModelNames))
+		for _, modelName := range userModelNames {
+			filtered[modelName] = channelsByModel[modelName]
+		}
+		channelsByModel = filtered
 	}
 	endpointOverrides, err := model.GetModelEndpointOverrides(userModelNames)
 	if err != nil {
@@ -388,7 +401,10 @@ func RetrieveModel(c *gin.Context, modelType int) {
 			settings, _ := model.GetUserSetting(viewerID, false)
 			acceptUnset = settings.AcceptUnsetRatioModel
 		}
-		if allowed && (acceptUnset || helper.HasModelBillingConfig(modelID)) {
+		// Same policy as ListModels: own/shared channels entitle the model without a
+		// billing entry; platform-catalog-only models still need one.
+		tenantOwned := model.HasTenantOwnedChannel(channels[modelID], viewerID)
+		if allowed && (acceptUnset || tenantOwned || helper.HasModelBillingConfig(modelID)) {
 			overrides, metadataErr := model.GetModelEndpointOverrides([]string{modelID})
 			if metadataErr != nil {
 				common.ApiError(c, metadataErr)
