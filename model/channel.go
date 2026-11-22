@@ -641,6 +641,37 @@ func (channel *Channel) Update() error {
 	return err
 }
 
+var ErrSelfChannelChanged = errors.New("The channel changed while saving. Reload it and try again")
+
+// SaveVerifiedSelfChannel applies changes checked against a live provider catalog.
+// Reject an outdated snapshot so a concurrent credential change or unpublish
+// cannot silently invalidate the checks made before entering the transaction.
+func SaveVerifiedSelfChannel(original *Channel, updates map[string]any) error {
+	return DB.Transaction(func(tx *gorm.DB) error {
+		var current Channel
+		if err := lockForUpdate(tx).Where("id = ? AND owner_id = ?", original.Id, original.OwnerId).First(&current).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrSelfChannelChanged
+			}
+			return err
+		}
+		if current.Key != original.Key || current.GetBaseURL() != original.GetBaseURL() ||
+			current.Type != original.Type || current.Models != original.Models || current.Group != original.Group ||
+			current.Visibility != original.Visibility || current.OtherInfo != original.OtherInfo ||
+			current.Status != original.Status || current.ChannelInfo.IsMultiKey != original.ChannelInfo.IsMultiKey {
+			return ErrSelfChannelChanged
+		}
+		if err := tx.Model(&current).Updates(updates).Error; err != nil {
+			return err
+		}
+		if models, changed := updates["models"].(string); changed {
+			current.Models = models
+			return current.UpdateAbilities(tx)
+		}
+		return nil
+	})
+}
+
 func (channel *Channel) UpdateResponseTime(responseTime int64) {
 	err := DB.Model(channel).Select("response_time", "test_time").Updates(Channel{
 		TestTime:     common.GetTimestamp(),

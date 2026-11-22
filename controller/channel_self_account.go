@@ -182,7 +182,7 @@ func DefaultModelsForChannel(channel *model.Channel) []string {
 		}
 	}
 	tplID, _ := info["templateId"].(string)
-	if liveFreeCatalogProvider(channel.GetBaseURL(), tplID) != "" {
+	if tplID == constant.XiaoyiWorkTemplateID || liveFreeCatalogProvider(channel.GetBaseURL(), tplID) != "" {
 		return out
 	}
 	if tplId, _ := info["templateId"].(string); tplId != "" {
@@ -282,6 +282,7 @@ func SelfFetchAccountModels(c *gin.Context, channel *model.Channel) ([]string, b
 		secret := model.DecryptChannelKey(channel.Type, channel.Key)
 		var egress service.AccountEgress
 		var models []string
+		var modelLabels map[string]string
 		var err error
 		switch channel.Type {
 		case constant.ChannelTypeQoder:
@@ -295,7 +296,18 @@ func SelfFetchAccountModels(c *gin.Context, channel *model.Channel) ([]string, b
 			if e != nil {
 				err = e
 			} else {
-				models, err = service.FetchQoderModels(c.Request.Context(), proxy, &cred)
+				var catalog []service.QoderModel
+				catalog, err = service.FetchQoderModelCatalog(c.Request.Context(), proxy, &cred)
+				if err == nil {
+					models = make([]string, 0, len(catalog))
+					modelLabels = make(map[string]string, len(catalog))
+					for _, entry := range catalog {
+						models = append(models, entry.Key)
+						if label := strings.TrimSpace(entry.DisplayName); label != "" {
+							modelLabels[entry.Key] = label
+						}
+					}
+				}
 			}
 		case constant.ChannelTypeCline:
 			var cred service.ClineCredential
@@ -351,7 +363,12 @@ func SelfFetchAccountModels(c *gin.Context, channel *model.Channel) ([]string, b
 			common.ApiError(c, err)
 			return nil, true
 		}
-		common.ApiSuccess(c, models)
+		// Labels are live display metadata only; persisted and routed models stay keys.
+		if modelLabels != nil {
+			c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": models, "model_labels": modelLabels})
+		} else {
+			common.ApiSuccess(c, models)
+		}
 		return models, true
 	}
 	key := model.DecryptChannelKey(channel.Type, channel.Key)

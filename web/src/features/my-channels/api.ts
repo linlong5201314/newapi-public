@@ -105,6 +105,7 @@ export type SelfChannelDetail = {
   proxy_configured?: boolean
   models: string[]
   all_models?: string[]
+  unavailable_models?: string[]
   public_models?: string[]
   health: {
     channel_id: number
@@ -511,11 +512,16 @@ export async function saveChannelModels(
     publicModels: string[]
     allModels: string[]
     tier: string
+    shareConfirmed?: boolean
+    verifiedAccountCatalog?: boolean
   }
 ): Promise<void> {
-  requireServerSuccess(
-    await updateChannel(id, { models: data.models.join(',') })
-  )
+  // Verified account channels save their enablement and publication together.
+  if (!data.verifiedAccountCatalog) {
+    requireServerSuccess(
+      await updateChannel(id, { models: data.models.join(',') })
+    )
+  }
   const response = await api.post(
     `${SELF_BASE}/visibility`,
     {
@@ -523,11 +529,23 @@ export async function saveChannelModels(
       visibility: data.publicModels.length > 0 ? 1 : 0,
       tier: data.tier,
       publicModels: data.publicModels,
-      allModels: [
-        ...new Set([...data.allModels, ...data.models, ...data.publicModels]),
-      ],
+      ...(data.verifiedAccountCatalog
+        ? { models: data.models, share_confirmed: data.shareConfirmed === true }
+        : {
+            allModels: [
+              ...new Set([
+                ...data.allModels,
+                ...data.models,
+                ...data.publicModels,
+              ]),
+            ],
+          }),
     },
-    channelActionConfig()
+    channelActionConfig(
+      data.verifiedAccountCatalog
+        ? { headers: { 'X-Account-Action': 'authorize' } }
+        : undefined
+    )
   )
   requireServerSuccess(response.data)
 }

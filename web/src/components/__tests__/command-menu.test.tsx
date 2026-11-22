@@ -28,12 +28,12 @@ import userEvent from '@testing-library/user-event'
 import { afterAll, afterEach, beforeAll, expect, test, vi } from 'vitest'
 
 import { SearchProvider } from '@/context/search-provider'
+import { api } from '@/lib/api'
 import { ROLE } from '@/lib/roles'
 import { STATUS_QUERY_KEY } from '@/lib/status-query'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { CommandMenu } from '../command-menu'
-import { api } from '@/lib/api'
 import { Search } from '../search'
 
 const adminEntries = ['Channels', 'Models', 'Users', 'Redemption Codes']

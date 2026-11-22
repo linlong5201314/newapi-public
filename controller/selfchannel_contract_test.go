@@ -183,6 +183,8 @@ func TestSelfChannelDedicatedSourceGuards(t *testing.T) {
 		{"freepi template", "/from_template", `{"templateId":"freepi","key":"arbitrary-token"}`, AddSelfChannelFromTemplate, "GitHub device authorization"},
 		{"freepi binding", "/bindings", `{"provider":"freepi","accounts":"arbitrary-token"}`, CreateSelfBinding, "GitHub device authorization"},
 		{"opencode template", "/from_template", `{"templateId":"opencode-free"}`, AddSelfChannelFromTemplate, "Unknown templateId"},
+		{"retired DS2API template", "/from_template", `{"templateId":"ds2api"}`, AddSelfChannelFromTemplate, "Unknown templateId"},
+		{"retired DS2API binding", "/bindings", `{"provider":"ds2api"}`, CreateSelfBinding, "未知的提供方"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := selfContractRequest(9, http.MethodPost, tc.path, tc.body, tc.handler)

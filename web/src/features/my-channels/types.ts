@@ -221,6 +221,8 @@ export interface FetchModelsResponse {
   success: boolean
   message?: string
   data?: string[]
+  model_labels?: Record<string, string>
+  unavailable_models?: string[]
 }
 
 export interface CopyChannelResponse {

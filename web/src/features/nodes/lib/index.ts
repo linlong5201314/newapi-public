@@ -1024,7 +1024,9 @@ function normalizeDeployment(value: unknown): RailwayServiceDeployment | null {
   }
 }
 
-function normalizeRailwayServiceEntry(value: unknown): RailwayServiceEntry | null {
+function normalizeRailwayServiceEntry(
+  value: unknown
+): RailwayServiceEntry | null {
   const record = asRecord(value)
   if (!record) return null
   const name = toText(firstValue(record, ['name', 'Name']))
@@ -1054,18 +1056,26 @@ function normalizeRailwayServiceEntry(value: unknown): RailwayServiceEntry | nul
   }
 }
 
-function normalizeWorkspaceBilling(value: unknown): RailwayWorkspaceBilling | null {
+function normalizeWorkspaceBilling(
+  value: unknown
+): RailwayWorkspaceBilling | null {
   const record = asRecord(value)
   if (!record) return null
-  const workspaceId = toText(firstValue(record, ['workspace_id', 'workspaceId']))
+  const workspaceId = toText(
+    firstValue(record, ['workspace_id', 'workspaceId'])
+  )
   if (!workspaceId) return null
   return {
     workspaceId,
     unit: toText(firstValue(record, ['unit'])) || 'USD',
     currency: toText(firstValue(record, ['currency'])) || 'USD',
     period: toText(firstValue(record, ['period'])) || 'monthly',
-    creditBalance: toNumber(firstValue(record, ['credit_balance', 'creditBalance'])),
-    currentUsage: toNumber(firstValue(record, ['current_usage', 'currentUsage'])),
+    creditBalance: toNumber(
+      firstValue(record, ['credit_balance', 'creditBalance'])
+    ),
+    currentUsage: toNumber(
+      firstValue(record, ['current_usage', 'currentUsage'])
+    ),
     remainingUsageCreditBalance: toNumber(
       firstValue(record, [
         'remaining_usage_credit_balance',
@@ -1113,12 +1123,12 @@ export function normalizeRailwayServicesSummary(
 ): RailwayServicesSummary {
   const envelope = asRecord(value)
   const data = asRecord(envelope?.data) ?? envelope ?? {}
-  const services = asArray(
-    firstValue(data, ['services', 'Services', 'items'])
-  )
+  const services = asArray(firstValue(data, ['services', 'Services', 'items']))
     .map((item) => normalizeRailwayServiceEntry(item))
     .filter((entry): entry is RailwayServiceEntry => entry !== null)
-  const billing = asArray(firstValue(data, ['billing', 'Billing', 'workspaces']))
+  const billing = asArray(
+    firstValue(data, ['billing', 'Billing', 'workspaces'])
+  )
     .map((item) => normalizeWorkspaceBilling(item))
     .filter((entry): entry is RailwayWorkspaceBilling => entry !== null)
   return {

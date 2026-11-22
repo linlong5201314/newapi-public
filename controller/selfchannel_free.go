@@ -95,10 +95,15 @@ func AddSelfChannelFromTemplate(c *gin.Context) {
 		// AllModels is the full discovered catalog, independent of the selected subset.
 		AllModels []string `json:"all_models"`
 		// PublicModels 用户勾选要公开到「公共池」的模型子集（支持部分公开）
-		PublicModels []string `json:"public_models"`
+		PublicModels   []string `json:"public_models"`
+		ShareConfirmed bool     `json:"share_confirmed"`
 	}{}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ApiErrorT(c, "Invalid parameters")
+		return
+	}
+	if strings.TrimSpace(req.TemplateId) == constant.XiaoyiWorkTemplateID {
+		common.ApiErrorMsg(c, "Use Huawei browser authorization to connect Xiaoyi Work")
 		return
 	}
 	tpl := constant.GetFreeSourceTemplate(req.TemplateId)
@@ -500,12 +505,14 @@ func normalizeMultiKeyMode(m string) constant.MultiKeyMode {
 func SetSelfChannelVisibility(c *gin.Context) {
 	uid := c.GetInt("id")
 	var req struct {
-		ChannelId    int      `json:"channelId"`
-		Visibility   int      `json:"visibility"`
-		Tier         string   `json:"tier"`
-		AllowIps     string   `json:"allowIps"`
-		PublicModels []string `json:"publicModels"`
-		AllModels    []string `json:"allModels"`
+		ChannelId      int      `json:"channelId"`
+		Visibility     int      `json:"visibility"`
+		Tier           string   `json:"tier"`
+		AllowIps       string   `json:"allowIps"`
+		PublicModels   []string `json:"publicModels"`
+		AllModels      []string `json:"allModels"`
+		Models         []string `json:"models"`
+		ShareConfirmed bool     `json:"share_confirmed"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || req.ChannelId <= 0 {
 		common.ApiErrorT(c, "Invalid parameters")
@@ -518,6 +525,10 @@ func SetSelfChannelVisibility(c *gin.Context) {
 	info := channel.GetOtherInfo()
 	if info == nil {
 		info = map[string]any{}
+	}
+	if isXiaoyiWorkChannel(channel) {
+		saveXiaoyiWorkModelSelection(c, req.ChannelId, normalizeChannelVisibility(req.Visibility), req.Models, req.PublicModels, req.ShareConfirmed)
+		return
 	}
 	if req.PublicModels != nil {
 		selected := make(map[string]bool)
@@ -733,6 +744,10 @@ func ProbeTemplateModels(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ApiErrorMsg(c, "invalid request body")
+		return
+	}
+	if strings.TrimSpace(req.TemplateId) == constant.XiaoyiWorkTemplateID {
+		common.ApiErrorMsg(c, "Complete Huawei browser authorization to discover Xiaoyi Work models")
 		return
 	}
 	tpl := constant.GetFreeSourceTemplate(req.TemplateId)

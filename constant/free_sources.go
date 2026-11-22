@@ -18,6 +18,8 @@ import (
 //go:embed free_sources.json
 var freeSourcesJSON []byte
 
+const XiaoyiWorkTemplateID = "xiaoyiwork"
+
 // FreeSourceTemplate 一条免费源模板。
 type FreeSourceTemplate struct {
 	Id          string   `json:"id"`

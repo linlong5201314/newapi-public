@@ -270,7 +270,12 @@ function DemoSession(props: { userId: number }) {
             onSubmit={() => {
               if (
                 canSend &&
-                chat.send(input, selectedModel, effectiveGroup, chat.attachments)
+                chat.send(
+                  input,
+                  selectedModel,
+                  effectiveGroup,
+                  chat.attachments
+                )
               ) {
                 setInput('')
                 chat.clearAttachments()

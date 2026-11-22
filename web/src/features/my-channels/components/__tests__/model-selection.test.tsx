@@ -94,13 +94,17 @@ it('inverts the enabled selection and drops public models that are no longer ena
   render(<SelectionFixture />)
   // Initially deepseek-chat is enabled; qwen-coder is not.
   expect(
-    screen.getByRole('checkbox', { name: 'Enable deepseek-chat in my channels' })
+    screen.getByRole('checkbox', {
+      name: 'Enable deepseek-chat in my channels',
+    })
   ).toBeChecked()
   await user.click(
     screen.getByRole('button', { name: 'Invert selection for my channels' })
   )
   expect(
-    screen.getByRole('checkbox', { name: 'Enable deepseek-chat in my channels' })
+    screen.getByRole('checkbox', {
+      name: 'Enable deepseek-chat in my channels',
+    })
   ).not.toBeChecked()
   expect(
     screen.getByRole('checkbox', { name: 'Enable qwen-coder in my channels' })
@@ -110,7 +114,9 @@ it('inverts the enabled selection and drops public models that are no longer ena
     screen.getByRole('button', { name: 'Invert selection for my channels' })
   )
   expect(
-    screen.getByRole('checkbox', { name: 'Enable deepseek-chat in my channels' })
+    screen.getByRole('checkbox', {
+      name: 'Enable deepseek-chat in my channels',
+    })
   ).toBeChecked()
   expect(
     screen.getByRole('checkbox', { name: 'Enable qwen-coder in my channels' })

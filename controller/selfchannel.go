@@ -214,7 +214,7 @@ func AddSelfChannel(c *gin.Context) {
 		return
 	}
 
-	if addChannelRequest.Channel.Type == constant.ChannelTypeZCode {
+	if addChannelRequest.Channel.Type == constant.ChannelTypeZCode || isXiaoyiWorkChannel(addChannelRequest.Channel) {
 		common.ApiErrorMsg(c, "Use the dedicated account connection flow for this provider")
 		return
 	}
@@ -284,6 +284,18 @@ func UpdateSelfChannel(c *gin.Context) {
 	if !ok {
 		return
 	}
+	originalSnapshot := *original
+	if isXiaoyiWorkChannel(original) {
+		if err := updateXiaoyiWorkChannel(c, original, patch.Id, req); err != nil {
+			common.ApiErrorMsg(c, err.Error())
+			return
+		}
+		model.InitChannelCache()
+		*original = originalSnapshot
+		sanitizeSelfChannel(original)
+		common.ApiSuccess(c, original)
+		return
+	}
 	if original.Type == constant.ChannelTypeZCode || patch.Type == constant.ChannelTypeZCode {
 		if original.Type != constant.ChannelTypeZCode {
 			common.ApiErrorMsg(c, "Use the dedicated account connection flow for this provider")
@@ -325,11 +337,11 @@ func UpdateSelfChannel(c *gin.Context) {
 			}
 		}
 	}
+	templateID, _ := original.GetOtherInfo()["templateId"].(string)
 	if err := prepareSelfChannelUpdate(c.GetInt("id"), original, req); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	templateID, _ := original.GetOtherInfo()["templateId"].(string)
 	if liveFreeCatalogProvider(original.GetBaseURL(), templateID) != "" {
 		if _, changing := req["models"]; changing {
 			proxy, err := model.ResolveChannelProxyPolicy(c.GetInt("id"), original.GetSetting())
@@ -460,6 +472,29 @@ func FetchSelfChannelModels(c *gin.Context) {
 	if !ok {
 		return
 	}
+	if isXiaoyiWorkChannel(channel) {
+		session, err := xiaoyiWorkSessionForChannel(channel)
+		if err != nil {
+			common.ApiErrorMsg(c, err.Error())
+			return
+		}
+		catalog, err := fetchXiaoyiWorkCatalog(c.Request.Context(), "", session)
+		if err != nil {
+			common.ApiErrorMsg(c, err.Error())
+			return
+		}
+		original := *channel
+		if err := saveXiaoyiWorkSession(channel, session); err != nil {
+			common.ApiErrorMsg(c, err.Error())
+			return
+		}
+		if err := model.SaveVerifiedSelfChannel(&original, map[string]any{"key": channel.Key}); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": catalog.available, "unavailable_models": catalog.previews, "model_labels": catalog.labels()})
+		return
+	}
 	// M3 账号型渠道（workbuddy/trae/cline/raccoon）：走各自上游模型端点 + 完整内置池回退。
 	if _, handled := SelfFetchAccountModels(c, channel); handled {
 		return
@@ -541,6 +576,10 @@ func CopySelfChannel(c *gin.Context) {
 	if (origin.Type == constant.ChannelTypeTaskPlugin || len(origin.GetSetting().TaskPluginBindings()) > 0) &&
 		!authz.Can(uid, c.GetInt("role"), authz.TaskPluginBind) {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "task plugin channels require the task_plugin.bind permission"})
+		return
+	}
+	if isXiaoyiWorkChannel(origin) {
+		common.ApiErrorMsg(c, "Reconnect the Xiaoyi Work account to create another channel")
 		return
 	}
 	if !checkSelfChannelLimit(c, 1) {

@@ -20,7 +20,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
   CheckSquare,
-  Copy,
   ExternalLink,
   Gift,
   KeyRound,
@@ -50,13 +49,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
-  cancelDs2ApiOAuth,
   cancelWorkbuddyOAuth,
   createBinding,
   importTrae,
-  pollDs2ApiOAuth,
   pollWorkbuddyOAuth,
-  startDs2ApiOAuth,
   startWorkbuddyOAuth,
   type OAuthSession,
 } from '@/features/account-bindings/api'
@@ -85,6 +81,7 @@ import { channelsQueryKeys } from '../../lib'
 import { isChannelProxySelectionComplete } from '../../lib/channel-proxy'
 import { ChannelModelSelection } from '../channel-model-selection'
 import { ChannelProxySelector } from '../channel-proxy-selector'
+import { XiaoyiWorkConnection } from './xiaoyi-work-connection'
 
 type FromTemplateDialogProps = {
   open: boolean
@@ -117,7 +114,8 @@ function classifyTemplate(
     tpl.authMode === 'account' ||
     tpl.authMode === 'oauth' ||
     tpl.authMode === 'gateway' ||
-    tpl.authMode === 'bridge'
+    tpl.authMode === 'bridge' ||
+    tpl.authMode === 'magpie'
   ) {
     return 'auth'
   }
@@ -183,39 +181,8 @@ export function FromTemplateDialog({
   const wbPopup = useRef<Window | null>(null)
   const [oauthRealm, setOauthRealm] = useState<'cn' | 'global'>('cn')
   const [wbSession, setWbSession] = useState<OAuthSession | null>(null)
-  const [ds2apiSession, setDs2apiSession] = useState<OAuthSession | null>(null)
   const [oauthStatusText, setOauthStatusText] = useState('')
   const [authStarting, setAuthStarting] = useState(false)
-  const authRequest = useRef(0)
-  const pendingDs2 = useRef<string | null>(null)
-  const authPopup = useRef<Window | null>(null)
-
-  useEffect(() => {
-    if (open) return
-    authRequest.current++
-    setAuthStarting(false)
-    const state = pendingDs2.current
-    pendingDs2.current = null
-    setDs2apiSession(null)
-    authPopup.current?.close()
-    if (state) {
-      void cancelDs2ApiOAuth(state).catch((error: unknown) =>
-        handleServerError(error)
-      )
-    }
-  }, [open])
-
-  useEffect(
-    () => () => {
-      authRequest.current++
-      authPopup.current?.close()
-      if (pendingDs2.current) {
-        void cancelDs2ApiOAuth(pendingDs2.current).catch(() => undefined)
-      }
-    },
-    []
-  )
-
   useEffect(() => {
     setTraeConfirmed(false)
     if (open && selected?.id === 'workbuddy') return
@@ -286,7 +253,6 @@ export function FromTemplateDialog({
     setTraeUid('')
     setOauthStatusText('')
     setWbSession(null)
-    setDs2apiSession(null)
     setIsSubmitting(false)
   }, [open])
 
@@ -393,62 +359,10 @@ export function FromTemplateDialog({
     }
   }, [wbSession, open, queryClient, onOpenChange, t])
 
-  // Sequential owner-scoped polling; errors and expiry are terminal.
-  useEffect(() => {
-    if (!ds2apiSession || !open) return
-    let active = true
-    let timer: ReturnType<typeof setTimeout>
-    const expiresAt = Date.now() + (ds2apiSession.expiresIn ?? 300) * 1000
-    const poll = async () => {
-      try {
-        if (Date.now() >= expiresAt) {
-          throw new Error(t('Account login session not found or expired'))
-        }
-        const res = await pollDs2ApiOAuth(ds2apiSession.sessionId)
-        if (!active) return
-        if (!res.done) {
-          timer = setTimeout(() => {
-            void poll()
-          }, 2500)
-          return
-        }
-        pendingDs2.current = null
-        setDs2apiSession(null)
-        toast.success(
-          t('Account login completed; channel #{{id}} created', {
-            id: res.channel?.id,
-          })
-        )
-        void queryClient.invalidateQueries({
-          queryKey: channelsQueryKeys.lists(),
-        })
-        onOpenChange(false)
-      } catch (error) {
-        if (!active) return
-        const state = pendingDs2.current
-        pendingDs2.current = null
-        setDs2apiSession(null)
-        setOauthStatusText(
-          t(
-            'Account login stopped. Start again after checking your dashboard session'
-          )
-        )
-        if (state) void cancelDs2ApiOAuth(state).catch(() => undefined)
-        handleServerError(error)
-      }
-    }
-    timer = setTimeout(() => {
-      void poll()
-    }, 2500)
-    return () => {
-      active = false
-      clearTimeout(timer)
-    }
-  }, [ds2apiSession, open, queryClient, onOpenChange, t])
-
   const templateKind = selected ? classifyTemplate(selected) : 'api'
   const isSubscription = templateKind === 'sub'
   const isAuthTemplate = templateKind === 'auth'
+  const isXiaoyiWork = selected?.id === 'xiaoyiwork'
   const webAccountProvider = ((): WebAccountProvider | null => {
     if (selected?.id === 'xiaohuanxiong') return 'raccoon'
     if (
@@ -500,6 +414,12 @@ export function FromTemplateDialog({
     },
   } as const
   const presentation = templatePresentation[templateKind]
+  let description = '选择 API 密钥、IP 免费层、账号授权或订阅来源。'
+  if (isXiaoyiWork) {
+    description = t('Authorize your Huawei account. New API discovers and calls your Xiaoyi Work models directly.')
+  } else if (selected) {
+    description = `${selected.name} — ${presentation.description}`
+  }
   const authorizationUrls: Record<string, string> = {
     'trae-cn': 'https://www.trae.cn',
     'cline-account': 'https://app.cline.bot',
@@ -507,7 +427,6 @@ export function FromTemplateDialog({
     'nous-portal': 'https://portal.nousresearch.com',
   }
   const tokenPlaceholders: Record<string, string> = {
-    ds2api: t('Paste an existing token, or use the account login link above.'),
     'trae-cn': t(
       'Use your own refresh token or the official http://127.0.0.1:port/authorize callback.'
     ),
@@ -542,6 +461,7 @@ export function FromTemplateDialog({
         'xiaomi-mimo',
         'zcode-bigmodel',
         'zcode-zai',
+        'xiaoyiwork',
       ].includes(selected.id)
     ) {
       return false
@@ -738,73 +658,6 @@ export function FromTemplateDialog({
     }
   }
 
-  const startDs2ApiFlow = async () => {
-    if (authStarting) return
-    const request = ++authRequest.current
-    // Reserve on the user gesture, before awaiting the network.
-    const popup = window.open('about:blank', '_blank')
-    if (popup) popup.opener = null
-    authPopup.current = popup
-    setAuthStarting(true)
-    setOauthStatusText(t('Creating an account login link...'))
-    try {
-      if (pendingDs2.current) await cancelDs2ApiOAuth(pendingDs2.current)
-      pendingDs2.current = null
-      const sess = await startDs2ApiOAuth({
-        proxy: resolveOutboundProxy(),
-        proxy_policy: proxyPolicy,
-        models: myModels,
-        all_models: availableModels,
-        public_models: publicModels,
-      })
-      if (!sess) throw new Error(t('Unable to create account login session'))
-      if (request !== authRequest.current) {
-        popup?.close()
-        await cancelDs2ApiOAuth(sess.sessionId)
-        return
-      }
-      pendingDs2.current = sess.sessionId
-      setDs2apiSession(sess)
-      if (popup && !popup.closed) {
-        popup.location.href = sess.authUrl
-        setOauthStatusText(
-          t(
-            'Open the account login page and sign in with your own account. The channel is created after login.'
-          )
-        )
-      } else {
-        setOauthStatusText(
-          t(
-            'Your browser blocked the login window. Use Open account login page to continue.'
-          )
-        )
-      }
-    } catch (error) {
-      popup?.close()
-      if (request === authRequest.current) {
-        setDs2apiSession(null)
-        setOauthStatusText(t('Unable to create account login session'))
-        handleServerError(error)
-      }
-    } finally {
-      if (request === authRequest.current) setAuthStarting(false)
-    }
-  }
-
-  const cancelDs2Flow = async () => {
-    if (!ds2apiSession) return
-    const state = ds2apiSession.sessionId
-    try {
-      await cancelDs2ApiOAuth(state)
-      pendingDs2.current = null
-      setDs2apiSession(null)
-      authPopup.current?.close()
-      setOauthStatusText(t('Account login was cancelled. Start again'))
-    } catch (error) {
-      handleServerError(error)
-    }
-  }
-
   const handleSubmit = async () => {
     if (!selected || !canSubmit) return
     setIsSubmitting(true)
@@ -895,7 +748,7 @@ export function FromTemplateDialog({
           }
         }
 
-        // DS2API / 小浣熊 / Magpie 等：提交 Token 绑定（自带每号独立虚拟设备指纹）
+        // 需要单独开通的账号来源：提交 Token 绑定（自带每号独立虚拟设备指纹）
         const bindRes = await createBinding({
           provider: selected.id,
           accounts: raw,
@@ -983,6 +836,7 @@ export function FromTemplateDialog({
       (tpl) =>
         !tpl.id.startsWith('opencode-') &&
         tpl.id !== 'trae-intl' &&
+        tpl.id !== 'ds2api' &&
         (categoryTab === 'all' || classifyTemplate(tpl) === categoryTab)
     )
   }, [templates, categoryTab])
@@ -1001,14 +855,10 @@ export function FromTemplateDialog({
             <Gift className='size-4' />
             添加免费源 / 授权创建渠道
           </DialogTitle>
-          <DialogDescription>
-            {selected
-              ? `${selected.name} — ${presentation.description}`
-              : '严格区分「API 密钥免费层」「IP 免费层（免密钥换 IP）」与「Token/OAuth 账号授权（WorkBuddy / Trae / 小浣熊 / Cline / Qoder CN / 书生·端砚 / DS2API）」。'}
-          </DialogDescription>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
-        {selected === null ? (
+        {selected === null && (
           <div className='flex min-h-0 flex-1 flex-col gap-3 overflow-hidden'>
             {/* 分类切换栏 */}
             <div className='flex flex-wrap gap-1.5 border-b pb-2 text-xs'>
@@ -1016,7 +866,7 @@ export function FromTemplateDialog({
                 [
                   ['all', '全部来源'],
                   ['ip', '🌐 IP 免费层（免密钥·换 IP 用）'],
-                  ['auth', '🛡️ Token / OAuth 授权（Trae/小浣熊/Qoder/DS2API）'],
+                  ['auth', t('Account authorization')],
                   ['api', '🔑 API 密钥免费层（需 API Key）'],
                   ['sub', '✈️ 机场订阅'],
                 ] as const
@@ -1106,7 +956,11 @@ export function FromTemplateDialog({
               )}
             </div>
           </div>
-        ) : (
+        )}
+        {isXiaoyiWork && (
+          <XiaoyiWorkConnection />
+        )}
+        {selected && !isXiaoyiWork && (
           <div className='flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1'>
             {/* 顶部模板说明卡 */}
             <div className='border-border/60 rounded-lg border p-3'>
@@ -1305,92 +1159,6 @@ export function FromTemplateDialog({
                         >
                           {t('Open official Raccoon client')}
                         </a>
-                      </div>
-                    )}
-
-                    {/* DS2API 一键生成授权链接 → 复制去浏览器登录 → 自动返回开通渠道 */}
-                    {selected.id === 'ds2api' && (
-                      <div className='border-primary/30 bg-primary/5 space-y-2 rounded-lg border p-3 text-xs'>
-                        <div className='flex flex-wrap items-center justify-between gap-2'>
-                          <span className='text-foreground font-medium'>
-                            {t(
-                              'Create an account login link and sign in with your own DeepSeek account. This is not browser OAuth.'
-                            )}
-                          </span>
-                          <div className='flex flex-wrap gap-1.5'>
-                            <Button
-                              size='sm'
-                              type='button'
-                              className='h-8 text-xs'
-                              onClick={() => void startDs2ApiFlow()}
-                              disabled={authStarting}
-                            >
-                              {ds2apiSession
-                                ? t('Regenerate account login link')
-                                : t('Create account login link')}
-                            </Button>
-                            {ds2apiSession && (
-                              <>
-                                <Button
-                                  size='sm'
-                                  variant='outline'
-                                  type='button'
-                                  onClick={() => void cancelDs2Flow()}
-                                >
-                                  {t('Cancel authorization')}
-                                </Button>
-                                <Button
-                                  size='sm'
-                                  variant='secondary'
-                                  type='button'
-                                  className='h-8 text-xs'
-                                  onClick={() => {
-                                    void navigator.clipboard
-                                      ?.writeText(ds2apiSession.authUrl)
-                                      .then(() =>
-                                        toast.success('授权链接已复制')
-                                      )
-                                  }}
-                                >
-                                  <Copy className='me-1 size-3.5' />
-                                  复制链接
-                                </Button>
-                                <Button
-                                  size='sm'
-                                  variant='outline'
-                                  type='button'
-                                  className='h-8 text-xs'
-                                  onClick={() =>
-                                    window.open(
-                                      ds2apiSession.authUrl,
-                                      '_blank',
-                                      'noopener,noreferrer'
-                                    )
-                                  }
-                                >
-                                  <ExternalLink className='me-1 size-3.5' />
-                                  {t('Open account login page')}
-                                </Button>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                        {ds2apiSession && (
-                          <Input
-                            readOnly
-                            value={ds2apiSession.authUrl}
-                            onClick={(e) =>
-                              (e.target as HTMLInputElement).select()
-                            }
-                            className='h-8 font-mono text-xs'
-                          />
-                        )}
-                        {oauthStatusText && (
-                          <div className='text-primary flex items-center gap-1.5'>
-                            <Loader2 className='size-3.5 animate-spin' />
-                            <span>{oauthStatusText}</span>
-                          </div>
-                        )}
                       </div>
                     )}
 
@@ -1777,7 +1545,7 @@ export function FromTemplateDialog({
           <Button variant='outline' onClick={() => onOpenChange(false)}>
             {t('Cancel')}
           </Button>
-          {selected !== null && !isZCodeTemplate && (
+          {selected !== null && !isZCodeTemplate && !isXiaoyiWork && (
             <Button
               onClick={() => void handleSubmit()}
               disabled={!canSubmit || isSubmitting}

@@ -2,9 +2,12 @@ package qoder
 
 import (
 	"bytes"
+	"context"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -14,7 +17,9 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -95,6 +100,8 @@ func TestQoderStreamFailsClosed(t *testing.T) {
 		{"truncated-after-stop", stop, service.ErrAccountProtocol},
 		{"done-without-finish", nativeFrame(t, "[DONE]", 200), service.ErrAccountProtocol},
 		{"late-error-not-hidden", stop + nativeFrame(t, "token-secret", 403), service.ErrAccountUpstream},
+		{"rejection-without-body", "data: {\"statusCodeValue\":403}\n\n", service.ErrAccountUpstream},
+		{"rejection-with-null-body", "data: {\"statusCodeValue\":403,\"body\":null}\n\n", service.ErrAccountUpstream},
 		{"inner-error", nativeFrame(t, `{"error":{"message":"token-secret"}}`, 200), service.ErrAccountUpstream},
 		{"malformed", "data:{invalid\n\n", service.ErrAccountProtocol},
 		{"negative-usage", nativeFrame(t, `{"usage":{"prompt_tokens":-1}}`, 200), service.ErrAccountProtocol},
@@ -152,4 +159,28 @@ func TestQoderQueueNoticeNestedEnvelope(t *testing.T) {
 	require.False(t, qoderQueueNotice(`{"code":"403","message":"{\"code\":\"10605\",\"message\":\"{\\\"isQueued\\\":false,\\\"subCode\\\":\\\"RESOURCE_LIMIT\\\"}\",\"subCode\":\"RESOURCE_LIMIT\"}"}`))
 	require.False(t, qoderQueueNotice(`{"code":"403","message":"ordinary rejection"}`))
 	require.False(t, qoderQueueNotice(""))
+}
+
+func TestQoderQueuedResponseDoesNotCommitStream(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprint(stream), func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			body := &qoderTrackedBody{Reader: bytes.NewReader([]byte(nativeFrame(t, `{"isQueued":true,"subCode":"RESOURCE_LIMIT"}`, 403)))}
+			response := &http.Response{StatusCode: http.StatusOK, Body: body, Header: http.Header{}}
+			info := &relaycommon.RelayInfo{IsStream: stream, ChannelMeta: &relaycommon.ChannelMeta{}}
+			info.UpstreamModelName = "auto"
+			_, apiError := (&Adaptor{}).DoResponse(c, response, info)
+			require.ErrorIs(t, apiError, service.ErrQoderQueued)
+			assert.Equal(t, types.ErrorCode("qoder_queued"), apiError.GetErrorCode())
+			assert.Equal(t, http.StatusTooManyRequests, apiError.StatusCode)
+			assert.True(t, types.IsSkipRetryError(apiError))
+			assert.False(t, c.Writer.Written(), "queued replies must not commit SSE success headers")
+			assert.Empty(t, recorder.Body.String())
+			assert.True(t, body.closed)
+			outcome := service.ClassifyModelProbeError(context.Background(), apiError)
+			assert.Equal(t, "unknown", outcome.Status)
+			assert.Equal(t, "rate_limited", outcome.Reason)
+		})
+	}
 }

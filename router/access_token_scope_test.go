@@ -55,11 +55,6 @@ var accessTokenExemptRoutes = []string{
 	"POST /api/user/auth/refresh",
 	"POST /api/user/auth/logout",
 
-	// Browser-direct DS2 login page and credential form: no UserAuth by design
-	// (the flow proves dashboard identity via the encrypted session state).
-	"GET /api/user/auth/ds2api/login",
-	"POST /api/user/auth/ds2api/credentials",
-
 	// Payment callbacks.
 	"POST /api/stripe/webhook",
 	"POST /api/creem/webhook",

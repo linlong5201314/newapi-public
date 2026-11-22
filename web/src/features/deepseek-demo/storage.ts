@@ -72,8 +72,7 @@ function isAttachment(value: unknown): value is DemoAttachment {
     typeof record.name === 'string' &&
     (record.kind === 'image' || record.kind === 'text') &&
     typeof record.dataUrl === 'string' &&
-    (record.textContent === undefined ||
-      typeof record.textContent === 'string')
+    (record.textContent === undefined || typeof record.textContent === 'string')
   )
 }
 

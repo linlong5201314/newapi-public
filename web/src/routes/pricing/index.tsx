@@ -24,6 +24,10 @@ import { getModuleAccessForGuard } from '@/lib/nav-modules'
 import { useAuthStore } from '@/stores/auth-store'
 
 const pricingSearchSchema = z.object({
+  source: z
+    .enum(['site', 'platform_free', 'user_shared', 'owner'])
+    .optional()
+    .catch(undefined),
   search: z.string().optional(),
   sort: z.string().optional(),
   vendor: z.string().optional(),

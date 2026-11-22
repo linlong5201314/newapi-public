@@ -57,7 +57,10 @@ describe('demo attachment validation', () => {
       },
     ]
     expect(existing).toHaveLength(MAX_ATTACHMENTS)
-    const result = await readDemoAttachments([textFile('four.txt', 4)], existing)
+    const result = await readDemoAttachments(
+      [textFile('four.txt', 4)],
+      existing
+    )
     expect(result.added).toHaveLength(0)
     expect(result.rejected).toHaveLength(1)
   })

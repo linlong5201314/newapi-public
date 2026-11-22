@@ -54,10 +54,10 @@ func registerSelfChannelRoutes(apiRouter *gin.RouterGroup) {
 		// Raccoon: explicit unavailable capability; upstream supports loopback only.
 		selfChannelRoute.POST("/oauth/raccoon/start", controller.SelfRaccoonOAuthStart)
 		selfChannelRoute.GET("/oauth/raccoon/poll", controller.SelfRaccoonOAuthPoll)
-		// DS2API（DeepSeek 网页端）一键生成授权链接 → 复制去浏览器登录/确认 → 自动返回建渠道
-		selfChannelRoute.POST("/oauth/ds2api/start", middleware.CriticalRateLimit(), controller.SelfDs2ApiOAuthStart)
-		selfChannelRoute.GET("/oauth/ds2api/poll", controller.SelfDs2ApiOAuthPoll)
-		selfChannelRoute.POST("/oauth/ds2api/cancel", middleware.CriticalRateLimit(), controller.SelfDs2ApiOAuthCancel)
+		selfChannelRoute.POST("/oauth/xiaoyiwork/start", middleware.CriticalRateLimit(), controller.SelfXiaoyiWorkOAuthStart)
+		selfChannelRoute.POST("/oauth/xiaoyiwork/complete", middleware.CriticalRateLimit(), controller.SelfXiaoyiWorkOAuthComplete)
+		selfChannelRoute.GET("/oauth/xiaoyiwork/poll", controller.SelfXiaoyiWorkOAuthPoll)
+		selfChannelRoute.POST("/oauth/xiaoyiwork/cancel", middleware.CriticalRateLimit(), controller.SelfXiaoyiWorkOAuthCancel)
 		selfChannelRoute.POST("/oauth/freepi/start", middleware.CriticalRateLimit(), controller.StartFreePiOAuth)
 		selfChannelRoute.POST("/oauth/freepi/poll", middleware.CriticalRateLimit(), controller.PollFreePiOAuth)
 		selfChannelRoute.POST("/oauth/freepi/consent", middleware.CriticalRateLimit(), controller.ConsentFreePiOAuth)
@@ -99,10 +99,6 @@ func registerSelfChannelRoutes(apiRouter *gin.RouterGroup) {
 	apiRouter.POST("/channel/self/oauth/trae/bridge/upload", selfChannelEnabledGuard(), middleware.CriticalRateLimit(), controller.SelfTraeBridgeUpload)
 	// 授权回跳与引导页由浏览器直接访问，不能挂 UserAuth。
 	apiRouter.GET("/channel/self/oauth/raccoon/callback", selfChannelEnabledGuard(), controller.SelfRaccoonOAuthCallback)
-	// Refresh cookies are scoped to /api/user/auth; the browser ceremony must
-	// share that path to verify the initiating platform session on every request.
-	apiRouter.GET("/user/auth/ds2api/login", selfChannelEnabledGuard(), controller.SelfDs2ApiOAuthAuthorizePage)
-	apiRouter.POST("/user/auth/ds2api/credentials", selfChannelEnabledGuard(), middleware.CriticalRateLimit(), controller.SelfDs2ApiOAuthCallback)
 }
 
 // selfChannelEnabledGuard 平台总开关：SelfChannelEnabled=false 时全组 404。

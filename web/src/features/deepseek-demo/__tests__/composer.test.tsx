@@ -130,9 +130,7 @@ describe('demo composer', () => {
     )
     const attach = screen.getByRole('button', { name: 'Attach a file' })
     expect(attach).toBeEnabled()
-    const input = document.querySelector<HTMLInputElement>(
-      'input[type="file"]'
-    )
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')
     expect(input).not.toBeNull()
     expect(input?.getAttribute('accept')).toContain('image/*')
     fireEvent.click(attach)

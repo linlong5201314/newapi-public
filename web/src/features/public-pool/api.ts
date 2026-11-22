@@ -10,7 +10,12 @@ const SELF_BASE = '/api/channel/self'
 export async function listPublicModels(
   signal?: AbortSignal
 ): Promise<PublicModelItem[]> {
-  const res = await api.get(`${POOL_BASE}/models`, { signal })
+  // React Query already deduplicates this request. A newly mounted source
+  // must not share a previous tab's GET after that tab aborted its signal.
+  const res = await api.get(`${POOL_BASE}/models`, {
+    signal,
+    disableDuplicate: true,
+  })
   return requireServerSuccess(res.data)?.data?.items ?? []
 }
 

@@ -32,7 +32,10 @@ it('deselect all only clears the models currently shown by the search filter', a
     'manual-model,gpt-one,gpt-two,another-model'
   )
   // Narrow to the gpt- prefix; only those two are visible.
-  await user.type(screen.getByRole('textbox', { name: 'Search models...' }), 'gpt-')
+  await user.type(
+    screen.getByRole('textbox', { name: 'Search models...' }),
+    'gpt-'
+  )
   await user.click(screen.getByRole('button', { name: 'Deselect all' }))
   // The hidden selections (manual-model, another-model) survive; visible ones clear.
   expect(screen.getByLabelText('Selected models')).toHaveTextContent(
@@ -47,7 +50,10 @@ it('invert selection toggles only the visible models and leaves hidden ones inta
   expect(screen.getByLabelText('Selected models')).toHaveTextContent(
     'manual-model,gpt-one'
   )
-  await user.type(screen.getByRole('textbox', { name: 'Search models...' }), 'gpt-')
+  await user.type(
+    screen.getByRole('textbox', { name: 'Search models...' }),
+    'gpt-'
+  )
   await user.click(screen.getByRole('button', { name: 'Invert selection' }))
   // gpt-one (visible, selected) is removed; gpt-two (visible, unselected) is added;
   // the hidden manual-model is untouched.

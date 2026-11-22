@@ -477,25 +477,6 @@
       "authType": "none"
     },
     {
-      "id": "ds2api",
-      "name": "DS2API（DeepSeek 网页账号，平台代建）",
-      "channelType": 1,
-      "baseUrl": "{base}",
-      "keyRequired": false,
-      "models": [
-        "deepseek-v4.1-flash"
-      ],
-      "freeNote": "只需填 DeepSeek 网页版的「邮箱----密码」（每行一个，可一次填多个账号），需要固定出口时在下方选择代理；平台会把账号写进专属实例并自动接好渠道。不用填 API Key，也不会显示任何部署地址。⚠️ 反代账号有风险，建议用小号。",
-      "monthlyTokens": 0,
-      "freeType": "reverse-proxy",
-      "tos": "own-account",
-      "poolKey": "ds2api",
-      "extraFields": [],
-      "authMode": "account",
-      "hiddenEndpoint": true,
-      "authType": "none"
-    },
-    {
       "id": "sensenova",
       "name": "商汤日日新 Token Plan（免费额度）",
       "channelType": 1,
@@ -558,6 +539,24 @@
       "authMode": "key",
       "hiddenEndpoint": false,
       "authType": "key"
+    },
+    {
+      "id": "xiaoyiwork",
+      "name": "华为小艺 Work（账号授权）",
+      "channelType": 76,
+      "baseUrl": "https://hag-drcn.op.dbankcloud.com/celia/v1/sse-api/chat/completions",
+      "signupUrl": "https://oauth-login.cloud.huawei.com",
+      "keyRequired": false,
+      "models": [],
+      "freeNote": "华为官方账号授权后，New API 直接同步并调用你的模型；凭据加密保存，默认私有，灰度模型仅作不可用预览。",
+      "monthlyTokens": 0,
+      "freeType": "own-account",
+      "tos": "own-account",
+      "poolKey": "xiaoyiwork",
+      "extraFields": [],
+      "hiddenEndpoint": true,
+      "authMode": "oauth",
+      "authType": "none"
     },
     {
       "id": "internlm",

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"time"
 
 	"github.com/QuantumNous/new-api/common"
 )
@@ -31,7 +30,10 @@ func AccountAuthorizationJSON(ctx context.Context, proxy string, request *http.R
 		return ErrAccountEgress
 	}
 	client := *upstream
-	client.Timeout = 8 * time.Second
+	// Same one-time-code constraint as accountAuthJSON: a domestic provider
+	// reached through a proxy can need more than 8s to answer, and a premature
+	// timeout spends the code without ever creating the channel.
+	client.Timeout = accountAuthRequestTimeout
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	response, err := client.Do(request.WithContext(ctx))
 	if err != nil {

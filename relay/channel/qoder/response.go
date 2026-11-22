@@ -136,7 +136,7 @@ func (s *nativeStream) next() (*dto.ChatCompletionsStreamResponse, error) {
 					}
 				}
 				common.SysLog("qoder stream rejected: status=" + strconv.Itoa(code) + " body=" + detail)
-				if qoderQueueNotice(*outer.Body) {
+				if outer.Body != nil && qoderQueueNotice(*outer.Body) {
 					s.err = service.ErrQoderQueued
 					return nil, s.err
 				}
@@ -218,21 +218,40 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		return nil, types.NewError(service.ErrAccountProtocol, types.ErrorCodeBadResponseBody)
 	}
 	reader := newNativeStream(resp.Body)
+	defer reader.Close()
 	translated := *resp
 	translated.Header = http.Header{}
 	if info.IsStream {
+		// Inspect before writing SSE headers: a queued account is not a successful stream.
+		first, err := reader.next()
+		if err != nil {
+			if errors.Is(err, service.ErrQoderQueued) {
+				return nil, types.NewErrorWithStatusCode(err, types.ErrorCode("qoder_queued"), http.StatusTooManyRequests, types.ErrOptionWithSkipRetry())
+			}
+			return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
+		}
+		raw, err := common.Marshal(first)
+		if err != nil {
+			return nil, types.NewError(service.ErrAccountProtocol, types.ErrorCodeBadResponseBody)
+		}
+		reader.pending = append(append([]byte("data: "), raw...), 10, 10)
 		translated.Body = reader
 		translated.Header.Set("Content-Type", "text/event-stream")
 		translated.ContentLength = -1
 		usage, apiErr := openai.OaiStreamHandler(c, info, &translated)
 		if reader.err != nil {
+			if errors.Is(reader.err, service.ErrQoderQueued) {
+				return usage, types.NewErrorWithStatusCode(reader.err, types.ErrorCode("qoder_queued"), http.StatusTooManyRequests, types.ErrOptionWithSkipRetry())
+			}
 			return usage, types.NewError(reader.err, types.ErrorCodeBadResponseBody)
 		}
 		return usage, apiErr
 	}
-	defer reader.Close()
 	result, err := aggregateNative(reader, info.UpstreamModelName)
 	if err != nil {
+		if errors.Is(err, service.ErrQoderQueued) {
+			return nil, types.NewErrorWithStatusCode(err, types.ErrorCode("qoder_queued"), http.StatusTooManyRequests, types.ErrOptionWithSkipRetry())
+		}
 		return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 	}
 	raw, err := common.Marshal(result)

@@ -367,6 +367,14 @@ func getFetchModelsResponseBody(method string, requestURL string, channel *model
 }
 
 func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
+	if isXiaoyiWorkChannel(channel) {
+		session, err := xiaoyiWorkSessionForChannel(channel)
+		if err != nil {
+			return nil, err
+		}
+		catalog, err := fetchXiaoyiWorkCatalog(context.Background(), "", session)
+		return catalog.available, err
+	}
 	if channel.Type == constant.ChannelTypeTaskPlugin {
 		plugin, ok := jsplugin.DefaultRegistry.Get(channel.GetSetting().TaskPluginKey)
 		if !ok {

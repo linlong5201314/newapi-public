@@ -133,7 +133,10 @@ function MessageBubble(props: {
                     />
                   </li>
                 ) : (
-                  <li key={attachment.id} className='ds-demo-message-attachment'>
+                  <li
+                    key={attachment.id}
+                    className='ds-demo-message-attachment'
+                  >
                     <Paperclip className='size-3.5' aria-hidden='true' />
                     <span>{attachment.name}</span>
                   </li>

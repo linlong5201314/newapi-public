@@ -36,7 +36,9 @@ type Action = {
 // of the eligible public endpoints were actually tested, breaks down each
 // model's sample into available / unknown / not-run, and states that failing
 // results never delete models — they only mark endpoint health.
-function PublicPoolProbeBatchView(props: { batch: PublicPoolProbeAllResponse }) {
+function PublicPoolProbeBatchView(props: {
+  batch: PublicPoolProbeAllResponse
+}) {
   const { t } = useTranslation()
   const batch = props.batch
   return (
@@ -254,98 +256,98 @@ export function PublicPoolAdminChannels() {
           {query.data.items.map((channel) => {
             const ipProbe = ipProbes[channel.id]
             return (
-            <article
-              key={channel.id}
-              aria-label={channel.name}
-              className='min-w-0 rounded-xl border p-4'
-            >
-              <div className='flex min-w-0 flex-wrap items-center gap-2'>
-                <h3 className='min-w-0 font-medium break-all'>
-                  {channel.name}
-                </h3>
-                <Badge variant='outline'>
-                  {channel.status === 1 ? t('Enabled') : t('Disabled')}
-                </Badge>
-                <span className='text-muted-foreground text-xs'>
-                  #{channel.id}
-                </span>
-              </div>
-              <p className='text-muted-foreground mt-2 text-sm break-all'>
-                {t('Model IDs')}: {channel.models}
-              </p>
-              <p className='text-muted-foreground mt-1 text-xs break-all'>
-                {t('Group')}: {channel.group}
-              </p>
-              {ipProbe && (ipProbe.loading || ipProbe.batch !== null) && (
-                <div className='mt-3 rounded-lg border border-dashed p-3'>
-                  {ipProbe.loading && (
-                    <p className='text-muted-foreground text-xs'>
-                      {t('Testing models across public endpoints...')}
-                    </p>
-                  )}
-                  {!ipProbe.loading && ipProbe.batch !== null && (
-                    <PublicPoolProbeBatchView batch={ipProbe.batch} />
-                  )}
+              <article
+                key={channel.id}
+                aria-label={channel.name}
+                className='min-w-0 rounded-xl border p-4'
+              >
+                <div className='flex min-w-0 flex-wrap items-center gap-2'>
+                  <h3 className='min-w-0 font-medium break-all'>
+                    {channel.name}
+                  </h3>
+                  <Badge variant='outline'>
+                    {channel.status === 1 ? t('Enabled') : t('Disabled')}
+                  </Badge>
+                  <span className='text-muted-foreground text-xs'>
+                    #{channel.id}
+                  </span>
                 </div>
-              )}
-              <div className='mt-3 flex flex-wrap gap-2'>
-                <ModelTestButton
-                  channelId={channel.id}
-                  models={channel.models
-                    .split(',')
-                    .map((name) => name.trim())
-                    .filter(Boolean)}
-                  disabled={mutation.isPending}
-                />
-                <Button
-                  size='sm'
-                  variant='outline'
-                  disabled={mutation.isPending || ipProbeMutation.isPending}
-                  onClick={() => ipProbeMutation.mutate(channel)}
-                >
-                  {ipProbeMutation.isPending
-                    ? t('Testing...')
-                    : t('Test all public IPs')}
-                </Button>
-                <Button
-                  size='sm'
-                  variant='outline'
-                  disabled={mutation.isPending}
-                  onClick={() => setEditor({ channel })}
-                >
-                  {t('Edit')}
-                </Button>
-                <Button
-                  size='sm'
-                  variant='outline'
-                  disabled={mutation.isPending}
-                  onClick={() => setAction({ channel, kind: 'copy' })}
-                >
-                  {t('Copy')}
-                </Button>
-                <Button
-                  size='sm'
-                  variant='outline'
-                  disabled={mutation.isPending}
-                  onClick={() =>
-                    setAction({
-                      channel,
-                      kind: channel.status === 1 ? 'disable' : 'enable',
-                    })
-                  }
-                >
-                  {channel.status === 1 ? t('Disable') : t('Enable')}
-                </Button>
-                <Button
-                  size='sm'
-                  variant='destructive'
-                  disabled={mutation.isPending}
-                  onClick={() => setAction({ channel, kind: 'delete' })}
-                >
-                  {t('Delete')}
-                </Button>
-              </div>
-            </article>
+                <p className='text-muted-foreground mt-2 text-sm break-all'>
+                  {t('Model IDs')}: {channel.models}
+                </p>
+                <p className='text-muted-foreground mt-1 text-xs break-all'>
+                  {t('Group')}: {channel.group}
+                </p>
+                {ipProbe && (ipProbe.loading || ipProbe.batch !== null) && (
+                  <div className='mt-3 rounded-lg border border-dashed p-3'>
+                    {ipProbe.loading && (
+                      <p className='text-muted-foreground text-xs'>
+                        {t('Testing models across public endpoints...')}
+                      </p>
+                    )}
+                    {!ipProbe.loading && ipProbe.batch !== null && (
+                      <PublicPoolProbeBatchView batch={ipProbe.batch} />
+                    )}
+                  </div>
+                )}
+                <div className='mt-3 flex flex-wrap gap-2'>
+                  <ModelTestButton
+                    channelId={channel.id}
+                    models={channel.models
+                      .split(',')
+                      .map((name) => name.trim())
+                      .filter(Boolean)}
+                    disabled={mutation.isPending}
+                  />
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    disabled={mutation.isPending || ipProbeMutation.isPending}
+                    onClick={() => ipProbeMutation.mutate(channel)}
+                  >
+                    {ipProbeMutation.isPending
+                      ? t('Testing...')
+                      : t('Test all public IPs')}
+                  </Button>
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    disabled={mutation.isPending}
+                    onClick={() => setEditor({ channel })}
+                  >
+                    {t('Edit')}
+                  </Button>
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    disabled={mutation.isPending}
+                    onClick={() => setAction({ channel, kind: 'copy' })}
+                  >
+                    {t('Copy')}
+                  </Button>
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    disabled={mutation.isPending}
+                    onClick={() =>
+                      setAction({
+                        channel,
+                        kind: channel.status === 1 ? 'disable' : 'enable',
+                      })
+                    }
+                  >
+                    {channel.status === 1 ? t('Disable') : t('Enable')}
+                  </Button>
+                  <Button
+                    size='sm'
+                    variant='destructive'
+                    disabled={mutation.isPending}
+                    onClick={() => setAction({ channel, kind: 'delete' })}
+                  >
+                    {t('Delete')}
+                  </Button>
+                </div>
+              </article>
             )
           })}
           <nav

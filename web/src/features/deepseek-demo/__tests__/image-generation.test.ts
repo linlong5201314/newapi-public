@@ -74,10 +74,13 @@ describe('image generation request', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ error: { message: 'quota exhausted' } }), {
-          status: 429,
-          headers: { 'Content-Type': 'application/json' },
-        })
+        new Response(
+          JSON.stringify({ error: { message: 'quota exhausted' } }),
+          {
+            status: 429,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        )
       )
     )
 

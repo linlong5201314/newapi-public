@@ -15,6 +15,12 @@ import (
 
 var accountAuthTransports = proxyHTTPClientCache{clients: make(map[string]*http.Client), aliases: make(map[string]string)}
 
+// accountAuthRequestTimeout bounds one provider authorization call. It stays
+// above the observed 8-12s proxy latency so a spent one-time code is not
+// discarded by a premature local timeout, while remaining well under the
+// provider's own grant lifetime.
+const accountAuthRequestTimeout = 25 * time.Second
+
 // GetAccountAuthHTTPClient returns the pooled transport for an already resolved
 // account exit. Empty proxy means direct, never the process environment. Only
 // auto and provider-scoped HTTP/1.1 are supported; relay/global TLS bypasses,
@@ -49,7 +55,7 @@ func GetAccountAuthHTTPClient(proxy, protocol string) (*http.Client, error) {
 			DialContext:            dialer.DialContext,
 			TLSClientConfig:        &tls.Config{MinVersion: tls.VersionTLS12},
 			TLSHandshakeTimeout:    10 * time.Second,
-			ResponseHeaderTimeout:  15 * time.Second,
+			ResponseHeaderTimeout:  accountAuthRequestTimeout,
 			ExpectContinueTimeout:  time.Second,
 			MaxResponseHeaderBytes: 64 << 10,
 			MaxIdleConns:           100,
@@ -86,7 +92,10 @@ func accountAuthJSON(ctx context.Context, proxy string, request *http.Request, o
 		return ErrAccountEgress
 	}
 	client := *upstream
-	client.Timeout = 8 * time.Second
+	// Domestic account providers reached through a rotating proxy routinely need
+	// 8-12s for the code exchange. An 8s cap failed the exchange after the
+	// one-time code had already been spent, so the retry could never succeed.
+	client.Timeout = accountAuthRequestTimeout
 	client.Jar = nil
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	requestCtx, cancel := context.WithTimeout(ctx, client.Timeout)

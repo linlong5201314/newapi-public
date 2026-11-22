@@ -209,6 +209,11 @@ it.each([
     'qoder',
     'https://qoder.com/device/selectAccounts?nonce=fixture',
   ],
+  [
+    'nous-portal',
+    'nous',
+    'https://portal.nousresearch.com/device?user_code=fixture',
+  ],
 ] as const)(
   'uses original-grant status checks instead of a returned callback for %s',
   async (provider, endpoint, authUrl) => {
@@ -398,3 +403,93 @@ it.each([
     expect.anything()
   )
 })
+
+it.each([
+  ['raccoon', 'https://xiaohuanxiong.com/code/authorize?state=fixture'],
+  ['trae-cn', 'https://www.trae.cn/authorization?login_trace_id=fixture'],
+] as const)(
+  'does not poll %s before the manual callback or overwrite its completion error',
+  async (provider, authUrl) => {
+    vi.useFakeTimers()
+    vi.mocked(api.post).mockImplementation(async (url) => {
+      if (url.endsWith('/start')) {
+        return {
+          data: {
+            success: true,
+            data: {
+              sessionId: 'manual-owner-flow',
+              authUrl,
+              expiresIn: 600,
+              interval: 2,
+              automaticCallbackSupported: false,
+              manualCallbackSupported: true,
+            },
+          },
+        }
+      }
+      if (url.endsWith('/complete')) {
+        throw {
+          response: {
+            status: 502,
+            data: {
+              success: false,
+              code: 'ACCOUNT_UPSTREAM_FAILED',
+              message: 'Original provider completion failed',
+            },
+          },
+        }
+      }
+      if (url.endsWith('/poll')) {
+        throw {
+          response: {
+            status: 409,
+            data: {
+              success: false,
+              code: 'ACCOUNT_FLOW_CONSUMED',
+              message: 'Later consumed response',
+            },
+          },
+        }
+      }
+      return { data: { success: true, data: { done: false } } }
+    })
+    const view = card(provider)
+    if (provider === 'trae-cn') fireEvent.click(screen.getByRole('checkbox'))
+    await act(async () =>
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Generate authorization URL' })
+      )
+    )
+    await act(async () => vi.advanceTimersByTimeAsync(12000))
+    expect(
+      vi.mocked(api.post).mock.calls.filter(([url]) => url.endsWith('/poll'))
+    ).toHaveLength(0)
+    const input = screen.getByLabelText(
+      'Final authorization callback URL (fallback)'
+    )
+    fireEvent.change(input, {
+      target: {
+        value:
+          'http://127.0.0.1:54321/auth/callback?code=private-fixture&state=fixture',
+      },
+    })
+    await act(async () =>
+      fireEvent.click(
+        screen.getByRole('button', {
+          name: 'Validate returned URL and connect',
+        })
+      )
+    )
+    const original = screen.getByRole('alert').textContent
+    expect(original).not.toContain('Later consumed response')
+    expect(
+      screen.queryByLabelText('Final authorization callback URL (fallback)')
+    ).not.toBeInTheDocument()
+    await act(async () => vi.advanceTimersByTimeAsync(16000))
+    expect(screen.getByRole('alert')).toHaveTextContent(original ?? '')
+    expect(
+      vi.mocked(api.post).mock.calls.filter(([url]) => url.endsWith('/poll'))
+    ).toHaveLength(0)
+    expect(view.onComplete).not.toHaveBeenCalled()
+  }
+)

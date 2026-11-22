@@ -204,53 +204,6 @@ export async function importTrae(payload: {
   }
 }
 
-// DS2API uses a platform-owned account login page, not an upstream OAuth grant.
-// The server returns flow=account_login and upstream_oauth=false; credentials never
-// belong in a callback URL or the polling response.
-export async function startDs2ApiOAuth(
-  payload: {
-    proxy?: string
-    proxy_policy?: BindingProxyPolicy
-    models?: string[]
-    all_models?: string[]
-    public_models?: string[]
-  } = {}
-): Promise<OAuthSession | null> {
-  const res = await api.post<{
-    success: boolean
-    data?: OAuthSession
-    message?: string
-  }>(
-    '/api/channel/self/oauth/ds2api/start',
-    payload,
-    cfg({ singleUseAuthorization: true })
-  )
-  return requireServerSuccess(res.data).data ?? null
-}
-
-export async function pollDs2ApiOAuth(
-  sessionId: string
-): Promise<OAuthPollResult> {
-  const res = await api.get<{
-    success: boolean
-    data?: OAuthPollResult & { models?: string[] }
-    message?: string
-  }>(
-    `/api/channel/self/oauth/ds2api/poll?sessionId=${encodeURIComponent(sessionId)}`,
-    cfg()
-  )
-  return requireServerSuccess(res.data).data ?? { done: false }
-}
-
-export async function cancelDs2ApiOAuth(sessionId: string): Promise<void> {
-  const response = await api.post<{ success: boolean }>(
-    '/api/channel/self/oauth/ds2api/cancel',
-    { sessionId },
-    cfg({ singleUseAuthorization: true })
-  )
-  requireServerSuccess(response.data)
-}
-
 export type FreePiSession = {
   state: string
   userCode: string

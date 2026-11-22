@@ -98,6 +98,9 @@ func ClassifyModelProbeError(ctx context.Context, apiError *types.NewAPIError) M
 	}
 	outcome := ModelProbeOutcome{Status: model.ModelEndpointUnknown, Reason: "local_rejection", HTTPStatus: apiError.StatusCode}
 	switch apiError.GetErrorCode() {
+	case types.ErrorCode("qoder_queued"):
+		outcome.Reason = "rate_limited"
+		return outcome
 	case types.ErrorCodeInsufficientUserQuota:
 		outcome.Reason = "quota_exhausted"
 		return outcome

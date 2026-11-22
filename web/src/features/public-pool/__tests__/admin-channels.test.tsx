@@ -286,9 +286,24 @@ describe('Platform free channel administration', () => {
               not_run_endpoints: 0,
               total_endpoints: 3,
               results: [
-                { endpoint_id: 11, status: 'available', reason: 'passed', latency_ms: 12 },
-                { endpoint_id: 12, status: 'unavailable', reason: 'upstream_error', latency_ms: 30 },
-                { endpoint_id: 13, status: 'unknown', reason: 'timeout', latency_ms: 50 },
+                {
+                  endpoint_id: 11,
+                  status: 'available',
+                  reason: 'passed',
+                  latency_ms: 12,
+                },
+                {
+                  endpoint_id: 12,
+                  status: 'unavailable',
+                  reason: 'upstream_error',
+                  latency_ms: 30,
+                },
+                {
+                  endpoint_id: 13,
+                  status: 'unknown',
+                  reason: 'timeout',
+                  latency_ms: 50,
+                },
               ],
             },
           ],

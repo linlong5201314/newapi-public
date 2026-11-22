@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -386,6 +387,9 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
 // request context, and reports a rejected handshake as a *types.NewAPIError
 // carrying the upstream status code (types.NewError preserves it).
 func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody io.Reader) (*websocket.Conn, error) {
+	if common2.GetContextKeyString(c, appconstant.ContextKeyChannelTemplateID) == appconstant.XiaoyiWorkTemplateID {
+		return nil, errors.New("The Xiaoyi Work gateway does not support WebSocket relay")
+	}
 	fullRequestURL, err := a.GetRequestURL(info)
 	if err != nil {
 		return nil, fmt.Errorf("get request url failed: %w", err)
@@ -466,7 +470,6 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	if req != nil && req.URL != nil {
 		common2.SetContextKey(c, appconstant.ContextKeyUpstreamRequestOrigin, req.URL.Scheme+"://"+req.URL.Host)
 	}
-
 	// 代理池无感熔断重试：当渠道跟随出口 IP 池且请求报错或遭遇 502/503/504 时，
 	// 自动标记当前出口失败（或触发 mihomo 切下一个节点）并换下一个出口重试，用户全程无感。
 	canReplay := req == nil || req.Body == nil || req.GetBody != nil
@@ -482,6 +485,18 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		proxyURL string
 	)
 
+	if common2.GetContextKeyString(c, appconstant.ContextKeyChannelTemplateID) == appconstant.XiaoyiWorkTemplateID {
+		if !slices.Contains(common2.GetContextKeyStringSlice(c, appconstant.ContextKeyChannelAllowedModels), info.GetUpstreamModelName()) ||
+			info.GetUpstreamModelName() != info.GetOriginModelName() {
+			return nil, errors.New("Model is not enabled for this Xiaoyi Work channel")
+		}
+		var nativeErr *types.NewAPIError
+		resp, nativeErr = service.DoXiaoyiWorkRelay(c.Request.Context(), info.ChannelId, info.ApiKey, req, info.GetUpstreamModelName(), info.IsStream)
+		if nativeErr != nil {
+			return nil, nativeErr
+		}
+		maxAttempts = 0
+	}
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if attempt > 0 && req != nil && req.GetBody != nil {
 			if freshBody, berr := req.GetBody(); berr == nil {

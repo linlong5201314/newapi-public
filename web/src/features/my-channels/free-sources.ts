@@ -100,6 +100,7 @@ export type CreateFromTemplateRequest = {
   proxy_policy?: ChannelProxyPolicy
   /** 用户勾选公开到「公共池」的模型子集 */
   public_models?: string[]
+  share_confirmed?: boolean
 }
 
 export type ProbeTemplateModelsResponse = {
@@ -107,6 +108,7 @@ export type ProbeTemplateModelsResponse = {
   message?: string
   data?: {
     models: string[]
+    unavailable_models?: string[]
     probed_live: boolean
     latency_ms: number
     callable?: boolean
@@ -143,6 +145,16 @@ const actionConfig = (config: ApiRequestConfig = {}): ApiRequestConfig => ({
   skipBusinessError: true,
   skipErrorHandler: true,
 })
+
+const templateActionConfig = (id: string) =>
+  actionConfig(
+    id === 'xiaoyiwork'
+      ? {
+          headers: { 'X-Account-Action': 'authorize' },
+          singleUseAuthorization: true,
+        }
+      : undefined
+  )
 
 // ============================================================================
 // Fail-soft normalizers (contract drift tolerance: snake_case or camelCase)
@@ -278,7 +290,7 @@ export async function createChannelFromTemplate(
   const res = await api.post(
     '/api/channel/self/from_template',
     data,
-    actionConfig()
+    templateActionConfig(data.templateId)
   )
   return res.data
 }
@@ -294,7 +306,7 @@ export async function probeTemplateModels(data: {
   const res = await api.post(
     '/api/channel/self/probe_template_models',
     data,
-    actionConfig()
+    templateActionConfig(data.templateId)
   )
   return res.data
 }

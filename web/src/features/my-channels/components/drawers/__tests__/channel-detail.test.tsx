@@ -313,3 +313,101 @@ it('keeps a fixed proxy secret on the server and preserves unrelated settings wh
       .mock.calls.some(([url]) => String(url).includes('/runtime'))
   ).toBe(false)
 })
+
+it('shows fetched provider labels, searches labels and keys, and saves only alias keys', async () => {
+  const user = userEvent.setup()
+  const get = vi.mocked(api.get).getMockImplementation()
+  if (!get) throw new Error('Missing API fixture')
+  vi.mocked(api.get).mockImplementation(async (url, config) => {
+    if (url === '/api/channel/self/fetch_models/7') {
+      return {
+        data: {
+          success: true,
+          data: ['qwen-coder'],
+          model_labels: { 'qwen-coder': 'Qoder live provider name' },
+        },
+      }
+    }
+    return get(url, config)
+  })
+  await renderDrawer()
+  await screen.findByText('qwen-coder')
+  expect(screen.queryByText('Qoder live provider name')).not.toBeInTheDocument()
+  await user.click(
+    screen.getByRole('button', { name: 'Fetch latest upstream models' })
+  )
+  expect(await screen.findByText('Qoder live provider name')).toBeVisible()
+  expect(screen.getByText('qwen-coder')).toBeVisible()
+  const search = screen.getByRole('searchbox', { name: 'Search models' })
+  await user.type(search, 'QODER LIVE')
+  expect(screen.getByText('qwen-coder')).toBeVisible()
+  expect(screen.queryByText('deepseek-chat')).not.toBeInTheDocument()
+  await user.clear(search)
+  await user.type(search, 'qwen-coder')
+  expect(screen.getByText('Qoder live provider name')).toBeVisible()
+  await user.click(
+    screen.getByRole('checkbox', {
+      name: 'Publish qwen-coder to the public pool',
+    })
+  )
+  await user.click(
+    screen.getByRole('button', {
+      name: /Save model configuration|保存模型配置/,
+    })
+  )
+  await waitFor(() =>
+    expect(api.post).toHaveBeenCalledWith(
+      '/api/channel/self/visibility',
+      expect.objectContaining({
+        publicModels: ['qwen-coder'],
+        allModels: ['deepseek-chat', 'qwen-coder'],
+      }),
+      expect.anything()
+    )
+  )
+  expect(JSON.stringify(vi.mocked(api.put).mock.calls)).not.toContain(
+    'Qoder live provider name'
+  )
+  expect(JSON.stringify(vi.mocked(api.post).mock.calls)).not.toContain(
+    'Qoder live provider name'
+  )
+})
+
+it('keeps alias-only selections when fetching provider labels fails', async () => {
+  const user = userEvent.setup()
+  const get = vi.mocked(api.get).getMockImplementation()
+  if (!get) throw new Error('Missing API fixture')
+  vi.mocked(api.get).mockImplementation(async (url, config) => {
+    if (url === '/api/channel/self/fetch_models/7') {
+      return {
+        data: {
+          success: false,
+          message: 'Catalog unavailable',
+          data: ['other-key'],
+          model_labels: { 'qwen-coder': 'Unverified label' },
+        },
+      }
+    }
+    return get(url, config)
+  })
+  await renderDrawer()
+  await screen.findByText('qwen-coder')
+  const fetch = screen.getByRole('button', {
+    name: 'Fetch latest upstream models',
+  })
+  await user.click(fetch)
+  await waitFor(() => expect(fetch).toBeEnabled())
+  expect(screen.queryByText('Unverified label')).not.toBeInTheDocument()
+  expect(screen.queryByText('other-key')).not.toBeInTheDocument()
+  expect(
+    screen.getByRole('checkbox', {
+      name: 'Enable deepseek-chat in my channels',
+    })
+  ).toBeChecked()
+  expect(
+    screen.getByRole('checkbox', {
+      name: 'Publish qwen-coder to the public pool',
+    })
+  ).not.toBeChecked()
+  expect(api.post).not.toHaveBeenCalled()
+})

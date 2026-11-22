@@ -649,6 +649,11 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	common.SetContextKey(c, constant.ContextKeyChannelId, channel.Id)
 	common.SetContextKey(c, constant.ContextKeyChannelName, channel.Name)
 	common.SetContextKey(c, constant.ContextKeyChannelType, channel.Type)
+	templateID, _ := channel.GetOtherInfo()["templateId"].(string)
+	common.SetContextKey(c, constant.ContextKeyChannelTemplateID, templateID)
+	if templateID == constant.XiaoyiWorkTemplateID {
+		common.SetContextKey(c, constant.ContextKeyChannelAllowedModels, channel.GetModels())
+	}
 	common.SetContextKey(c, constant.ContextKeyChannelCreateTime, channel.CreatedTime)
 	common.SetContextKey(c, constant.ContextKeyChannelSetting, channel.GetSetting())
 	common.SetContextKey(c, constant.ContextKeyChannelOtherSetting, channel.GetOtherSettings())
@@ -665,7 +670,9 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	logTaskPluginChannelDecision(c, channel, modelName, "channel_selected", "")
 	paramOverride := channel.GetParamOverride()
 	headerOverride := channel.GetHeaderOverride()
-	if mergedParam, applied := service.ApplyChannelAffinityOverrideTemplate(c, paramOverride); applied {
+	if templateID == constant.XiaoyiWorkTemplateID {
+		paramOverride, headerOverride = nil, nil
+	} else if mergedParam, applied := service.ApplyChannelAffinityOverrideTemplate(c, paramOverride); applied {
 		paramOverride = mergedParam
 	}
 	common.SetContextKey(c, constant.ContextKeyChannelParamOverride, paramOverride)

@@ -7,7 +7,10 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { getServerErrorMessage } from '@/lib/server-error-message'
+import {
+  getServerErrorMessage,
+  getServerErrorStatus,
+} from '@/lib/server-error-message'
 
 import {
   cancelBrowserAuthorization,
@@ -96,6 +99,7 @@ export function BrowserAccountConnection({
   const [status, setStatus] = useState('')
   const [busy, setBusy] = useState(false)
   const [returned, setReturned] = useState('')
+  const [callbackPending, setCallbackPending] = useState(false)
   const [consent, setConsent] = useState<NativeAuthorizationResult | null>(null)
   const [rotation, setRotation] = useState(false)
   const [created, setCreated] = useState<number | null>(null)
@@ -155,9 +159,14 @@ export function BrowserAccountConnection({
   const devicePoll =
     provider === 'cline-account' ||
     provider === 'qoder-cn' ||
-    provider === 'qoder-global'
+    provider === 'qoder-global' ||
+    provider === 'nous-portal'
+  const waitsForManualCallback =
+    session?.automaticCallbackSupported === false && !devicePoll
   useEffect(() => {
-    if (!session || consent) return
+    if (!session || consent || (waitsForManualCallback && !callbackPending)) {
+      return
+    }
     let active = true
     let timer: ReturnType<typeof setTimeout>
     let interval = Math.max(2, session.interval ?? 3)
@@ -206,6 +215,19 @@ export function BrowserAccountConnection({
           return
         }
         setProblem(getServerErrorMessage(error, t('Authorization poll failed')))
+        if (
+          [400, 401, 403, 404, 409, 410].includes(
+            getServerErrorStatus(error) ?? 0
+          )
+        ) {
+          current.current = null
+          setSession(null)
+          setConsent(null)
+          setReturned('')
+          setCallbackPending(false)
+          setStatus('')
+          return
+        }
         setStatus(
           t(
             'Keep this page open and check again after completing official sign-in.'
@@ -236,7 +258,7 @@ export function BrowserAccountConnection({
       clearTimeout(timer)
       checkStatus.current = null
     }
-  }, [session, consent, provider, t])
+  }, [session, consent, provider, t, waitsForManualCallback, callbackPending])
   useEffect(() => {
     if (!session) return
     const timer = setTimeout(
@@ -274,6 +296,7 @@ export function BrowserAccountConnection({
     setBusy(true)
     setProblem('')
     setStatus(t('Creating authorization session...'))
+    setCallbackPending(false)
     const reserved = native ? null : window.open('about:blank', '_blank')
     if (reserved) reserved.opener = null
     popup.current = reserved
@@ -350,16 +373,19 @@ export function BrowserAccountConnection({
     setBusy(true)
     setProblem('')
     const request = generation.current
+    const callbackUrl = returned.trim()
+    setReturned('')
     try {
       const result = await completeNativeAuthorization(
         provider,
         session.sessionId,
-        returned.trim()
+        callbackUrl
       )
       if (request === generation.current) {
         finishRef.current(result)
         setReturned('')
-        if (!result.done) {
+        if (!result.done && result.status !== 'awaiting_consent') {
+          setCallbackPending(true)
           setStatus(
             t(
               'Authorization response received; waiting for account validation.'
@@ -369,6 +395,13 @@ export function BrowserAccountConnection({
       }
     } catch (error) {
       if (request === generation.current) {
+        // Completion may consume the one-use flow. Keep its original error;
+        // do not replace it with a later poll's consumed/expired response.
+        current.current = null
+        setSession(null)
+        setConsent(null)
+        setCallbackPending(false)
+        setStatus('')
         setProblem(getServerErrorMessage(error))
       }
     } finally {
@@ -413,6 +446,7 @@ export function BrowserAccountConnection({
     setSession(null)
     setConsent(null)
     setReturned('')
+    setCallbackPending(false)
     popup.current?.close()
     if (pending) {
       try {

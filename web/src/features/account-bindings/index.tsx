@@ -129,9 +129,6 @@ export function AccountBindingsCard() {
       'sk-…（书生 Token Plan 里的 API Key，每行一个）\n也可粘贴控制台 Cookie 里的 uaa-token，由平台代建 Key'
   } else if (isOAuth) {
     accountPlaceholder = '浏览器授权后的回调链接或 Token（每行一个）'
-  } else if (provider === 'ds2api') {
-    accountPlaceholder =
-      '账号----密码\n或 账号----会话Token（推荐）\n或 直接粘贴 Token（每行一个）'
   }
 
   const submit = async () => {
@@ -411,13 +408,6 @@ export function AccountBindingsCard() {
           value={accounts}
           onChange={(e) => setAccounts(e.target.value)}
         />
-      )}
-      {provider === 'ds2api' && (
-        <div className='text-muted-foreground mt-1 text-xs leading-relaxed'>
-          {t(
-            'DS2API uses a platform account login link, not upstream OAuth. Use the account login action to submit your own credentials over HTTPS; do not put tokens in callback URLs or run browser-console scripts.'
-          )}
-        </div>
       )}
       {!isGateway && (
         <div className='mt-2'>

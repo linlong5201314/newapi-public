@@ -195,6 +195,21 @@ func TestSelfModelProbeRejectsIdentityScopeOriginAndOversizedSamples(t *testing.
 }
 
 func TestSelfModelProbeQuotaDenialAndProviderAdmissionStopBatch(t *testing.T) {
+	t.Run("Qoder queue stops admission without marking models unavailable", func(t *testing.T) {
+		f := newModelProbeFixture(t)
+		calls := 0
+		batch, err := service.RunModelEndpointProbes(context.Background(), f.userID, service.ModelProbeRequest{Models: []string{"gpt-3.5-turbo", "gpt-4"}}, func(context.Context) (*model.Channel, error) { return f.channel, nil }, func(ctx context.Context, _ *model.Channel, _ string, _ model.ModelProbeEndpoint) service.ModelProbeOutcome {
+			calls++
+			return service.ClassifyModelProbeError(ctx, types.NewErrorWithStatusCode(service.ErrQoderQueued, types.ErrorCode("qoder_queued"), http.StatusTooManyRequests, types.ErrOptionWithSkipRetry()))
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 1, calls)
+		require.Len(t, batch.Results, 2)
+		assert.Equal(t, model.ModelEndpointUnknown, batch.Results[0].Status)
+		assert.Equal(t, "rate_limited", batch.Results[0].Reason)
+		assert.Equal(t, "not_run", batch.Results[1].Reason)
+		assert.Empty(t, batch.PassedModels)
+	})
 	for _, status := range []int{403, 429} {
 		t.Run(fmt.Sprint(status), func(t *testing.T) {
 			f := newModelProbeFixture(t)

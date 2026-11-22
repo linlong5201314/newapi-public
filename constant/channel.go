@@ -78,7 +78,7 @@ const (
 	ChannelTypeQoder          = 73
 	ChannelTypeNousPortal     = 74
 	ChannelTypeDummy          = 75 // this one is only for count, do not add any channel after this
-
+	ChannelTypeXiaoyiWork     = 76
 )
 
 // ChannelBaseURLs 保存各渠道类型的内置默认 Base URL。
@@ -253,6 +253,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeZCode:          "ZCode Start Plan",
 	ChannelTypeQoder:          "Qoder",
 	ChannelTypeNousPortal:     "Nous Portal",
+	ChannelTypeXiaoyiWork:     "华为小艺 Work",
 }
 
 func GetChannelTypeName(channelType int) string {

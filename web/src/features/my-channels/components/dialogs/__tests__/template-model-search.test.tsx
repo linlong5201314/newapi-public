@@ -32,6 +32,13 @@ const templates = [
     authMode: 'account',
   },
   {
+    id: 'xiaoyiwork',
+    name: 'Xiaoyi Work fixture',
+    models: [],
+    authMode: 'magpie',
+    authType: 'key',
+  },
+  {
     id: 'search-fixture',
     name: 'Search fixture',
     models: ['deepseek-chat', 'qwen-coder'],
@@ -86,7 +93,10 @@ beforeEach(() => {
     data: { success: true, data: { id: 11 } },
   })
 })
-afterEach(() => client.clear())
+afterEach(() => {
+  client.clear()
+  sessionStorage.removeItem('new-api:xiaoyiwork:authorization-draft')
+})
 // The dialog intentionally defaults to no models selected. Tests that assert
 // creation payloads first opt in explicitly via the visible bulk action.
 async function selectAllMyModels(user: ReturnType<typeof userEvent.setup>) {
@@ -299,28 +309,81 @@ it('offers generated Raccoon browser authorization without helper downloads', as
   expect(api.post).not.toHaveBeenCalled()
 })
 
-it('opens the DS2 account login popup on the user gesture and closes it when start fails', async () => {
+it('starts native Huawei authorization without requiring a Magpie deployment', async () => {
   const user = userEvent.setup()
-  const popup = {
-    opener: undefined,
-    location: { href: '' },
-    close: vi.fn(),
-    closed: false,
-  }
-  const open = vi
-    .spyOn(window, 'open')
-    .mockReturnValue(popup as unknown as Window)
-  vi.mocked(api.post).mockRejectedValueOnce(new Error('upstream unavailable'))
+  const open = vi.spyOn(window, 'open').mockReturnValue(null)
+  vi.mocked(api.post).mockResolvedValueOnce({
+    data: { success: true, data: { sessionId: 'fixture-session', authUrl: 'https://oauth-login.cloud.huawei.com/oauth2/v3/authorize?code_challenge=fixture', callbackPort: 17355, callbackPath: '/auth/callback' } },
+  })
   renderDialog()
-  await user.click(
-    await screen.findByRole('button', { name: /DeepSeek auth fixture/ })
-  )
-  await user.click(
-    screen.getByRole('button', { name: 'Create account login link' })
-  )
-  await waitFor(() => expect(open).toHaveBeenCalled())
-  await waitFor(() => expect(popup.close).toHaveBeenCalled())
+  await user.click(await screen.findByRole('button', { name: 'Account authorization' }))
+  expect(screen.queryByRole('button', { name: /DeepSeek auth fixture/ })).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: /Xiaoyi Work fixture/ }))
+  expect(screen.queryByText(/Magpie gateway address|Magpie gateway key|Magpie browser link/)).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'Authorize Huawei account' }))
+  expect(await screen.findByRole('link', { name: 'Open Huawei authorization' })).toHaveAttribute('href', expect.stringContaining('code_challenge=fixture'))
+  await user.type(screen.getByLabelText('Local callback URL (optional if you have the code)'), 'http://127.0.0.1:17355/auth/callback?code=fixture-code&state=fixture-session')
+  expect(screen.getByRole('button', { name: 'Connect and sync models' })).toBeEnabled()
+  expect(open).toHaveBeenCalledWith(expect.stringContaining('oauth-login.cloud.huawei.com'), '_blank', 'noopener,noreferrer')
   open.mockRestore()
+})
+
+it('enables only account models and requires confirmation to share a selected model', async () => {
+  const user = userEvent.setup()
+  vi.mocked(api.post)
+    .mockResolvedValueOnce({ data: { success: true, data: { sessionId: 'fixture-session', authUrl: 'https://oauth-login.cloud.huawei.com/oauth2/v3/authorize?state=fixture', callbackPort: 17355, callbackPath: '/auth/callback' } } })
+    .mockResolvedValueOnce({ data: { success: true, data: { channelId: 11, models: ['model-one', 'model-two'], unavailable_models: [], public_models: [] } } })
+    .mockResolvedValueOnce({ data: { success: true, data: { channelId: 11, models: ['model-one'], public_models: ['model-one'] } } })
+  renderDialog()
+  await user.click(await screen.findByRole('button', { name: /Xiaoyi Work fixture/ }))
+  await user.click(screen.getByRole('button', { name: 'Authorize Huawei account' }))
+  await user.type(screen.getByLabelText('Authorization code'), 'fixture-code')
+  await user.click(screen.getByRole('button', { name: 'Connect and sync models' }))
+  expect(await screen.findByText('model-two')).toBeVisible()
+  await user.click(screen.getByRole('checkbox', { name: 'Enable model-two in my channels' }))
+  expect(screen.getByRole('checkbox', { name: 'Enable model-one in my channels' })).toBeChecked()
+  expect(screen.getByRole('button', { name: 'Save selection and connect' })).toBeEnabled()
+  await user.click(screen.getByRole('checkbox', { name: 'Publish model-one to the public pool' }))
+  expect(screen.getByRole('checkbox', { name: 'Enable model-one in my channels' })).toBeChecked()
+  expect(screen.getByRole('checkbox', { name: 'Enable model-two in my channels' })).not.toBeChecked()
+  expect(screen.getByRole('button', { name: 'Save selection and connect' })).toBeDisabled()
+  await user.click(screen.getByRole('checkbox', { name: 'I explicitly allow other users to use this channel and spend my account credits' }))
+  await user.click(screen.getByRole('button', { name: 'Save selection and connect' }))
+  await waitFor(() => expect(api.post).toHaveBeenLastCalledWith('/api/channel/self/visibility', expect.objectContaining({ channelId: 11, models: ['model-one'], publicModels: ['model-one'], share_confirmed: true }), expect.objectContaining({ headers: { 'X-Account-Action': 'authorize' } })))
+})
+
+it('creates the native channel from a verified callback and shows grey previews', async () => {
+  const user = userEvent.setup()
+  vi.mocked(api.post)
+    .mockResolvedValueOnce({ data: { success: true, data: { sessionId: 'fixture-session', authUrl: 'https://oauth-login.cloud.huawei.com/oauth2/v3/authorize?state=fixture', callbackPort: 17355, callbackPath: '/auth/callback' } } })
+    .mockResolvedValueOnce({ data: { success: true, data: { channelId: 11, models: ['model-one'], unavailable_models: ['model-preview'], public_models: [] } } })
+  renderDialog()
+  await user.click(await screen.findByRole('button', { name: /Xiaoyi Work fixture/ }))
+  await user.click(screen.getByRole('button', { name: 'Authorize Huawei account' }))
+  await user.type(screen.getByLabelText('Local callback URL (optional if you have the code)'), 'http://127.0.0.1:17355/auth/callback?code=fixture-code&state=fixture-session')
+  await user.click(screen.getByRole('button', { name: 'Connect and sync models' }))
+  expect(await screen.findByText('model-preview')).toBeVisible()
+  expect(screen.getByText('1 models are available to this account.')).toBeVisible()
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/channel/self/oauth/xiaoyiwork/complete', expect.objectContaining({ sessionId: 'fixture-session', callbackUrl: expect.stringContaining('code=fixture-code') }), expect.objectContaining({ headers: { 'X-Account-Action': 'authorize' } })))
+  const initialRequest = vi.mocked(api.post).mock.calls.find(([url]) => url === '/api/channel/self/oauth/xiaoyiwork/complete')?.[1] as Record<string, unknown>
+  expect(initialRequest).not.toHaveProperty('models')
+})
+
+it('restores an unfinished Huawei authorization when the dialog is reopened', async () => {
+  sessionStorage.setItem('new-api:xiaoyiwork:authorization-draft', JSON.stringify({
+    authorization: { sessionId: 'restored-session', authUrl: 'https://oauth-login.cloud.huawei.com/oauth2/v3/authorize?state=restored', callbackPort: 17355, callbackPath: '/auth/callback' },
+    callbackUrl: '', code: 'restored-code', name: '', channelId: null,
+  }))
+  const user = userEvent.setup()
+  vi.mocked(api.post).mockResolvedValueOnce({ data: { success: true, data: { channelId: 12, models: ['restored-model'], unavailable_models: [], public_models: [] } } })
+  renderDialog()
+  await user.click(await screen.findByRole('button', { name: /Xiaoyi Work fixture/ }))
+  expect(screen.getByLabelText('Authorization code')).toHaveValue('restored-code')
+  await user.click(screen.getByRole('button', { name: 'Connect and sync models' }))
+  expect(await screen.findByText('restored-model')).toBeVisible()
+  expect(screen.getByText('Xiaoyi Work channel created in My channels. You can close this window or adjust models below.')).toBeVisible()
+  expect(screen.queryByRole('dialog')).toBeInTheDocument()
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/channel/self/oauth/xiaoyiwork/complete', expect.objectContaining({ sessionId: 'restored-session', code: 'restored-code' }), expect.anything()))
 })
 
 it('uses ZCode native consent without the generic token submit or unauthenticated model fetch', async () => {

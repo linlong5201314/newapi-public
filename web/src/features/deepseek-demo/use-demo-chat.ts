@@ -130,18 +130,16 @@ export function useDemoChat(userId: number) {
             message.role === 'user' ||
             (message.status === 'complete' && message.content.trim())
         )
-        .map(
-          (message): ChatCompletionMessage => ({
-            role: message.role,
-            content:
-              message.role === 'user'
-                ? buildAttachmentContentParts(
-                    message.content,
-                    message.attachments ?? []
-                  )
-                : message.content,
-          })
-        ),
+        .map((message): ChatCompletionMessage => ({
+          role: message.role,
+          content:
+            message.role === 'user'
+              ? buildAttachmentContentParts(
+                  message.content,
+                  message.attachments ?? []
+                )
+              : message.content,
+        })),
     }
     if (thinkingRef.current) {
       payload.reasoning_effort = 'medium'

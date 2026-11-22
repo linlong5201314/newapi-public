@@ -107,7 +107,7 @@ type ModelRow = {
   model: string
 }
 
-type TestStatus = 'idle' | 'testing' | 'success' | 'error'
+type TestStatus = 'idle' | 'testing' | 'success' | 'error' | 'queued'
 
 type TestResult = {
   status: TestStatus
@@ -556,8 +556,10 @@ function ChannelTestDialogContent({
           },
           (success, responseTime, error, errorCode) => {
             const completedAt = Date.now()
+            let status: TestStatus = success ? 'success' : 'error'
+            if (errorCode === 'qoder_queued') status = 'queued'
             finalResult = {
-              status: success ? 'success' : 'error',
+              status,
               responseTime,
               completedAt,
               error,
@@ -640,7 +642,7 @@ function ChannelTestDialogContent({
           if (result.status === 'success') {
             successCount += 1
           }
-          failedCount = completedCount - successCount
+          failedCount = results.filter((item) => item.status === 'error').length
 
           setBatchProgress({
             total: uniqueModels.length,
@@ -669,6 +671,9 @@ function ChannelTestDialogContent({
               const finalResult = result ?? createFallbackResult()
               if (!result) {
                 updateTestResult(modelName, finalResult)
+              }
+              if (finalResult.status === 'queued') {
+                batchStopRequestedRef.current = true
               }
               recordBatchResult(finalResult)
               return finalResult
@@ -709,6 +714,8 @@ function ChannelTestDialogContent({
               }
             )
           )
+        } else if (results.some((item) => item.status === 'queued')) {
+          toast.info(t('Queued'))
         } else if (failedCount > 0) {
           toast.error(
             t(
@@ -1173,6 +1180,12 @@ function TestStatusCell({ result }: { result?: TestResult }) {
   if (result.status === 'success') {
     return (
       <StatusBadge label={t('Success')} variant='success' copyable={false} />
+    )
+  }
+
+  if (result.status === 'queued') {
+    return (
+      <StatusBadge label={t('Queued')} variant='neutral' copyable={false} />
     )
   }
 

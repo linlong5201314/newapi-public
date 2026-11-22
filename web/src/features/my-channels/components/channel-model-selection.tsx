@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -8,6 +9,7 @@ import { Label } from '@/components/ui/label'
 
 type ChannelModelSelectionProps = {
   models: string[]
+  modelLabels?: Record<string, string>
   enabledModels: string[]
   publicModels: string[]
   onChange: (enabledModels: string[], publicModels: string[]) => void
@@ -30,8 +32,12 @@ export function ChannelModelSelection(props: ChannelModelSelectionProps) {
   )
   const visibleModels = useMemo(() => {
     const keyword = search.trim().toLowerCase()
-    return models.filter((model) => model.toLowerCase().includes(keyword))
-  }, [models, search])
+    return models.filter(
+      (model) =>
+        model.toLowerCase().includes(keyword) ||
+        props.modelLabels?.[model]?.toLowerCase().includes(keyword)
+    )
+  }, [models, props.modelLabels, search])
 
   return (
     <div className='space-y-3'>
@@ -148,15 +154,24 @@ export function ChannelModelSelection(props: ChannelModelSelectionProps) {
               key={model}
               className='hover:bg-muted/60 flex flex-wrap items-center justify-between gap-2 rounded-md px-2 py-2 text-xs'
             >
-              <span className='min-w-0 flex-1 font-mono font-medium break-all'>
-                {model}
-              </span>
+              <div className='min-w-0 flex-1 break-all'>
+                {props.modelLabels?.[model] &&
+                  props.modelLabels[model] !== model && (
+                    <span className='block font-medium'>
+                      {props.modelLabels[model]}
+                    </span>
+                  )}
+                <span className='font-mono font-medium'>{model}</span>
+              </div>
               <div className='flex flex-wrap items-center gap-4'>
                 <Label className='text-xs'>
                   <Checkbox
                     checked={enabled}
                     disabled={props.disabled}
-                    aria-label={t('Enable {{model}} in my channels', { model })}
+                    aria-label={t('Enable {{model}} in my channels', {
+                      model,
+                      interpolation: { escapeValue: false },
+                    })}
                     onCheckedChange={(checked) =>
                       props.onChange(
                         checked
@@ -178,6 +193,7 @@ export function ChannelModelSelection(props: ChannelModelSelectionProps) {
                     disabled={props.disabled}
                     aria-label={t('Publish {{model}} to the public pool', {
                       model,
+                      interpolation: { escapeValue: false },
                     })}
                     onCheckedChange={(checked) =>
                       props.onChange(
@@ -199,5 +215,26 @@ export function ChannelModelSelection(props: ChannelModelSelectionProps) {
         })}
       </div>
     </div>
+  )
+}
+
+export function UnavailablePreviewModels(props: { models: string[] }) {
+  const { t } = useTranslation()
+  if (props.models.length === 0) return null
+  return (
+    <section
+      className='space-y-2 rounded-lg border p-3'
+      aria-label={t('Unavailable preview models')}
+    >
+      <p className='text-sm font-medium'>{t('Unavailable preview models')}</p>
+      <ul className='max-h-40 space-y-2 overflow-y-auto'>
+        {props.models.map((model) => (
+          <li key={model} className='flex flex-wrap items-center gap-2 text-xs'>
+            <span className='min-w-0 font-mono break-all'>{model}</span>
+            <Badge variant='secondary'>{t('Unavailable')}</Badge>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
