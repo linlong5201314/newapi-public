@@ -70,6 +70,8 @@ function toCredential(
       machineId: stringField(raw.machineId ?? raw.machine_id),
       deviceId: stringField(raw.deviceId ?? raw.device_id),
       expiresAt: expiryField(raw.expires ?? raw.expiresAt ?? raw.expires_at),
+      devicePublicKey: stringField(raw.devicePublicKey),
+      devicePrivateKey: stringField(raw.devicePrivateKey),
     },
   }
 }

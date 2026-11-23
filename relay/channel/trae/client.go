@@ -102,6 +102,12 @@ func (c *Client) refreshTokenOnce() (*Cred, error) {
 	if strings.TrimSpace(c.cred.RefreshToken) == "" {
 		return nil, fmt.Errorf("no refreshToken")
 	}
+	if c.cred.DevicePublicKey != "" && c.cred.DevicePrivateKey != "" {
+		// Magpie/desktop accounts use the provider's device-bound exchange. Its
+		// legacy cloudide refresh is often already rotated even while user_info
+		// still works, so preserve the full session instead of forcing that path.
+		return c.boundExchange()
+	}
 	clientID := c.cred.ClientID
 	if clientID == "" {
 		clientID = ClientID

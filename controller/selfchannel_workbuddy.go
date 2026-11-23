@@ -210,6 +210,8 @@ func selfTraeCredentialImport(c *gin.Context) {
 			Mode            string                  `json:"mode"`
 			AccessToken     string                  `json:"accessToken"`
 			ExpiresAt       int64                   `json:"expiresAt"`
+			DevicePublicKey  string                 `json:"devicePublicKey"`
+			DevicePrivateKey string                 `json:"devicePrivateKey"`
 			DisplayName     string                  `json:"displayName"`
 		Public          bool                    `json:"public"`
 		ConfirmRotation bool                    `json:"confirmRotation"`
@@ -258,6 +260,16 @@ func selfTraeCredentialImport(c *gin.Context) {
 				return err
 			}
 			credential, err := RedeemTraeAuthorization(c.Request.Context(), state.Proxy, info, req.MachineID, req.DeviceID)
+			if req.DevicePublicKey != "" && req.DevicePrivateKey != "" {
+				// user_info alone is not proof that the desktop session can chat.
+				// Bind it to the imported device and verify the renewed token too.
+				bound, boundErr := trae.RefreshImportedCredential(c.Request.Context(), state.Proxy, credential, req.DevicePublicKey, req.DevicePrivateKey)
+				if boundErr != nil {
+					state.Status, upstreamErr = "failed", boundErr
+					return nil
+				}
+				credential = bound
+			}
 			if err != nil {
 				state.Status, upstreamErr = "failed", err
 				return nil

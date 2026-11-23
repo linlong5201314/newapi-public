@@ -27,6 +27,10 @@ type Cred struct {
 	ApiHost      string `json:"apiHost,omitempty"`  // Empty preserves the legacy OAuthHost for existing channels.
 	ClientID     string `json:"clientId,omitempty"` // Empty preserves the legacy SOLO client.
 	EnterpriseID string `json:"enterpriseId,omitempty"`
+	// Magpie/desktop device keypair for the provider's bound ExchangeToken.
+	// Stored only inside the encrypted channel credential.
+	DevicePublicKey  string `json:"devicePublicKey,omitempty"`
+	DevicePrivateKey string `json:"devicePrivateKey,omitempty"`
 
 	// BaseOverride 测试/mock 用：非空时三 host 全部改走该 base（生产留空）。
 	BaseOverride string `json:"baseOverride,omitempty"`
