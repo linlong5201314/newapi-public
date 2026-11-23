@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { getServerErrorMessage } from '@/lib/server-error-message'
 
+import { AccountCredentialImport } from './account-credential-import'
 import {
   cancelNativeAuthorization,
   confirmTraeBridgeAccount,
@@ -533,6 +534,13 @@ export function ProviderAuthorizationCard(props: Props) {
             <>
               {props.provider === 'trae-cn' && (
                 <>
+                  <AccountCredentialImport
+                    provider='trae-cn'
+                    options={props.options}
+                    disabled={props.disabled}
+                    busy={busy}
+                    onComplete={finish}
+                  />
                   <p>
                     {t(
                       'Trae domestic login requires a local helper because the official client only redirects to localhost. This is not browser-only OAuth. Python 3 is required on your computer.'

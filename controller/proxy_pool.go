@@ -53,6 +53,11 @@ func GetProxyEndpoints(c *gin.Context) {
 		return
 	}
 	list, hasMore, err := model.ListProxyEndpointsPage(uid, offset, limit)
+	if c.GetInt("role") == common.RoleRootUser && c.Query("scope") == "all" {
+		// Explicit root-only inventory. Ordinary users and the default list keep
+		// the owner/public boundary; this does not expose private raw credentials.
+		list, hasMore, err = model.ListAllProxyEndpointsPage(offset, limit)
+	}
 	if err != nil {
 		common.ApiError(c, err)
 		return

@@ -323,25 +323,24 @@
       "channelType": 1,
       "baseUrl": "https://oai.endpoints.kepler.ai.cloud.ovh.net",
       "signupUrl": "https://www.ovhcloud.com/en/public-cloud/ai-endpoints/catalog/",
-      "keyRequired": true,
+      "keyRequired": false,
       "models": [
-        "Qwen3.5-397B-A17B",
-        "gpt-oss-120b",
-        "gpt-oss-20b",
-        "Qwen3.8-27B",
-        "Qwen3.6-27B",
-        "Qwen3.5-9B",
-        "Mistral-Small-3.2-24B-Instruct-2506",
-        "Meta-Llama-3_3-70B-Instruct",
-        "Qwen2.5-VL-72B-Instruct"
+        "nemotron3-nano-30b",
+        "nemotron3-omni-30b",
+        "DeepSeek-V4.1-Flash-1017",
+        "Olala-v1.0-mini-7A1B",
+        "gemma-4-26b-a4b",
+        "qwen3-vl-30b-a3b",
+        "qwen3.6-35b-a3b",
+        "laguna-xs-2.1"
       ],
-      "freeNote": "此上游当前标准模型目录不代表免费调用资格。请使用本人官方凭据与账户额度；未验证匿名免费资格，不列入平台 IP 免费模型。",
+      "freeNote": "匿名模型目录与文本推理已实测：DeepSeek-V4.1-Flash-1017 返回 HTTP 200；其余入池模型也完成匿名推理探测，429 仅表示共享 IP 当前限流。共享免费资格以实际上游响应为准。",
       "monthlyTokens": 0,
-      "freeType": "account-dependent",
+      "freeType": "ip",
       "tos": "ok",
       "poolKey": "ovhcloud",
-      "authMode": "key",
-      "authType": "key"
+      "authMode": "ip",
+      "authType": "none"
     },
     {
       "id": "kilo-code",

@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relay/channel/trae"
 	"github.com/QuantumNous/new-api/relay/channel/workbuddy"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
@@ -206,8 +207,10 @@ func selfTraeCredentialImport(c *gin.Context) {
 		UID             string                  `json:"uid"`
 		MachineID       string                  `json:"machineId"`
 		DeviceID        string                  `json:"deviceId"`
-		Mode            string                  `json:"mode"`
-		DisplayName     string                  `json:"displayName"`
+			Mode            string                  `json:"mode"`
+			AccessToken     string                  `json:"accessToken"`
+			ExpiresAt       int64                   `json:"expiresAt"`
+			DisplayName     string                  `json:"displayName"`
 		Public          bool                    `json:"public"`
 		ConfirmRotation bool                    `json:"confirmRotation"`
 		Proxy           string                  `json:"proxy"`
@@ -229,6 +232,62 @@ func selfTraeCredentialImport(c *gin.Context) {
 		body := accountAuthorizationBody("Trae token rotation may sign out other clients; confirm before importing")
 		body["code"] = "TRAE_ROTATION_CONFIRMATION_REQUIRED"
 		c.JSON(http.StatusBadRequest, body)
+		return
+	}
+	if req.AccessToken != "" {
+		if len(req.AccessToken) > 32768 || req.RefreshToken == "" || req.UID == "" {
+			accountAuthorizationError(c, model.ErrAuthFlowInvalid)
+			return
+		}
+		// A Magpie/desktop import uses its existing pair without rotating it. Keep
+		// the same session-bound flow, provider verification and replay claim.
+		info := &trae.CallbackInfo{AccessToken: strings.TrimSpace(req.AccessToken), RefreshToken: strings.TrimSpace(req.RefreshToken), UID: strings.TrimSpace(req.UID), ClientID: trae.IDEClientID, AuthHost: trae.DomesticAuthHost, ExpiresAt: req.ExpiresAt}
+		if req.CallbackURL != "" {
+			accountAuthorizationError(c, model.ErrAuthFlowInvalid)
+			return
+		}
+		settings := accountLoginProxySettings("cn", req.Proxy, req.ProxyPolicy)
+		token, err := newAccountFlow(identity, "trae", "cn", strings.TrimSpace(req.DisplayName), req.Public, settings, (&trae.Adaptor{}).GetModelList())
+		if err != nil {
+			accountAuthorizationError(c, err)
+			return
+		}
+		var upstreamErr error
+		err = model.WithWorkBuddyAuthFlow(token, identity, func(tx *gorm.DB, state *model.WorkBuddyAuthState) error {
+			if err := claimTraeAuthorization(tx, info); err != nil {
+				return err
+			}
+			credential, err := RedeemTraeAuthorization(c.Request.Context(), state.Proxy, info, req.MachineID, req.DeviceID)
+			if err != nil {
+				state.Status, upstreamErr = "failed", err
+				return nil
+			}
+			raw, err := common.Marshal(credential)
+			if err != nil {
+				return err
+			}
+			state.Credential, state.Status = string(raw), "ready"
+			return nil
+		})
+		if err != nil {
+			_ = CancelAccountAuthorization(identity, token)
+			accountAuthorizationError(c, err)
+			return
+		}
+		if upstreamErr != nil {
+			accountAuthorizationError(c, upstreamErr)
+			return
+		}
+		channel, err := PollAccountAuthorization(c.Request.Context(), identity, token)
+		if err != nil || channel == nil {
+			if err == nil {
+				err = service.ErrAccountProtocol
+			}
+			accountAuthorizationError(c, err)
+			return
+		}
+		sanitizeSelfChannel(channel)
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"done": true, "sessionId": token, "channel": channel}})
 		return
 	}
 	settings := accountLoginProxySettings("cn", req.Proxy, req.ProxyPolicy)
@@ -306,6 +365,11 @@ func newAccountFlow(identity model.AuthSessionIdentity, provider, realm, name st
 	// Non-secret random egress identity; independent of upstream state/token.
 	egress := provider + ":" + realm + ":" + common.GenerateHMACWithKey(opaque, "account-egress")
 	proxy, err := model.ResolveStableChannelProxy(identity.UserID, 0, egress, settings)
+	rootEgress := false
+	if user, userErr := model.GetUserById(identity.UserID, false); userErr == nil && user.Role == common.RoleRootUser && (settings.ProxyPolicy == nil || settings.ProxyPolicy.Mode != "direct") {
+		proxy, err = model.ResolveRootChannelProxyPolicy(settings)
+		rootEgress = err == nil
+	}
 	if err != nil {
 		// Start-time selection failures name the actual problem (empty pool,
 		// dead listener); a mid-flow change keeps the generic egress error.
@@ -315,7 +379,12 @@ func newAccountFlow(identity model.AuthSessionIdentity, provider, realm, name st
 		return "", service.ErrAccountEgress
 	}
 	endpointID, endpointFingerprint := 0, ""
-	if settings.ProxyPolicy != nil && settings.ProxyPolicy.Mode != "direct" && settings.ProxyPolicy.Mode != "fixed" {
+	if rootEgress && settings.ProxyPolicy != nil && settings.ProxyPolicy.Mode == "endpoint" {
+		endpointID = settings.ProxyPolicy.EndpointID
+		// Root global selection has no ordinary-user visibility fingerprint; retain
+		// the chosen ID so the import completion can resolve it through root policy.
+		endpointFingerprint = "root-global"
+	} else if settings.ProxyPolicy != nil && settings.ProxyPolicy.Mode != "direct" && settings.ProxyPolicy.Mode != "fixed" {
 		endpointID, endpointFingerprint, err = model.ResolveProxyEndpointIdentity(identity.UserID, proxy)
 		if err != nil {
 			return "", service.ErrAccountEgress

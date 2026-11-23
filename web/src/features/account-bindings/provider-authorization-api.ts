@@ -242,6 +242,26 @@ export async function importKimiWorkCredentials(
   return requireServerSuccess(response.data).data
 }
 
+export async function importAccountCredentials(
+  provider: 'trae-cn' | 'raccoon',
+  credentials: Record<string, unknown>,
+  options: ProviderAuthorizationOptions
+): Promise<NativeAuthorizationResult> {
+  const response = await api.post<Envelope<NativeAuthorizationResult>>(
+    provider === 'trae-cn'
+      ? '/api/channel/self/import_trae'
+      : '/api/channel/self/import_raccoon',
+    {
+      ...options,
+      ...(provider === 'trae-cn'
+        ? { ...credentials, realm: 'cn', mode: 'create' }
+        : { credentials }),
+    },
+    accountConfig(true)
+  )
+  return requireServerSuccess(response.data).data
+}
+
 // Download protected helpers through the authenticated client, never put dashboard
 // tokens in a URL or hand them to an external website. A JSON error is not a script.
 export async function downloadProviderHelper(

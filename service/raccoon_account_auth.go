@@ -218,6 +218,12 @@ func CompleteRaccoonAuthorization(ctx context.Context, proxy, code string) (*Rac
 	return credential, models, nil
 }
 
+// VerifyRaccoonImportedCredential validates one existing desktop/Magpie session
+// against the provider before the session-bound import flow can create a channel.
+func VerifyRaccoonImportedCredential(ctx context.Context, proxy string, credential *RaccoonCredential) error {
+	return verifyRaccoonCredential(ctx, proxy, credential)
+}
+
 // RefreshRaccoonAccount preserves identity and stable egress. Callers must
 // resolve Egress before invoking it and persist the rotated encrypted credential
 // atomically; no credential or upstream error body belongs in an API response.

@@ -63,6 +63,7 @@ func registerSelfChannelRoutes(apiRouter *gin.RouterGroup) {
 		selfChannelRoute.POST("/oauth/freepi/consent", middleware.CriticalRateLimit(), controller.ConsentFreePiOAuth)
 		selfChannelRoute.POST("/oauth/freepi/cancel", middleware.CriticalRateLimit(), controller.CancelFreePiOAuth)
 		selfChannelRoute.POST("/import_trae", controller.SelfImportTrae)
+		selfChannelRoute.POST("/import_raccoon", middleware.CriticalRateLimit(), controller.SelfImportRaccoon)
 		selfChannelRoute.POST("/oauth/trae/bridge/start", middleware.CriticalRateLimit(), controller.SelfTraeBridgeStart)
 		selfChannelRoute.POST("/oauth/trae/bridge/helper", middleware.CriticalRateLimit(), controller.SelfTraeBridgeHelper)
 		selfChannelRoute.GET("/oauth/trae/bridge/poll", controller.SelfTraeBridgePoll)

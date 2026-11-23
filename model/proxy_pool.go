@@ -158,6 +158,26 @@ func ListProxyEndpointsPage(userId, offset, limit int) ([]ProxyEndpoint, bool, e
 	return list, hasMore, err
 }
 
+// ListAllProxyEndpointsPage is used only by the explicitly root-scoped admin
+// inventory endpoint. Raw credentials are still omitted from the selected columns.
+func ListAllProxyEndpointsPage(offset, limit int) ([]ProxyEndpoint, bool, error) {
+	if offset < 0 || limit <= 0 || limit > ProxyEndpointListLimit {
+		return nil, false, fmt.Errorf("invalid proxy endpoint pagination")
+	}
+	if err := EnsureProxyPoolSchema(); err != nil {
+		return nil, false, err
+	}
+	var list []ProxyEndpoint
+	err := DB.Select("id, user_id, name, kind, url, CASE WHEN raw_uri <> '' THEN substr(raw_uri, 1, 20) ELSE '' END AS raw_uri, region, subscription_id, source, enabled, public, weight, latency_ms, fail_count, last_ok_at, last_error, created_at, updated_at").
+		Order("fail_count ASC, CASE WHEN latency_ms > 0 THEN latency_ms ELSE 99999 END ASC, weight DESC, id ASC").
+		Offset(offset).Limit(limit + 1).Find(&list).Error
+	hasMore := len(list) > limit
+	if hasMore {
+		list = list[:limit]
+	}
+	return list, hasMore, err
+}
+
 // ProxyPoolStats 代理池聚合统计。
 type ProxyPoolStats struct {
 	Total        int `gorm:"column:total"`
@@ -591,6 +611,48 @@ var (
 	ErrProxyPoolEmpty        = errors.New("no usable proxy endpoint in the selected proxy scope")
 	ErrProxyEndpointNotReady = errors.New("selected proxy endpoint has no usable listener in this process")
 )
+
+// ResolveRootChannelProxyPolicy gives the super administrator the global egress
+// inventory without making private nodes visible or usable by ordinary users.
+// Ordinary channel owners continue through the owner/public visibility rules.
+func ResolveRootChannelProxyPolicy(setting dto.ChannelSettings) (string, error) {
+	policy := setting.ProxyPolicy
+	if policy == nil || policy.Mode == "direct" || policy.Mode == "fixed" {
+		return ResolveStableChannelProxy(0, 0, "root", setting)
+	}
+	if err := EnsureProxyPoolSchema(); err != nil {
+		return "", err
+	}
+	query := DB.Model(&ProxyEndpoint{}).Where("enabled = ? AND fail_count = ?", true, 0)
+	switch policy.Mode {
+	case "endpoint":
+		if policy.EndpointID <= 0 {
+			return "", fmt.Errorf("proxy endpoint ID is required")
+		}
+		query = query.Where("id = ?", policy.EndpointID)
+	case "subscription":
+		if policy.SubscriptionID <= 0 {
+			return "", fmt.Errorf("proxy subscription ID is required")
+		}
+		query = query.Where("subscription_id = ?", policy.SubscriptionID)
+	case "public_pool":
+		query = query.Where("public = ?", true)
+	case "user_pool":
+		// Root's own inventory plus the public platform pool. To select another
+		// user's private node, choose it explicitly in endpoint mode.
+		query = query.Where("public = ?", true)
+	default:
+		return "", fmt.Errorf("invalid proxy policy mode")
+	}
+	var endpoint ProxyEndpoint
+	if err := query.Order("id ASC").First(&endpoint).Error; err != nil {
+		return "", ErrProxyPoolEmpty
+	}
+	if endpoint.Url != "" {
+		return endpoint.Url, nil
+	}
+	return endpointProxyURLProvider(endpoint)
+}
 
 // ResolveStableChannelProxy selects a fixed-node URL, never the shared selector.
 // ownerID is the channel OWNER (0 for an internal platform public pool), not

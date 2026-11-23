@@ -12,10 +12,10 @@ import {
   getServerErrorStatus,
 } from '@/lib/server-error-message'
 
+import { AccountCredentialImport } from './account-credential-import'
 import {
   cancelBrowserAuthorization,
-  completeNativeAuthorization,
-  confirmBrowserAccount,
+  completeNativeAuthorization,  confirmBrowserAccount,
   pollBrowserAuthorization,
   startBrowserAuthorization,
   type BrowserAccountProvider,
@@ -477,6 +477,15 @@ export function BrowserAccountConnection({
             'I understand that this Trae login may rotate tokens and sign out other clients.'
           )}
         </Label>
+      )}
+      {(provider === 'trae-cn' || provider === 'raccoon') && !session && !created && (
+        <AccountCredentialImport
+          provider={provider}
+          options={options}
+          disabled={disabled}
+          busy={busy}
+          onComplete={finish}
+        />
       )}
       {created ? (
         <p role='status'>
