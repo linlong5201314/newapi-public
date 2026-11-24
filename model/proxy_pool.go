@@ -650,7 +650,10 @@ func ResolveRootChannelProxyPolicy(ownerID int, accountKey string, setting dto.C
 		return "", fmt.Errorf("invalid proxy policy mode")
 	}
 	var endpoints []ProxyEndpoint
-	if err := query.Order("id ASC").Find(&endpoints).Error; err != nil {
+	// Runtime resolution needs the full RawURI for its fingerprint and listener
+	// configuration. The paginated list intentionally truncates it for display;
+	// never use that redacted form to resolve an actual proxy.
+	if err := query.Select("id, user_id, name, kind, url, raw_uri, region, subscription_id, source, enabled, public, weight, latency_ms, fail_count, last_ok_at, last_error, created_at, updated_at").Order("id ASC").Find(&endpoints).Error; err != nil {
 		return "", err
 	}
 	// Only consider endpoints with a listener already loaded in this process.
