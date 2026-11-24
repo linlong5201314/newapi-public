@@ -379,7 +379,7 @@ func newAccountFlow(identity model.AuthSessionIdentity, provider, realm, name st
 	proxy, err := model.ResolveStableChannelProxy(identity.UserID, 0, egress, settings)
 	rootEgress := false
 	if user, userErr := model.GetUserById(identity.UserID, false); userErr == nil && user.Role == common.RoleRootUser && (settings.ProxyPolicy == nil || settings.ProxyPolicy.Mode != "direct") {
-		proxy, err = model.ResolveRootChannelProxyPolicy(settings)
+		proxy, err = model.ResolveRootChannelProxyPolicy(identity.UserID, egress, settings)
 		rootEgress = err == nil
 	}
 	if err != nil {

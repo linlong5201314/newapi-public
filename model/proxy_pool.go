@@ -6,6 +6,7 @@ package model
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
@@ -615,10 +616,13 @@ var (
 // ResolveRootChannelProxyPolicy gives the super administrator the global egress
 // inventory without making private nodes visible or usable by ordinary users.
 // Ordinary channel owners continue through the owner/public visibility rules.
-func ResolveRootChannelProxyPolicy(setting dto.ChannelSettings) (string, error) {
+func ResolveRootChannelProxyPolicy(ownerID int, accountKey string, setting dto.ChannelSettings) (string, error) {
 	policy := setting.ProxyPolicy
 	if policy == nil || policy.Mode == "direct" || policy.Mode == "fixed" {
-		return ResolveStableChannelProxy(0, 0, "root", setting)
+		return ResolveStableChannelProxy(ownerID, 0, accountKey, setting)
+	}
+	if ownerID <= 0 || len(accountKey) == 0 {
+		return "", fmt.Errorf("proxy account identity is required")
 	}
 	if err := EnsureProxyPoolSchema(); err != nil {
 		return "", err
@@ -636,22 +640,31 @@ func ResolveRootChannelProxyPolicy(setting dto.ChannelSettings) (string, error) 
 		}
 		query = query.Where("subscription_id = ?", policy.SubscriptionID)
 	case "public_pool":
+		// The root-only platform inventory. Private nodes owned by other users
+		// remain excluded even for root's shared pool mode.
 		query = query.Where("public = ?", true)
 	case "user_pool":
-		// Root's own inventory plus the public platform pool. To select another
-		// user's private node, choose it explicitly in endpoint mode.
-		query = query.Where("public = ?", true)
+		// Root may use its own inventory in addition to the public pool.
+		query = query.Where("user_id = ? OR public = ?", ownerID, true)
 	default:
 		return "", fmt.Errorf("invalid proxy policy mode")
 	}
-	var endpoint ProxyEndpoint
-	if err := query.Order("id ASC").First(&endpoint).Error; err != nil {
+	var endpoints []ProxyEndpoint
+	if err := query.Order("id ASC").Find(&endpoints).Error; err != nil {
+		return "", err
+	}
+	if len(endpoints) == 0 {
 		return "", ErrProxyPoolEmpty
 	}
-	if endpoint.Url != "" {
-		return endpoint.Url, nil
-	}
-	return endpointProxyURLProvider(endpoint)
+	// Stable per-account selection, not an unconditional first node. Every root
+	// account still gets a fixed exit for its lifetime, as ordinary pool users do.
+	index := proxyAccountIdentity(accountKey)
+	hash := sha256.Sum256([]byte(index))
+	position := int(binary.BigEndian.Uint32(hash[:4]) % uint32(len(endpoints)))
+	endpoint := endpoints[position]
+	// Reuse the same readiness-checked on-demand listener as ordinary endpoint
+	// selection. Root changes only the candidate scope, not the listener contract.
+	return selectedEndpointProxyURLProvider(endpoint)
 }
 
 // ResolveStableChannelProxy selects a fixed-node URL, never the shared selector.

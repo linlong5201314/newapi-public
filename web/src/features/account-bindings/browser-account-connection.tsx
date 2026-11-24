@@ -283,7 +283,7 @@ export function BrowserAccountConnection({
     )
     return () => clearTimeout(timer)
   }, [session, t])
-  const start = async () => {
+  const start = async (copyLink = false) => {
     if (
       activeRequest.current ||
       disabled ||
@@ -322,6 +322,14 @@ export function BrowserAccountConnection({
         throw new Error(t('Invalid authorization session response'))
       }
       setSession(next)
+      if (copyLink && next.authUrl) {
+        try {
+          await navigator.clipboard.writeText(next.authUrl)
+          setStatus(t('Authorization URL copied. Open it in your browser to sign in.'))
+        } catch {
+          setStatus(t('Authorization URL is ready; use the copy button below.'))
+        }
+      }
       if (reserved && !reserved.closed && next.authUrl) {
         reserved.location.href = next.authUrl
       }
@@ -496,17 +504,29 @@ export function BrowserAccountConnection({
       ) : (
         <>
           {!session && (
-            <Button
-              type='button'
-              disabled={
-                busy || disabled || (provider === 'trae-cn' && !rotation)
-              }
-              onClick={() => {
-                void start()
-              }}
-            >
-              {t('Generate authorization URL')}
-            </Button>
+            <div className='flex flex-wrap items-center gap-2'>
+              <Button
+                type='button'
+                disabled={
+                  busy || disabled || (provider === 'trae-cn' && !rotation)
+                }
+                onClick={() => {
+                  void start(false)
+                }}
+              >
+                {t('Generate authorization URL')}
+              </Button>
+              <Button
+                type='button'
+                variant='outline'
+                disabled={busy || disabled || (provider === 'trae-cn' && !rotation)}
+                onClick={() => {
+                  void start(true)
+                }}
+              >
+                {t('Generate authorization URL and copy')}
+              </Button>
+            </div>
           )}
           {session?.userCode && (
             <div className='rounded-lg border p-3'>
