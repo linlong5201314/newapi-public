@@ -376,11 +376,13 @@ func newAccountFlow(identity model.AuthSessionIdentity, provider, realm, name st
 	}
 	// Non-secret random egress identity; independent of upstream state/token.
 	egress := provider + ":" + realm + ":" + common.GenerateHMACWithKey(opaque, "account-egress")
-	proxy, err := model.ResolveStableChannelProxy(identity.UserID, 0, egress, settings)
+	var proxy string
 	rootEgress := false
 	if user, userErr := model.GetUserById(identity.UserID, false); userErr == nil && user.Role == common.RoleRootUser && (settings.ProxyPolicy == nil || settings.ProxyPolicy.Mode != "direct") {
 		proxy, err = model.ResolveRootChannelProxyPolicy(identity.UserID, egress, settings)
 		rootEgress = err == nil
+	} else {
+		proxy, err = model.ResolveStableChannelProxy(identity.UserID, 0, egress, settings)
 	}
 	if err != nil {
 		// Start-time selection failures name the actual problem (empty pool,
