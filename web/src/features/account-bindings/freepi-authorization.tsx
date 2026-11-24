@@ -62,6 +62,7 @@ export function FreePiAuthorizationCard(props: FreePiAuthorizationProps) {
   const queryClient = useQueryClient()
   const verification = useSecureVerification()
   const [displayName, setDisplayName] = useState('')
+  const [method, setMethod] = useState<'connect' | 'device'>('connect')
   const [isPublic, setIsPublic] = useState(false)
   const [accepted, setAccepted] = useState(false)
   const [session, setSession] = useState<
@@ -72,6 +73,13 @@ export function FreePiAuthorizationCard(props: FreePiAuthorizationProps) {
   const completedID = result?.status === 'done' ? result.channel?.id : undefined
   const onComplete = props.onComplete
   const completeUri = session ? completeVerificationUri(session) : undefined
+  const browserConnect = session?.method === 'connect'
+  let verificationLinkText = t('Open GitHub and enter this device code')
+  if (browserConnect) {
+    verificationLinkText = t('Open FreePi to sign in and Connect')
+  } else if (completeUri) {
+    verificationLinkText = t('Open GitHub to confirm authorization')
+  }
 
   useEffect(() => {
     if (!completedID) return
@@ -98,6 +106,7 @@ export function FreePiAuthorizationCard(props: FreePiAuthorizationProps) {
         displayName,
         public: isPublic,
         confirmPublic: isPublic,
+        method,
         ...(props.proxy !== undefined ? { proxy: props.proxy } : {}),
         ...(props.proxyPolicy ? { proxy_policy: props.proxyPolicy } : {}),
       }
@@ -123,8 +132,23 @@ export function FreePiAuthorizationCard(props: FreePiAuthorizationProps) {
     retry: false,
     onSuccess: (data) => {
       if (!data) return
+      let validVerification = false
+      try {
+        const uri = new URL(data.verificationUri)
+        validVerification =
+          data.method === 'connect'
+            ? uri.protocol === 'https:' &&
+              uri.hostname === 'freepi.ai' &&
+              !uri.username &&
+              !uri.password &&
+              !uri.hash
+            : data.method === 'device' &&
+              data.verificationUri === 'https://github.com/login/device'
+      } catch {
+        validVerification = false
+      }
       if (
-        data.verificationUri !== 'https://github.com/login/device' ||
+        !validVerification ||
         !data.state ||
         !data.userCode ||
         data.expiresIn <= 0
@@ -252,12 +276,12 @@ export function FreePiAuthorizationCard(props: FreePiAuthorizationProps) {
   return (
     <section
       className='bg-card mb-4 space-y-3 rounded-xl border p-5'
-      aria-label={t('FreePi GitHub authorization')}
+      aria-label={t('FreePi account authorization')}
     >
-      <h2 className='font-semibold'>{t('FreePi GitHub authorization')}</h2>
+      <h2 className='font-semibold'>{t('FreePi account authorization')}</h2>
       <p className='text-muted-foreground text-sm'>
         {t(
-          'Use your own GitHub account and confirm in your browser. If your dashboard login is older than ten minutes, confirm your identity here before linking FreePi.'
+          'Connect your FreePi account in the official browser page using GitHub, Google or email, or use a GitHub device code. If your dashboard login is older than ten minutes, confirm your identity here before linking FreePi.'
         )}
       </p>
       <p className='text-muted-foreground text-sm'>
@@ -287,6 +311,30 @@ export function FreePiAuthorizationCard(props: FreePiAuthorizationProps) {
         >
           {t('FreePi privacy policy')}
         </a>
+        <a
+          href='https://freepi.ai/dashboard'
+          target='_blank'
+          rel='noopener noreferrer'
+          className='text-primary underline'
+        >
+          {t('FreePi account dashboard')}
+        </a>
+        <a
+          href='https://freepi.ai/docs/getting-started'
+          target='_blank'
+          rel='noopener noreferrer'
+          className='text-primary underline'
+        >
+          {t('FreePi sign-in guide')}
+        </a>
+        <a
+          href='https://freepi.ai/docs/updating-and-troubleshooting#sign-in-does-not-open-a-browser'
+          target='_blank'
+          rel='noopener noreferrer'
+          className='text-primary underline'
+        >
+          {t('Browser or device sign-in help')}
+        </a>
       </div>
       {!session && !completedID && (
         <form
@@ -296,6 +344,42 @@ export function FreePiAuthorizationCard(props: FreePiAuthorizationProps) {
             start.mutate()
           }}
         >
+          <div
+            className='space-y-2'
+            role='group'
+            aria-label={t('FreePi authorization method')}
+          >
+            <Label>{t('Authorization method')}</Label>
+            <div className='flex flex-wrap gap-2'>
+              <Button
+                type='button'
+                variant={method === 'connect' ? 'default' : 'outline'}
+                aria-pressed={method === 'connect'}
+                disabled={start.isPending}
+                onClick={() => setMethod('connect')}
+              >
+                {t('Browser sign-in and Connect (recommended)')}
+              </Button>
+              <Button
+                type='button'
+                variant={method === 'device' ? 'default' : 'outline'}
+                aria-pressed={method === 'device'}
+                disabled={start.isPending}
+                onClick={() => setMethod('device')}
+              >
+                {t('GitHub device code')}
+              </Button>
+            </div>
+            <p className='text-muted-foreground text-sm'>
+              {method === 'connect'
+                ? t(
+                    'Sign in on FreePi with GitHub, Google or email, check the confirmation code, then press Connect. This page finishes automatically; no callback URL is needed.'
+                  )
+                : t(
+                    'Open GitHub on any device, enter the one-time code and approve it. This page finishes automatically.'
+                  )}
+            </p>
+          </div>
           <Label htmlFor='freepi-name'>{t('Display name')}</Label>
           <Input
             id='freepi-name'
@@ -318,41 +402,65 @@ export function FreePiAuthorizationCard(props: FreePiAuthorizationProps) {
             </Label>
           </div>
           <Button type='submit' disabled={start.isPending}>
-            {t('Start GitHub device authorization')}
+            {method === 'connect'
+              ? t('Start browser authorization')
+              : t('Start GitHub device authorization')}
           </Button>
         </form>
       )}
       {session && !completedID && (
         <div className='space-y-3'>
           <div className='flex items-center gap-2'>
-            <span>{t('GitHub device code')}</span>
+            <span>
+              {browserConnect
+                ? t('FreePi confirmation code')
+                : t('GitHub device code')}
+            </span>
             <code>{session.userCode}</code>
             <CopyButton
               value={session.userCode}
-              aria-label={t('Copy GitHub device code')}
+              aria-label={
+                browserConnect
+                  ? t('Copy FreePi confirmation code')
+                  : t('Copy GitHub device code')
+              }
             />
           </div>
           <a
-            href={completeUri ?? session.verificationUri}
+            href={
+              browserConnect
+                ? session.verificationUri
+                : (completeUri ?? session.verificationUri)
+            }
             target='_blank'
             rel='noopener noreferrer'
             className='text-primary text-sm underline'
           >
-            {completeUri
-              ? t('Open GitHub to confirm authorization')
-              : t('Open GitHub and enter this device code')}
+            {verificationLinkText}
           </a>
-          {!completeUri && (
+          {browserConnect ? (
             <p className='text-muted-foreground text-sm'>
               {t(
-                'GitHub requires you to enter this code once. After confirmation, this page finishes binding automatically.'
+                'Use GitHub, Google or email on the official FreePi page. Check that its code matches this page, then press Connect. No callback URL is required.'
               )}
             </p>
+          ) : (
+            !completeUri && (
+              <p className='text-muted-foreground text-sm'>
+                {t(
+                  'GitHub requires you to enter this code once. After confirmation, this page finishes binding automatically.'
+                )}
+              </p>
+            )
           )}
           <p role='status' className='text-muted-foreground text-sm'>
-            {t(
-              'Waiting for your GitHub confirmation. No channel is created until authorization finishes.'
-            )}
+            {browserConnect
+              ? t(
+                  'Waiting for your FreePi browser confirmation. No channel is created until authorization finishes.'
+                )
+              : t(
+                  'Waiting for your GitHub confirmation. No channel is created until authorization finishes.'
+                )}
           </p>
           {result?.status === 'consent_required' && (
             <div className='space-y-2 rounded-lg border p-3'>
@@ -407,9 +515,22 @@ export function FreePiAuthorizationCard(props: FreePiAuthorizationProps) {
         </p>
       )}
       {problem && (
-        <p role='alert' className='text-destructive text-sm'>
-          {problem}
-        </p>
+        <div className='space-y-2'>
+          <p role='alert' className='text-destructive text-sm'>
+            {problem}
+          </p>
+          {method === 'connect' && !session && !completedID && (
+            <Button
+              variant='outline'
+              onClick={() => {
+                setMethod('device')
+                setProblem('')
+              }}
+            >
+              {t('Use GitHub device code instead')}
+            </Button>
+          )}
+        </div>
       )}
       <SecureVerificationDialog {...verification.dialogProps} />
     </section>

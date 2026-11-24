@@ -124,6 +124,26 @@ func TestFreePiAuthorizationDatabaseMatrix(t *testing.T) {
 				switch request.URL.Path {
 				case "/client-version":
 					text = `{"latest":"0.6.22","models":[{"id":"test-freepi-model","free":true},{"id":"not-available","unavailable":true}]}`
+				case "/auth/connect/start":
+					assert.Equal(t, "1", request.Header.Get("x-freepi-signin-exp"))
+					var payload map[string]any
+					require.NoError(t, common.DecodeJson(request.Body, &payload))
+					assert.Equal(t, "4", payload["consent_version"])
+					assert.Equal(t, map[string]any{"os": "new-api", "cli_version": "0.6.22"}, payload["client"])
+					uri := "https://freepi.ai/connect"
+					if maliciousVerification {
+						uri = "https://attacker.invalid/connect"
+					}
+					text = fmt.Sprintf(`{"session_id":"b3f82be4-64d3-49a4-b760-a54fddfb838c","poll_secret":"private-connect-poll-secret","confirm_code":"ABCD-EFGH","connect_url":%q,"interval":5,"expires_in":600}`, uri)
+				case "/auth/connect/poll":
+					pollCalls++
+					var payload map[string]any
+					require.NoError(t, common.DecodeJson(request.Body, &payload))
+					assert.Equal(t, "b3f82be4-64d3-49a4-b760-a54fddfb838c", payload["session_id"])
+					assert.Equal(t, "private-connect-poll-secret", payload["poll_secret"])
+					assert.Equal(t, "UTC", payload["timezone"])
+					assert.Equal(t, "en", payload["locale"])
+					text = `{"token":"private-upstream-account-token"}`
 				case "/auth/github/device":
 					uri := "https://github.com/login/device"
 					if maliciousVerification {
@@ -349,6 +369,53 @@ func TestFreePiAuthorizationDatabaseMatrix(t *testing.T) {
 					require.Equal(t, 200, request("/cancel", fmt.Sprintf(`{"state":%q}`, response.Data.State)).Code)
 				}
 				completeVerification = ""
+			})
+			t.Run("browser_connect_uses_private_poll_secret_without_exposing_it", func(t *testing.T) {
+				state := start(`{"method":"connect"}`)
+				ready(state)
+				w := request("/poll", fmt.Sprintf(`{"state":%q}`, state))
+				require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+				assert.Contains(t, w.Body.String(), `"done":true`)
+				assert.NotContains(t, w.Body.String(), "private-connect-poll-secret")
+				var channel model.Channel
+				require.NoError(t, db.Where("owner_id = ?", user.Id).Last(&channel).Error)
+				assert.Equal(t, "private-upstream-account-token", model.DecryptChannelKey(channel.Type, channel.Key))
+				var count int64
+				require.NoError(t, db.Model(&model.Channel{}).Where("owner_id = ?", user.Id).Count(&count).Error)
+				assert.EqualValues(t, 1, count)
+			})
+			t.Run("browser_connect_rejects_untrusted_url_and_clears_secret_on_cancel", func(t *testing.T) {
+				maliciousVerification = true
+				assert.Equal(t, http.StatusBadGateway, request("/start", `{"method":"connect"}`).Code)
+				maliciousVerification = false
+				w := request("/start", `{"method":"connect"}`)
+				require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+				assert.NotContains(t, w.Body.String(), "private-connect-poll-secret")
+				assert.NotContains(t, w.Body.String(), "b3f82be4-64d3-49a4-b760-a54fddfb838c")
+				var response struct {
+					Data struct {
+						State string `json:"state"`
+						Flow  string `json:"flow"`
+					} `json:"data"`
+				}
+				require.NoError(t, common.Unmarshal(w.Body.Bytes(), &response))
+				assert.Equal(t, "browser_connect", response.Data.Flow)
+				require.NoError(t, model.WithFreePiAuthFlow(response.Data.State, identity, func(_ *gorm.DB, state *model.FreePiAuthState) error {
+					assert.Equal(t, "connect", state.Mode)
+					assert.Equal(t, "private-connect-poll-secret", state.PollSecret)
+					return nil
+				}))
+				require.Equal(t, http.StatusOK, request("/cancel", fmt.Sprintf(`{"state":%q}`, response.Data.State)).Code)
+				var flow model.AuthFlow
+				require.NoError(t, db.Where("user_id = ? AND purpose = ?", identity.UserID, model.FreePiAuthPurpose).Order("id desc").First(&flow).Error)
+				payload, err := common.DecryptSecret(flow.Payload)
+				require.NoError(t, err)
+				var cancelled model.FreePiAuthState
+				require.NoError(t, common.Unmarshal([]byte(payload), &cancelled))
+				assert.Empty(t, cancelled.PollSecret)
+				assert.Empty(t, cancelled.UpstreamSession)
+				assert.Equal(t, http.StatusBadRequest, request("/poll", fmt.Sprintf(`{"state":%q}`, response.Data.State)).Code)
+				require.NoError(t, db.Where("owner_id = ?", user.Id).Delete(&model.Channel{}).Error)
 			})
 			t.Run("private_success_and_idempotent_replay_do_not_reveal_credentials", func(t *testing.T) {
 				state := start(`{"displayName":"my-freepi"}`)

@@ -211,7 +211,8 @@ export type FreePiSession = {
   verificationUriComplete?: string
   interval: number
   expiresIn: number
-  flow: 'device_authorization'
+  flow: 'device_authorization' | 'browser_connect'
+  method: 'connect' | 'device'
 }
 
 export type FreePiPollResult = {
@@ -239,6 +240,7 @@ export async function startFreePiOAuth(
     displayName?: string
     public: boolean
     confirmPublic: boolean
+    method?: 'connect' | 'device'
     proxy?: string
     proxy_policy?: BindingProxyPolicy
   },

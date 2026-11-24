@@ -27,6 +27,7 @@ const session = {
   interval: 5,
   expiresIn: 600,
   flow: 'device_authorization',
+  method: 'device',
 }
 
 function renderCard(onComplete?: (id: number) => void) {
@@ -66,12 +67,100 @@ function forbidden(message: string, code?: string): AxiosError {
   )
 }
 
+describe('FreePi browser Connect authorization', () => {
+  it('starts the official browser connection with the confirmation code and automatic polling', async () => {
+    const user = userEvent.setup()
+    const onComplete = vi.fn()
+    vi.mocked(api.post)
+      .mockResolvedValueOnce({
+        data: {
+          success: true,
+          data: {
+            state: 'opaque-connect-state',
+            userCode: 'WXYZ-1234',
+            verificationUri:
+              'https://freepi.ai/connect?session=upstream-reference',
+            interval: 5,
+            expiresIn: 600,
+            flow: 'browser_connect',
+            method: 'connect',
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          success: true,
+          data: { status: 'done', done: true, channel: { id: 52 } },
+        },
+      })
+    renderCard(onComplete)
+    await user.click(
+      screen.getByRole('button', { name: 'Start browser authorization' })
+    )
+    expect(await screen.findByText('WXYZ-1234')).toBeVisible()
+    expect(
+      screen.getByRole('link', { name: 'Open FreePi to sign in and Connect' })
+    ).toHaveAttribute(
+      'href',
+      'https://freepi.ai/connect?session=upstream-reference'
+    )
+    expect(api.post).toHaveBeenCalledWith(
+      '/api/channel/self/oauth/freepi/start',
+      expect.objectContaining({ method: 'connect' }),
+      expect.any(Object)
+    )
+    vi.useFakeTimers()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000)
+    })
+    vi.useRealTimers()
+    expect(
+      await screen.findByText(
+        'FreePi authorization completed. Channel #{{id}} uses your account'
+      )
+    ).toBeVisible()
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(52))
+  })
+
+  it('rejects an untrusted Connect URL and offers the device-code fallback', async () => {
+    const user = userEvent.setup()
+    vi.mocked(api.post).mockResolvedValue({
+      data: {
+        success: true,
+        data: {
+          ...session,
+          method: 'connect',
+          flow: 'browser_connect',
+          verificationUri: 'https://attacker.invalid/connect',
+        },
+      },
+    })
+    renderCard()
+    await user.click(
+      screen.getByRole('button', { name: 'Start browser authorization' })
+    )
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'FreePi device authorization response could not be verified'
+    )
+    await user.click(
+      screen.getByRole('button', { name: 'Use GitHub device code instead' })
+    )
+    expect(
+      screen.getByRole('button', { name: 'Start GitHub device authorization' })
+    ).toBeVisible()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+})
+
 describe('FreePi device authorization', () => {
   it('keeps the actual HTTP 403 business reason visible without requesting verification for unrelated failures', async () => {
     vi.mocked(api.post).mockRejectedValue(
       forbidden('FreePi authorization requires a same-origin browser request')
     )
     renderCard()
+    await userEvent
+      .setup()
+      .click(screen.getByRole('button', { name: 'GitHub device code' }))
     await userEvent.setup().click(
       screen.getByRole('button', {
         name: 'Start GitHub device authorization',
@@ -127,6 +216,7 @@ describe('FreePi device authorization', () => {
     })
     const user = userEvent.setup()
     renderCard()
+    await user.click(screen.getByRole('button', { name: 'GitHub device code' }))
     await user.click(
       screen.getByRole('button', { name: 'Start GitHub device authorization' })
     )
@@ -150,7 +240,12 @@ describe('FreePi device authorization', () => {
     )
     expect(api.post).toHaveBeenLastCalledWith(
       '/api/channel/self/oauth/freepi/start',
-      { displayName: '', public: false, confirmPublic: false },
+      {
+        displayName: '',
+        public: false,
+        confirmPublic: false,
+        method: 'device',
+      },
       expect.objectContaining({
         singleUseAuthorization: true,
         headers: {
@@ -182,6 +277,7 @@ describe('FreePi device authorization', () => {
     )
     const user = userEvent.setup()
     renderCard()
+    await user.click(screen.getByRole('button', { name: 'GitHub device code' }))
     await user.click(
       screen.getByRole('button', { name: 'Start GitHub device authorization' })
     )
@@ -205,6 +301,7 @@ describe('FreePi device authorization', () => {
       },
     })
     renderCard()
+    await user.click(screen.getByRole('button', { name: 'GitHub device code' }))
     await user.click(
       screen.getByRole('button', { name: 'Start GitHub device authorization' })
     )
@@ -227,6 +324,7 @@ describe('FreePi device authorization', () => {
       },
     })
     renderCard()
+    await user.click(screen.getByRole('button', { name: 'GitHub device code' }))
     await user.click(
       screen.getByRole('button', { name: 'Start GitHub device authorization' })
     )
@@ -248,6 +346,7 @@ describe('FreePi device authorization', () => {
         name: 'I explicitly allow other users to call my FreePi channel and consume my account credits',
       })
     ).not.toBeChecked()
+    await user.click(screen.getByRole('button', { name: 'GitHub device code' }))
     await user.click(
       screen.getByRole('button', { name: 'Start GitHub device authorization' })
     )
@@ -259,7 +358,12 @@ describe('FreePi device authorization', () => {
     ).toHaveAttribute('href', 'https://github.com/login/device')
     expect(api.post).toHaveBeenCalledWith(
       '/api/channel/self/oauth/freepi/start',
-      { displayName: '', public: false, confirmPublic: false },
+      {
+        displayName: '',
+        public: false,
+        confirmPublic: false,
+        method: 'device',
+      },
       expect.objectContaining({
         singleUseAuthorization: true,
         headers: { 'X-FreePi-Action': 'authorize' },
@@ -293,6 +397,7 @@ describe('FreePi device authorization', () => {
         },
       })
     renderCard(onComplete)
+    await user.click(screen.getByRole('button', { name: 'GitHub device code' }))
     await user.click(
       screen.getByRole('button', { name: 'Start GitHub device authorization' })
     )
@@ -344,6 +449,7 @@ describe('FreePi device authorization', () => {
       data: { success: true, data: session },
     })
     renderCard()
+    await user.click(screen.getByRole('button', { name: 'GitHub device code' }))
     await user.click(
       screen.getByRole('checkbox', {
         name: 'I explicitly allow other users to call my FreePi channel and consume my account credits',
@@ -368,6 +474,7 @@ describe('FreePi device authorization', () => {
         data: { success: true, data: { status: 'cancelled' } },
       })
     renderCard()
+    await user.click(screen.getByRole('button', { name: 'GitHub device code' }))
     await user.click(
       screen.getByRole('button', { name: 'Start GitHub device authorization' })
     )
@@ -403,6 +510,7 @@ describe('FreePi device authorization', () => {
         },
       })
     renderCard()
+    fireEvent.click(screen.getByRole('button', { name: 'GitHub device code' }))
     await act(async () => {
       fireEvent.click(
         screen.getByRole('button', {
@@ -447,6 +555,7 @@ describe('FreePi device authorization', () => {
       },
     })
     renderCard()
+    await user.click(screen.getByRole('button', { name: 'GitHub device code' }))
     await user.click(
       screen.getByRole('button', { name: 'Start GitHub device authorization' })
     )
@@ -466,6 +575,7 @@ describe('FreePi device authorization', () => {
       data: { success: false, message: 'Login required' },
     })
     renderCard()
+    await user.click(screen.getByRole('button', { name: 'GitHub device code' }))
     await user.click(
       screen.getByRole('button', { name: 'Start GitHub device authorization' })
     )
