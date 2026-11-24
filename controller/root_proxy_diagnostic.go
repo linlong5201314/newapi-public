@@ -1,12 +1,15 @@
 package controller
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 )
 
@@ -31,6 +34,23 @@ func DiagnoseRootProxyPool(c *gin.Context) {
 		result["error"] = fmt.Sprintf("%T: %v", err, err)
 	} else {
 		result["proxy_prefix"] = proxy[:min(24, len(proxy))]
+		if c.Query("probe") == "raccoon" {
+			ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
+			defer cancel()
+			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://xiaohuanxiong.com/api/web/auth/v1/user_info", nil)
+			client, clientErr := service.GetAccountAuthHTTPClient(proxy, "")
+			if clientErr != nil {
+				result["probe_error"] = clientErr.Error()
+			} else {
+				resp, probeErr := client.Do(req)
+				if probeErr != nil {
+					result["probe_error"] = probeErr.Error()
+				} else {
+					result["probe_status"] = resp.StatusCode
+					resp.Body.Close()
+				}
+			}
+		}
 	}
 	common.ApiSuccess(c, result)
 }
