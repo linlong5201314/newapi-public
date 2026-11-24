@@ -109,6 +109,23 @@ func TestSelfChannelUpdateRedactsStoredProxy(t *testing.T) {
 	assert.Contains(t, channel.GetSetting().Proxy, "fixture-password")
 }
 
+func TestSelfChannelOwnerCanUpdateWithoutAdminPermission(t *testing.T) {
+	uid := setupChannelCreateTest(t)
+	channel := &model.Channel{OwnerId: uid, Name: "before", Type: constant.ChannelTypeOpenAI, Key: "fixture-key", Models: "model-one", Group: "default"}
+	require.NoError(t, channel.Insert())
+	body := fmt.Sprintf(`{"id":%d,"type":1,"name":"after","models":"model-one,model-two","setting":"{\"proxy_policy\":{\"mode\":\"direct\"}}"}`, channel.Id)
+	recorder := selfContractRequest(uid, http.MethodPut, "/", body, UpdateSelfChannel)
+	require.Contains(t, recorder.Body.String(), `"success":true`, recorder.Body.String())
+	require.NoError(t, model.DB.First(channel, channel.Id).Error)
+	assert.Equal(t, "after", channel.Name)
+	assert.Equal(t, "model-one,model-two", channel.Models)
+}
+
+func TestSelfChannelUpdateRejectsMissingIdentityBeforeAdminChecks(t *testing.T) {
+	recorder := selfContractRequest(0, http.MethodPut, "/", `{"id":1,"name":"should-not-save"}`, UpdateSelfChannel)
+	assert.Equal(t, http.StatusUnauthorized, recorder.Code)
+}
+
 func TestSelfChannelModelCaseBypass(t *testing.T) {
 	uid := setupChannelCreateTest(t)
 	setSelfContractTransport(t, func(*http.Request) (*http.Response, error) {

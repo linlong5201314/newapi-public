@@ -259,6 +259,10 @@ func AddSelfChannel(c *gin.Context) {
 // UpdateSelfChannel PUT /api/channel/self
 // 复用 updateChannelExecute：归属不符 404；owner_id 强制保留原值（禁止改归属）。
 func UpdateSelfChannel(c *gin.Context) {
+	if c.GetInt("id") <= 0 {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "message": "A dashboard login session is required"})
+		return
+	}
 	raw, err := c.GetRawData()
 	if err != nil {
 		common.ApiError(c, err)
