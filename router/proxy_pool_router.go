@@ -34,7 +34,7 @@ func registerProxyPoolRoutes(apiRouter *gin.RouterGroup) {
 
 		// 全局内核状态和操作仅限超管；普通管理员也不能访问。
 		kernelRoute := proxyRoute.Group("/runtime", middleware.RootAuth())
-		kernelRoute.GET("", controller.GetProxyRuntimeStatus)
+		kernelRoute.GET("/diagnose", controller.DiagnoseRootProxyPool)
 		kernelRoute.POST("/reload", controller.ReloadProxyRuntime)
 		kernelRoute.POST("/select", controller.SelectProxyRuntimeNode)
 	}
