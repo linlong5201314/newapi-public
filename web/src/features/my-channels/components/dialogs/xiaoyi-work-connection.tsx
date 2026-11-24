@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { PUBLIC_CATALOG_QUERY_KEY } from '@/features/public-pool/constants'
 import { api, type ApiRequestConfig } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth-store'
 import {
   getServerErrorMessage,
   requireServerSuccess,
@@ -36,7 +37,12 @@ type AuthorizationStart = {
 
 const draftKey = 'new-api:xiaoyiwork:authorization-draft'
 
+function draftKeyForUser(userId?: number) {
+  return `${draftKey}:${userId ?? 'anonymous'}`
+}
+
 type AuthorizationDraft = {
+  userId?: number
   authorization: AuthorizationStart | null
   callbackUrl: string
   code: string
@@ -44,11 +50,12 @@ type AuthorizationDraft = {
   channelId: number | null
 }
 
-function readDraft(): AuthorizationDraft | null {
+function readDraft(userId?: number): AuthorizationDraft | null {
   try {
-    const value = sessionStorage.getItem(draftKey)
+    const value = sessionStorage.getItem(draftKeyForUser(userId))
     if (!value) return null
     const draft = JSON.parse(value) as AuthorizationDraft
+    if (draft.userId !== undefined && draft.userId !== userId) return null
     return draft.authorization?.sessionId && draft.authorization.authUrl ? draft : null
   } catch {
     return null
@@ -58,14 +65,15 @@ function readDraft(): AuthorizationDraft | null {
 export function XiaoyiWorkConnection() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const userId = useAuthStore((state) => state.auth.user?.id)
   const pending = useRef(false)
-  const [authorization, setAuthorization] = useState<AuthorizationStart | null>(() => readDraft()?.authorization ?? null)
-  const [callbackUrl, setCallbackUrl] = useState(() => readDraft()?.callbackUrl ?? '')
-  const [code, setCode] = useState(() => readDraft()?.code ?? '')
-  const [name, setName] = useState(() => readDraft()?.name ?? '')
+  const [authorization, setAuthorization] = useState<AuthorizationStart | null>(() => readDraft(userId)?.authorization ?? null)
+  const [callbackUrl, setCallbackUrl] = useState(() => readDraft(userId)?.callbackUrl ?? '')
+  const [code, setCode] = useState(() => readDraft(userId)?.code ?? '')
+  const [name, setName] = useState(() => readDraft(userId)?.name ?? '')
   const [catalog, setCatalog] = useState<string[]>([])
   const [selectedModels, setSelectedModels] = useState<string[]>([])
-  const [channelId, setChannelId] = useState<number | null>(() => readDraft()?.channelId ?? null)
+  const [channelId, setChannelId] = useState<number | null>(() => readDraft(userId)?.channelId ?? null)
   const [discovered, setDiscovered] = useState(false)
   const [unavailable, setUnavailable] = useState<string[]>([])
   const [publicModels, setPublicModels] = useState<string[]>([])
@@ -86,19 +94,27 @@ export function XiaoyiWorkConnection() {
         setDiscovered(false)
         setCatalog([])
         setSelectedModels([])
-        setError(new Error('The saved Xiaoyi Work channel no longer exists. Start authorization again'))
+        sessionStorage.removeItem(draftKeyForUser(userId))
+        setError(new Error('The saved Xiaoyi Work channel no longer exists or belongs to another account. Start authorization again'))
       })
-      .catch(() => undefined)
+      .catch(() => {
+        if (!active) return
+        setChannelId(null)
+        setAuthorization(null)
+        setDiscovered(false)
+        sessionStorage.removeItem(draftKeyForUser(userId))
+        setError(new Error('The saved Xiaoyi Work channel could not be verified for this account. Start authorization again'))
+      })
     return () => { active = false }
-  }, [channelId])
+  }, [channelId, userId])
 
   useEffect(() => {
     if (!authorization) {
-      sessionStorage.removeItem(draftKey)
+      sessionStorage.removeItem(draftKeyForUser(userId))
       return
     }
-    sessionStorage.setItem(draftKey, JSON.stringify({ authorization, callbackUrl, code, name, channelId } satisfies AuthorizationDraft))
-  }, [authorization, callbackUrl, code, name, channelId])
+    sessionStorage.setItem(draftKeyForUser(userId), JSON.stringify({ userId, authorization, callbackUrl, code, name, channelId } satisfies AuthorizationDraft))
+  }, [authorization, callbackUrl, code, name, channelId, userId])
 
   async function startAuthorization() {
     if (pending.current) return
@@ -114,7 +130,7 @@ export function XiaoyiWorkConnection() {
     setSelectedModels([])
     setPublicModels([])
     setShareConfirmed(false)
-    sessionStorage.removeItem(draftKey)
+    sessionStorage.removeItem(draftKeyForUser(userId))
     try {
       const response = requireServerSuccess(
         await api.post('/api/channel/self/oauth/xiaoyiwork/start', {}, channelActionConfig({ singleUseAuthorization: true }))
@@ -167,6 +183,7 @@ export function XiaoyiWorkConnection() {
       setCode('')
       toast.success(t(channelId ? 'Xiaoyi Work selection saved' : 'Xiaoyi Work channel connected'))
       void queryClient.invalidateQueries({ queryKey: channelsQueryKeys.all })
+      void queryClient.refetchQueries({ queryKey: channelsQueryKeys.all, type: 'active' })
       void queryClient.invalidateQueries({ queryKey: PUBLIC_CATALOG_QUERY_KEY })
     } catch (cause) {
       setError(cause)

@@ -78,6 +78,9 @@ beforeEach(() => {
         },
       }
     }
+    if (url === '/api/channel/self/11/detail' || url === '/api/channel/self/12/detail') {
+      return { data: { success: true, data: { id: 11 } } }
+    }
     if (url === '/api/channel/self/free_templates') {
       return { data: { success: true, data: templates } }
     }
@@ -95,7 +98,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   client.clear()
-  sessionStorage.removeItem('new-api:xiaoyiwork:authorization-draft')
+  sessionStorage.removeItem('new-api:xiaoyiwork:authorization-draft:anonymous')
 })
 // The dialog intentionally defaults to no models selected. Tests that assert
 // creation payloads first opt in explicitly via the visible bulk action.
@@ -370,7 +373,7 @@ it('creates the native channel from a verified callback and shows grey previews'
 })
 
 it('restores an unfinished Huawei authorization when the dialog is reopened', async () => {
-  sessionStorage.setItem('new-api:xiaoyiwork:authorization-draft', JSON.stringify({
+  sessionStorage.setItem('new-api:xiaoyiwork:authorization-draft:anonymous', JSON.stringify({
     authorization: { sessionId: 'restored-session', authUrl: 'https://oauth-login.cloud.huawei.com/oauth2/v3/authorize?state=restored', callbackPort: 17355, callbackPath: '/auth/callback' },
     callbackUrl: '', code: 'restored-code', name: '', channelId: null,
   }))
