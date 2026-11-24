@@ -380,7 +380,7 @@ func newAccountFlow(identity model.AuthSessionIdentity, provider, realm, name st
 	rootEgress := false
 	if user, userErr := model.GetUserById(identity.UserID, false); userErr == nil && user.Role == common.RoleRootUser && (settings.ProxyPolicy == nil || settings.ProxyPolicy.Mode != "direct") {
 		proxy, err = model.ResolveRootChannelProxyPolicy(identity.UserID, egress, settings)
-		rootEgress = err == nil
+		rootEgress = true
 	} else {
 		proxy, err = model.ResolveStableChannelProxy(identity.UserID, 0, egress, settings)
 	}
@@ -389,6 +389,9 @@ func newAccountFlow(identity model.AuthSessionIdentity, provider, realm, name st
 		// dead listener); a mid-flow change keeps the generic egress error.
 		if errors.Is(err, model.ErrProxyPoolEmpty) || errors.Is(err, model.ErrProxyEndpointNotReady) {
 			return "", err
+		}
+		if rootEgress {
+			return "", fmt.Errorf("root public proxy selection failed: %w", model.ErrProxyEndpointNotReady)
 		}
 		return "", service.ErrAccountEgress
 	}
