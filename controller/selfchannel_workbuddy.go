@@ -402,7 +402,7 @@ func newAccountFlow(identity model.AuthSessionIdentity, provider, realm, name st
 		// Root global selection has no ordinary-user visibility fingerprint; retain
 		// the chosen ID so the import completion can resolve it through root policy.
 		endpointFingerprint = "root-global"
-	} else if settings.ProxyPolicy != nil && settings.ProxyPolicy.Mode != "direct" && settings.ProxyPolicy.Mode != "fixed" {
+	} else if !rootEgress && settings.ProxyPolicy != nil && settings.ProxyPolicy.Mode != "direct" && settings.ProxyPolicy.Mode != "fixed" {
 		endpointID, endpointFingerprint, err = model.ResolveProxyEndpointIdentity(identity.UserID, proxy)
 		if err != nil {
 			return "", service.ErrAccountEgress
