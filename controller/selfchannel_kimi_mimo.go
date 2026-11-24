@@ -379,7 +379,11 @@ func finishDesktopAccountChannel(identity model.AuthSessionIdentity, token, prov
 		return nil, nil
 	}
 	if state.Status != "done" {
-		if _, err := (service.AccountEgress{Key: state.EgressKey, Proxy: state.Proxy, EndpointID: state.EndpointID, Fingerprint: state.EndpointFingerprint}).Resolve(identity.UserID, 0, state.Settings); err != nil {
+		if user, userErr := model.GetUserById(identity.UserID, false); userErr == nil && user.Role == common.RoleRootUser && (state.Settings.ProxyPolicy == nil || state.Settings.ProxyPolicy.Mode != "direct") {
+			if _, err := model.ResolveRootChannelProxyPolicy(identity.UserID, state.EgressKey, state.Settings); err != nil {
+				return nil, err
+			}
+		} else if _, err := (service.AccountEgress{Key: state.EgressKey, Proxy: state.Proxy, EndpointID: state.EndpointID, Fingerprint: state.EndpointFingerprint}).Resolve(identity.UserID, 0, state.Settings); err != nil {
 			return nil, err
 		}
 	}
