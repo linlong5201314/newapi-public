@@ -330,6 +330,14 @@ func (m *Manager) Reload(users []RuntimeUser) (Status, error) {
 		BasePort:   mihomoBasePort,
 		Controller: fmt.Sprintf("127.0.0.1:%d", mihomoCtrlPort),
 		Secret:     kernelSecret(),
+		// Keep per-endpoint listener ports stable across kernel reloads. Reissuing
+		// them would orphan proxy URLs already stored in account flows/channels.
+		EndpointPorts: func() map[int]int {
+			if m.plan != nil {
+				return m.plan.EndpointPorts
+			}
+			return nil
+		}(),
 	})
 	if err != nil {
 		m.lastErr = err.Error()
