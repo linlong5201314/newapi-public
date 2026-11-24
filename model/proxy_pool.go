@@ -653,15 +653,24 @@ func ResolveRootChannelProxyPolicy(ownerID int, accountKey string, setting dto.C
 	if err := query.Order("id ASC").Find(&endpoints).Error; err != nil {
 		return "", err
 	}
-	if len(endpoints) == 0 {
-		return "", ErrProxyPoolEmpty
+	// Only consider endpoints with a listener already loaded in this process.
+	// The public inventory is much larger than the bounded runtime; selecting an
+	// unloaded node must not surface as a generic "proxy unavailable" failure.
+	loaded := make([]ProxyEndpoint, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		if _, err := endpointProxyURLProvider(endpoint); err == nil {
+			loaded = append(loaded, endpoint)
+		}
+	}
+	if len(loaded) == 0 {
+		return "", ErrProxyEndpointNotReady
 	}
 	// Stable per-account selection, not an unconditional first node. Every root
 	// account still gets a fixed exit for its lifetime, as ordinary pool users do.
 	index := proxyAccountIdentity(accountKey)
 	hash := sha256.Sum256([]byte(index))
-	position := int(binary.BigEndian.Uint32(hash[:4]) % uint32(len(endpoints)))
-	endpoint := endpoints[position]
+	position := int(binary.BigEndian.Uint32(hash[:4]) % uint32(len(loaded)))
+	endpoint := loaded[position]
 	// Reuse the same readiness-checked on-demand listener as ordinary endpoint
 	// selection. Root changes only the candidate scope, not the listener contract.
 	return selectedEndpointProxyURLProvider(endpoint)
