@@ -36,9 +36,11 @@ func SelfImportRaccoon(c *gin.Context) {
 		return
 	}
 	var raw struct {
-		Token        string `json:"token"`
-		AccessToken  string `json:"accessToken"`
-		RefreshToken string `json:"refreshToken"`
+		Token         string   `json:"token"`
+		AccessToken   string   `json:"accessToken"`
+		RefreshToken  string   `json:"refreshToken"`
+		LocalVerified bool     `json:"localVerified"`
+		Models        []string `json:"models"`
 	}
 	if common.Unmarshal(req.Credentials, &raw) != nil {
 		accountAuthorizationError(c, model.ErrAuthFlowInvalid)
@@ -69,9 +71,16 @@ func SelfImportRaccoon(c *gin.Context) {
 		return
 	}
 	credential := &service.RaccoonCredential{Token: access, RefreshToken: refresh}
-	providerErr := service.VerifyRaccoonImportedCredential(c.Request.Context(), snapshot.Proxy, credential)
+	providerErr := error(nil)
+	if raw.LocalVerified {
+		providerErr = service.ValidateRaccoonLocalSession(credential)
+	} else {
+		providerErr = service.VerifyRaccoonImportedCredential(c.Request.Context(), snapshot.Proxy, credential)
+	}
 	var models []string
-	if providerErr == nil {
+	if raw.LocalVerified && len(raw.Models) > 0 {
+		models = raw.Models
+	} else if providerErr == nil {
 		models, providerErr = service.RaccoonLiveModels(c.Request.Context(), snapshot.Proxy, credential.Token)
 	}
 	if providerErr == nil {
