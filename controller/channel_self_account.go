@@ -39,6 +39,9 @@ func SelfOAuthPoll(c *gin.Context) { selfWorkBuddyOAuthPoll(c) }
 // provider response body. Existing adaptors classify session and server failures
 // before this point; all other failures remain upstream diagnostics.
 func normalizeAccountModelFetchError(err error) error {
+	if errors.Is(err, service.ErrDesktopLoginExpired) {
+		return service.ErrDesktopLoginExpired
+	}
 	var traeErr *trae.Error
 	if errors.As(err, &traeErr) && traeErr.Kind == trae.ErrSessionDead {
 		return service.ErrDesktopLoginExpired

@@ -143,6 +143,7 @@ export function BrowserAccountConnection({
   useEffect(
     () => () => {
       generation.current++
+      activeRequest.current = false
       const pending = current.current
       current.current = null
       popup.current?.close()
@@ -156,6 +157,17 @@ export function BrowserAccountConnection({
     [provider]
   )
   const checkStatus = useRef<(() => void) | null>(null)
+  useEffect(() => {
+    setSession(null)
+    setConsent(null)
+    setCreated(null)
+    setProblem('')
+    setStatus('')
+    setReturned('')
+    setCallbackPending(false)
+    setRotation(false)
+    setBusy(false)
+  }, [provider])
   const devicePoll =
     provider === 'cline-account' ||
     provider === 'qoder-cn' ||

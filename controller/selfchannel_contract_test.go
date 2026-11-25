@@ -298,6 +298,29 @@ func TestSelfChannelFreeCatalogContracts(t *testing.T) {
 	}
 }
 
+func TestFreeSourcePoolDetailNeverExposesProxyCredentials(t *testing.T) {
+	uid := setupChannelCreateTest(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.FreeSourcePool{}))
+	pool := &model.FreeSourcePool{Name: "fixture-pool", Url: "https://pool.example", Proxy: "https://fixture-user:fixture-password@proxy.example:8443/path?token=private", SubmitterId: uid}
+	require.NoError(t, model.CreateFreeSourcePool(pool))
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Params = gin.Params{{Key: "id", Value: strconv.Itoa(pool.Id)}}
+	GetFreeSourcePoolDetail(c)
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.NotContains(t, recorder.Body.String(), "fixture-user")
+	assert.NotContains(t, recorder.Body.String(), "fixture-password")
+	assert.NotContains(t, recorder.Body.String(), "token=private")
+	assert.Contains(t, recorder.Body.String(), `"proxy":"https://***@proxy.example:8443"`)
+	recorder = selfContractRequest(uid, http.MethodPatch, "/", `{"signup_url":"https://user:password@signup.example"}`, func(c *gin.Context) {
+		c.Params = gin.Params{{Key: "id", Value: strconv.Itoa(pool.Id)}}
+		UpdateFreeSourcePool(c)
+	})
+	assert.Contains(t, recorder.Body.String(), `"success":false`)
+	require.NoError(t, model.DB.First(pool, pool.Id).Error)
+	assert.Empty(t, pool.SignupUrl)
+}
+
 func TestSelfChannelDedicatedSourceGuards(t *testing.T) {
 	for _, tc := range []struct {
 		name, path, body string

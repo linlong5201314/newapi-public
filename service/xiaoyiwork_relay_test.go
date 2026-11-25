@@ -10,8 +10,12 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func TestXiaoyiWorkStreamNormalizesFramesAndRejectsInterruption(t *testing.T) {
@@ -118,6 +122,39 @@ func TestXiaoyiWorkRelayPersistsOnlyActualRefresh(t *testing.T) {
 	}
 	require.Nil(t, apiErr)
 	defer response.Body.Close()
+	assert.Equal(t, http.StatusOK, response.StatusCode)
+}
+
+func TestXiaoyiWorkRelayUsesLatestPersistedCredential(t *testing.T) {
+	previousDB, previousSecret, previousConfigured := model.DB, common.CryptoSecret, common.CryptoSecretConfigured
+	common.CryptoSecret, common.CryptoSecretConfigured = "xiaoyi-relay-latest-key", true
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	model.DB = database
+	require.NoError(t, database.AutoMigrate(&model.Channel{}))
+	t.Cleanup(func() {
+		model.DB = previousDB
+		common.CryptoSecret, common.CryptoSecretConfigured = previousSecret, previousConfigured
+	})
+	encrypt := func(credential string) string {
+		raw, err := common.Marshal(&XiaoyiWorkOAuthSession{Credential: credential, UID: "fixture-uid", DeviceID: "fixture-device", ValidTimeSec: time.Now().Add(48 * time.Hour).Unix()})
+		require.NoError(t, err)
+		stored, err := common.EncryptSecret(string(raw))
+		require.NoError(t, err)
+		return stored
+	}
+	channel := &model.Channel{OwnerId: 701, Type: constant.ChannelTypeXiaoyiWork, Key: encrypt("latest-persisted-credential"), Models: "fixture-model", Status: common.ChannelStatusEnabled}
+	require.NoError(t, database.Create(channel).Error)
+	restore := SetXiaoyiWorkTransportForTest(roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		assert.Equal(t, []string{"latest-persisted-credential"}, request.Header["businessCredential"])
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n"))}, nil
+	}))
+	defer restore()
+	request, err := http.NewRequest(http.MethodPost, XiaoyiWorkSSEEndpoint, strings.NewReader(`{"model":"fixture-model","messages":[]}`))
+	require.NoError(t, err)
+	response, apiErr := DoXiaoyiWorkRelay(context.Background(), channel.Id, encrypt("stale-cache-credential"), request, "fixture-model", false)
+	require.Nil(t, apiErr)
+	response.Body.Close()
 	assert.Equal(t, http.StatusOK, response.StatusCode)
 }
 

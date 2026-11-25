@@ -90,7 +90,7 @@ func GetFreeSourcePoolDetail(c *gin.Context) {
 		"description":  p.Description,
 		"tags":         p.Tags,
 		"quota":        p.Quota,
-		"proxy":        p.Proxy,
+		"proxy":        maskProxyUrl(p.Proxy),
 		"api_base":     p.ApiBase,
 		"rating":       p.Rating,
 		"rating_count": p.RatingCount,
@@ -189,45 +189,80 @@ func UpdateFreeSourcePool(c *gin.Context) {
 		return
 	}
 
-	updates := map[string]interface{}{}
+	updates := map[string]any{}
+	name := pool.Name
 	if req.Name != nil {
-		name := strings.TrimSpace(*req.Name)
-		if name == "" || len([]rune(name)) > 200 {
-			common.ApiErrorMsg(c, "name must be 1-200 characters")
-			return
-		}
+		name = strings.TrimSpace(*req.Name)
+	}
+	rawURL := pool.Url
+	if req.Url != nil {
+		rawURL = strings.TrimSpace(*req.Url)
+	}
+	signupURL := pool.SignupUrl
+	if req.SignupUrl != nil {
+		signupURL = strings.TrimSpace(*req.SignupUrl)
+	}
+	homepageURL := pool.HomepageUrl
+	if req.HomepageUrl != nil {
+		homepageURL = strings.TrimSpace(*req.HomepageUrl)
+	}
+	description := pool.Description
+	if req.Description != nil {
+		description = strings.TrimSpace(*req.Description)
+	}
+	quota := pool.Quota
+	if req.Quota != nil {
+		quota = strings.TrimSpace(*req.Quota)
+	}
+	proxy := pool.Proxy
+	if req.Proxy != nil {
+		proxy = strings.TrimSpace(*req.Proxy)
+	}
+	apiBase := pool.ApiBase
+	if req.ApiBase != nil {
+		apiBase = strings.TrimSpace(*req.ApiBase)
+	}
+	models := pool.Models
+	if req.Models != nil {
+		models = *req.Models
+	}
+	tags := pool.Tags
+	if req.Tags != nil {
+		tags = *req.Tags
+	}
+	if err := validateFreeSourceInput(name, rawURL, signupURL, homepageURL, description, quota, proxy, apiBase, models, tags); err != nil || name == "" || rawURL == "" {
+		common.ApiErrorMsg(c, "Invalid free source fields")
+		return
+	}
+	if req.Name != nil {
 		updates["name"] = name
 	}
 	if req.Url != nil {
-		if err := validateFreeSourceInput(pool.Name, strings.TrimSpace(*req.Url), "", "", "", "", "", "", nil, nil); err != nil {
-			common.ApiErrorMsg(c, "Invalid free source URL")
-			return
-		}
-		updates["url"] = strings.TrimSpace(*req.Url)
+		updates["url"] = rawURL
 	}
 	if req.SignupUrl != nil {
-		updates["signup_url"] = strings.TrimSpace(*req.SignupUrl)
+		updates["signup_url"] = signupURL
 	}
 	if req.HomepageUrl != nil {
-		updates["homepage_url"] = strings.TrimSpace(*req.HomepageUrl)
+		updates["homepage_url"] = homepageURL
 	}
 	if req.Models != nil {
-		updates["models"] = *req.Models
+		updates["models"] = models
 	}
 	if req.Description != nil {
-		updates["description"] = strings.TrimSpace(*req.Description)
+		updates["description"] = description
 	}
 	if req.Tags != nil {
-		updates["tags"] = *req.Tags
+		updates["tags"] = tags
 	}
 	if req.Quota != nil {
-		updates["quota"] = strings.TrimSpace(*req.Quota)
+		updates["quota"] = quota
 	}
 	if req.Proxy != nil {
-		updates["proxy"] = strings.TrimSpace(*req.Proxy)
+		updates["proxy"] = proxy
 	}
 	if req.ApiBase != nil {
-		updates["api_base"] = strings.TrimSpace(*req.ApiBase)
+		updates["api_base"] = apiBase
 	}
 	if len(updates) == 0 {
 		common.ApiErrorMsg(c, "nothing to update")

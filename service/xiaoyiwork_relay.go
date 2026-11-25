@@ -32,25 +32,31 @@ func doXiaoyiWorkRelay(ctx context.Context, channelID int, encryptedSession stri
 	var session XiaoyiWorkOAuthSession
 	var plaintextSession string
 	storedKey := ""
+	ownerID := 0
 	if channelID > 0 {
 		stored, err := model.GetChannelById(channelID, true)
 		if err != nil || stored.Type != constant.ChannelTypeXiaoyiWork || !common.IsEncryptedSecret(stored.Key) {
 			return nil, types.NewError(errors.New("Xiaoyi Work stored credential is invalid"), types.ErrorCodeDoRequestFailed)
 		}
 		storedKey = stored.Key
+		ownerID = stored.OwnerId
 		decrypted, err := common.DecryptSecret(stored.Key)
 		if err != nil {
 			return nil, types.NewError(errors.New("Xiaoyi Work credential could not be decrypted"), types.ErrorCodeDoRequestFailed)
 		}
 		plaintextSession = decrypted
 	}
-	if common.IsEncryptedSecret(encryptedSession) {
-		decrypted, err := common.DecryptSecret(encryptedSession)
-		if err != nil {
-			return nil, types.NewError(errors.New("Xiaoyi Work credential could not be decrypted"), types.ErrorCodeDoRequestFailed)
+		if common.IsEncryptedSecret(encryptedSession) {
+			decrypted, err := common.DecryptSecret(encryptedSession)
+			if err != nil {
+				return nil, types.NewError(errors.New("Xiaoyi Work credential could not be decrypted"), types.ErrorCodeDoRequestFailed)
+			}
+			// The encrypted argument can be a stale channel-cache snapshot. Only use
+			// it for standalone calls; a persisted channel always uses its latest key.
+			if channelID <= 0 {
+				plaintextSession = decrypted
+			}
 		}
-		plaintextSession = decrypted
-	}
 	if common.UnmarshalJsonStr(plaintextSession, &session) != nil || session.Credential == "" || session.UID == "" || session.DeviceID == "" {
 		return nil, types.NewError(errors.New("Xiaoyi Work authorization is invalid. Reconnect the account"), types.ErrorCodeDoRequestFailed)
 	}
@@ -73,7 +79,7 @@ func doXiaoyiWorkRelay(ctx context.Context, channelID int, encryptedSession stri
 		if err != nil || !common.IsEncryptedSecret(stored) {
 			return errors.New("Xiaoyi Work credential could not be securely stored")
 		}
-		result := model.DB.Model(&model.Channel{}).Where("id = ? AND type = ? AND key = ?", channelID, constant.ChannelTypeXiaoyiWork, storedKey).Updates(map[string]any{"key": stored})
+			result := model.DB.Model(&model.Channel{}).Where("id = ? AND owner_id = ? AND type = ? AND key = ?", channelID, ownerID, constant.ChannelTypeXiaoyiWork, storedKey).Updates(map[string]any{"key": stored})
 		if result.Error != nil {
 			return result.Error
 		}

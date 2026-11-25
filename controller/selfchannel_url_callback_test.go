@@ -55,6 +55,7 @@ func urlCallbackRequest(identity model.AuthSessionIdentity, handler gin.HandlerF
 	c.Request.Host = "internal-proxy-node.invalid"
 	c.Request.Header.Set("Origin", "https://gateway.example")
 	c.Request.Header.Set("X-Forwarded-Host", "attacker.invalid")
+	c.Request.Header.Set("Sec-Fetch-Site", "same-origin")
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Request.Header.Set("X-Account-Action", "authorize")
 	handler(c)
@@ -281,6 +282,34 @@ func urlMockRaccoonProvider(t *testing.T, calls *atomic.Int32, entered chan stru
 			return selfContractResponse(500, `{}`)
 		}
 	})
+}
+
+func TestRaccoonImportRejectsClientSuppliedLocalVerification(t *testing.T) {
+	identity := setupURLCallbackTest(t)
+	var calls atomic.Int32
+	urlMockRaccoonProvider(t, &calls, nil, nil)
+	claims, err := common.Marshal(map[string]any{"sid": "ff", "exp": time.Now().Add(time.Hour).Unix()})
+	require.NoError(t, err)
+	token := "fixture." + base64.RawURLEncoding.EncodeToString(claims) + ".signature"
+	body, err := common.Marshal(map[string]any{
+		"proxy": "direct",
+		"credentials": map[string]any{
+			"accessToken": token,
+			"refreshToken": "private-raccoon-refresh",
+			"localVerified": true,
+			"models": []string{"invented-by-client"},
+		},
+	})
+	require.NoError(t, err)
+	response := urlCallbackRequest(identity, SelfImportRaccoon, string(body))
+	data := urlCallbackData(t, response)
+	assert.Equal(t, true, data["done"])
+	assert.EqualValues(t, 2, calls.Load(), "import must use live provider verification and its live catalog")
+	var channel model.Channel
+	require.NoError(t, model.DB.Where("owner_id = ?", identity.UserID).First(&channel).Error)
+	assert.Equal(t, "provider-live-model", channel.Models)
+	assert.NotEqual(t, "invented-by-client", channel.Models)
+	assert.NotContains(t, response.Body.String(), token)
 }
 
 func TestRaccoonURLCompletionSingleUseVerifiedConsentAndEncryptedEgress(t *testing.T) {

@@ -73,6 +73,17 @@ export function ProviderAuthorizationCard(props: Props) {
 
   useEffect(() => {
     const requests = generation
+    requests.current++
+    inFlight.current = false
+    setPending(null)
+    setConsent(null)
+    setCompleted(null)
+    setBusy(false)
+    setProblem('')
+    setStatus('')
+    setExternalLoginURL(null)
+    setImportFile(null)
+    setRotationConfirmed(false)
     return () => {
       requests.current++
       popup.current?.close()

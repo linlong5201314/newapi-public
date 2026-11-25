@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -36,7 +37,7 @@ func browserAccountFixture(t *testing.T, kind int, token string, expiry int64) (
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
-	require.NoError(t, db.AutoMigrate(&model.Channel{}))
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Option{}))
 	model.DB = db
 	common.CryptoSecret = "browser-account-adapter-test-only"
 	common.CryptoSecretConfigured = true
@@ -133,6 +134,42 @@ func TestBrowserAccountHeaderAndModelBoundary(t *testing.T) {
 		_, _, _, _, err := account(info)
 		assert.ErrorIs(t, err, service.ErrAccountProtocol)
 	})
+}
+
+func TestBrowserAccountUsesConcurrentlyRotatedCredential(t *testing.T) {
+	for _, kind := range []int{constant.ChannelTypeCline, constant.ChannelTypeRaccoon} {
+		t.Run(strconv.Itoa(kind), func(t *testing.T) {
+			stored, info, _, egress := browserAccountFixture(t, kind, "old-token", time.Now().Add(time.Minute).Unix())
+			var next any
+			if kind == constant.ChannelTypeCline {
+				next = service.ClineCredential{Token: "new-token", UserID: "owner-42", ExpiresAt: time.Now().Add(time.Hour).Unix(), Egress: egress}
+			} else {
+				next = service.RaccoonCredential{Token: "new-token", RefreshToken: "new-refresh", UserID: "owner-42", ExpiresAt: time.Now().Add(time.Hour).Unix(), Egress: egress}
+			}
+			raw, err := common.Marshal(next)
+			require.NoError(t, err)
+			encrypted, err := common.EncryptSecret(string(raw))
+			require.NoError(t, err)
+			require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", stored.Id).Update("key", encrypted).Error)
+			latest, err := model.GetChannelById(stored.Id, true)
+			require.NoError(t, err)
+			rotated, err := rotatedAccountSecret(stored, latest, info.ApiKey)
+			require.NoError(t, err)
+			assert.JSONEq(t, string(raw), rotated)
+			oldSecret := info.ApiKey
+			refreshes.Forget(refreshKey(stored, oldSecret))
+			<-refreshes.DoChan(refreshKey(stored, oldSecret), func() (any, error) { return nil, nil })
+			rotated, err = refreshCredential(context.Background(), stored, egress, oldSecret, "")
+			require.NoError(t, err)
+			assert.JSONEq(t, string(raw), rotated)
+			info.ApiKey = rotated
+			updated, nextEgress, token, _, err := account(info)
+			require.NoError(t, err)
+			assert.Equal(t, encrypted, updated.Key)
+			assert.Equal(t, egress, nextEgress)
+			assert.Equal(t, "new-token", token)
+		})
+	}
 }
 
 func TestBrowserAccountRefreshRejectsChangedSnapshot(t *testing.T) {

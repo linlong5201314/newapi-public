@@ -90,6 +90,26 @@ func TestNousRequestUsesRefreshedCredentialAndPreservesEgress(t *testing.T) {
 	assert.Contains(t, updated, `"key":"fixture-account"`)
 }
 
+func TestNousRefreshWriteConflictUsesNewestCredential(t *testing.T) {
+	channel, oldCred := setupNousRefreshTest(t)
+	next := &service.NousCredential{AccessToken: "winner-access", RefreshToken: "winner-refresh", ExpiresAt: time.Now().Add(time.Hour).Unix(), Egress: oldCred.Egress}
+	raw, err := common.Marshal(next)
+	require.NoError(t, err)
+	encrypted, err := common.EncryptSecret(string(raw))
+	require.NoError(t, err)
+	renewNousCredential = func(context.Context, string, *service.NousCredential) (*service.NousCredential, error) {
+		// Simulate another node committing between our provider refresh and CAS.
+		require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", channel.Id).Update("key", encrypted).Error)
+		return &service.NousCredential{AccessToken: "loser-access", RefreshToken: "loser-refresh", ExpiresAt: time.Now().Add(time.Hour).Unix()}, nil
+	}
+	stored, cred, err := refreshStoredNousCredential(context.Background(), channel, *oldCred)
+	require.NoError(t, err)
+	assert.Equal(t, encrypted, stored.Key)
+	assert.Equal(t, "winner-access", cred.AccessToken)
+	assert.Equal(t, "winner-refresh", cred.RefreshToken)
+	assert.Equal(t, oldCred.Egress, cred.Egress)
+}
+
 func TestNousConcurrentlyRotatedCredentialIsReused(t *testing.T) {
 	channel, oldCred := setupNousRefreshTest(t)
 	next := &service.NousCredential{AccessToken: "fresh-from-other-node", RefreshToken: "fresh-refresh", ExpiresAt: time.Now().Add(time.Hour).Unix(), Egress: oldCred.Egress}

@@ -48,6 +48,44 @@ function card(provider: WebAccountProvider, onComplete = vi.fn()) {
     onComplete,
   }
 }
+it('does not finish a new provider with a previous provider import response', async () => {
+  let resolveImport: (value: {
+    data: { success: true; data: { done: true; channel: { id: number } } }
+  }) => void = () => undefined
+  vi.mocked(api.post).mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolveImport = resolve
+      })
+  )
+  const view = card('trae-cn')
+  const file = new File(
+    [JSON.stringify({ accessToken: 'trae-access', refreshToken: 'trae-refresh', uid: 'fixture-uid' })],
+    'trae.json',
+    { type: 'application/json' }
+  )
+  fireEvent.change(screen.getByLabelText('Local authorization JSON or Magpie plugin-auth.json'), {
+    target: { files: [file] },
+  })
+  fireEvent.click(await screen.findByRole('button', { name: 'Import selected account and create channel' }))
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/channel/self/import_trae', expect.anything(), expect.anything()))
+  view.rerender(
+    <QueryClientProvider client={client}>
+      <BrowserAccountConnection
+        provider='raccoon'
+        onComplete={view.onComplete}
+        options={{ public: false, proxyPolicy: { mode: 'direct' } }}
+      />
+    </QueryClientProvider>
+  )
+  resolveImport({ data: { success: true, data: { done: true, channel: { id: 701 } } } })
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Generate authorization URL' })).toBeEnabled()
+  )
+  expect(view.onComplete).not.toHaveBeenCalled()
+  expect(screen.queryByText('Account login completed; channel #701 created')).not.toBeInTheDocument()
+})
+
 it('always keeps an official generated URL when a popup is blocked', async () => {
   const authUrl = 'https://bigmodel.cn/login?appId=zcode&state=fixture'
   vi.mocked(api.post).mockResolvedValueOnce({

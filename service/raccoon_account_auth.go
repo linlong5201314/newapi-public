@@ -218,18 +218,6 @@ func CompleteRaccoonAuthorization(ctx context.Context, proxy, code string) (*Rac
 	return credential, models, nil
 }
 
-// ValidateRaccoonLocalSession validates the provider-issued JWT shape and expiry
-// for a workstation-verified import. It deliberately does not trust a claimed
-// user ID or skip expiry; it only avoids a second datacenter user_info request.
-func ValidateRaccoonLocalSession(credential *RaccoonCredential) error {
-	uid, expires, err := raccoonIssuedIdentity(credential.Token)
-	if err != nil {
-		return err
-	}
-	credential.UserID, credential.ExpiresAt = uid, expires
-	return nil
-}
-
 // VerifyRaccoonImportedCredential validates one existing desktop/Magpie session
 // against the provider before the session-bound import flow can create a channel.
 func VerifyRaccoonImportedCredential(ctx context.Context, proxy string, credential *RaccoonCredential) error {

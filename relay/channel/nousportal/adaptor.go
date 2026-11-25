@@ -131,8 +131,21 @@ func refreshStoredNousCredential(ctx context.Context, stored *model.Channel, cre
 			return nil, err
 		}
 		result := model.DB.Model(&model.Channel{}).Where("id = ? AND type = ? AND owner_id = ? AND key = ?", stored.Id, constant.ChannelTypeNousPortal, stored.OwnerId, stored.Key).Update("key", encrypted)
-		if result.Error != nil || result.RowsAffected != 1 {
-			return nil, service.ErrDesktopLoginExpired
+		if result.Error != nil {
+			return nil, service.ErrAccountUpstream
+		}
+		if result.RowsAffected != 1 {
+			// Another node won the rotation race. Read its committed credential;
+			// never submit our consumed refresh token or force a needless re-login.
+			rotated, readErr := model.GetChannelById(stored.Id, true)
+			if readErr != nil || rotated.OwnerId != stored.OwnerId || rotated.Type != constant.ChannelTypeNousPortal {
+				return nil, service.ErrDesktopLoginExpired
+			}
+			next, readErr := credFromChannel(rotated)
+			if readErr != nil || next.AccessToken == "" {
+				return nil, service.ErrDesktopLoginExpired
+			}
+			return rotated, nil
 		}
 		latest.Key = encrypted
 		model.InitChannelCache()
@@ -145,7 +158,10 @@ func refreshStoredNousCredential(ctx context.Context, stored *model.Channel, cre
 		if result.Err != nil {
 			return nil, nil, result.Err
 		}
-		latest := result.Val.(*model.Channel)
+		latest, ok := result.Val.(*model.Channel)
+		if !ok || latest == nil {
+			return nil, nil, service.ErrDesktopLoginExpired
+		}
 		next, err := credFromChannel(latest)
 		return latest, next, err
 	}

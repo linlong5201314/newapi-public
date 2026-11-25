@@ -48,6 +48,45 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	return base + "/chat/completions", nil
 }
 
+func rotatedAccountSecret(stored, latest *model.Channel, previousSecret string) (string, error) {
+	if stored == nil || latest == nil || !common.IsEncryptedSecret(latest.Key) {
+		return "", service.ErrAccountProtocol
+	}
+	expected := *stored
+	expected.Key = latest.Key
+	if identicalAccountSnapshot(stored, latest) == nil || unchangedAccount(&expected, latest) != nil {
+		return "", service.ErrAccountProtocol
+	}
+	plain, err := common.DecryptSecret(latest.Key)
+	if err != nil {
+		return "", service.ErrAccountProtocol
+	}
+	var previousEgress, latestEgress service.AccountEgress
+	var previousUID, latestUID string
+	var until int64
+	if stored.Type == constant.ChannelTypeCline {
+		var previous, next service.ClineCredential
+		if common.Unmarshal([]byte(previousSecret), &previous) != nil || common.Unmarshal([]byte(plain), &next) != nil {
+			return "", service.ErrAccountProtocol
+		}
+		previousEgress, latestEgress = previous.Egress, next.Egress
+		previousUID, latestUID, until = previous.UserID, next.UserID, next.ExpiresAt
+	} else if stored.Type == constant.ChannelTypeRaccoon {
+		var previous, next service.RaccoonCredential
+		if common.Unmarshal([]byte(previousSecret), &previous) != nil || common.Unmarshal([]byte(plain), &next) != nil {
+			return "", service.ErrAccountProtocol
+		}
+		previousEgress, latestEgress = previous.Egress, next.Egress
+		previousUID, latestUID, until = previous.UserID, next.UserID, next.ExpiresAt
+	} else {
+		return "", service.ErrAccountProtocol
+	}
+	if previousUID == "" || previousUID != latestUID || previousEgress != latestEgress || until > 0 && until <= time.Now().Unix() {
+		return "", service.ErrAccountProtocol
+	}
+	return plain, nil
+}
+
 func account(info *relaycommon.RelayInfo) (*model.Channel, service.AccountEgress, string, int64, error) {
 	if info == nil || info.ChannelMeta == nil || info.ChannelId <= 0 || baseURL(info.ChannelType) == "" || info.ApiKey == "" {
 		return nil, service.AccountEgress{}, "", 0, service.ErrAccountProtocol
@@ -57,8 +96,17 @@ func account(info *relaycommon.RelayInfo) (*model.Channel, service.AccountEgress
 		return nil, service.AccountEgress{}, "", 0, service.ErrAccountProtocol
 	}
 	plain, err := common.DecryptSecret(stored.Key)
-	if err != nil || plain != info.ApiKey {
+	if err != nil {
 		return nil, service.AccountEgress{}, "", 0, service.ErrAccountProtocol
+	}
+	if plain != info.ApiKey {
+		previous := *stored
+		previous.Key = info.ApiKey
+		plain, err = rotatedAccountSecret(&previous, stored, info.ApiKey)
+		if err != nil {
+			return nil, service.AccountEgress{}, "", 0, service.ErrAccountProtocol
+		}
+		info.ApiKey = plain
 	}
 	var egress service.AccountEgress
 	var token string
@@ -115,7 +163,7 @@ func accountSnapshot(stored *model.Channel) ([32]byte, error) {
 }
 
 func unchangedAccount(stored, latest *model.Channel) error {
-	if stored == nil || latest == nil || stored.Id != latest.Id || latest.OwnerId != stored.OwnerId || latest.Type != stored.Type || latest.Key != stored.Key {
+	if stored == nil || latest == nil || stored.Id != latest.Id || latest.OwnerId != stored.OwnerId || latest.Type != stored.Type {
 		return service.ErrAccountProtocol
 	}
 	before, err := accountSnapshot(stored)
@@ -127,6 +175,13 @@ func unchangedAccount(stored, latest *model.Channel) error {
 		return service.ErrAccountProtocol
 	}
 	return nil
+}
+
+func identicalAccountSnapshot(stored, latest *model.Channel) error {
+	if latest.Key != stored.Key {
+		return service.ErrAccountProtocol
+	}
+	return unchangedAccount(stored, latest)
 }
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, h *http.Header, info *relaycommon.RelayInfo) error {
@@ -178,19 +233,32 @@ func refreshCredential(ctx context.Context, stored *model.Channel, egress servic
 		if err := refreshCtx.Err(); err != nil {
 			return nil, err
 		}
-		latest, err := model.GetChannelById(stored.Id, true)
-		if err != nil || unchangedAccount(stored, latest) != nil {
-			return nil, service.ErrAccountProtocol
-		}
-		settings, err := channelSettings(latest)
-		if err != nil {
-			return nil, err
-		}
-		pinned, err := egress.Resolve(latest.OwnerId, latest.Id, settings)
-		if err != nil || pinned != proxy {
-			return nil, service.ErrAccountEgress
-		}
-		var raw []byte
+			latest, err := model.GetChannelById(stored.Id, true)
+			if err != nil || latest.OwnerId != stored.OwnerId || latest.Type != stored.Type {
+				return nil, service.ErrAccountProtocol
+			}
+			if latest.Key != stored.Key {
+				rotated, rotateErr := rotatedAccountSecret(stored, latest, secret)
+				if rotateErr != nil {
+					return nil, service.ErrAccountProtocol
+				}
+				return rotated, nil
+			}
+			if identicalAccountSnapshot(stored, latest) != nil {
+				return nil, service.ErrAccountProtocol
+			}
+			settings, err := channelSettings(latest)
+			if err != nil {
+				return nil, err
+			}
+			if latest.Models != stored.Models || latest.OwnerId != stored.OwnerId || latest.Type != stored.Type {
+				return nil, service.ErrAccountProtocol
+			}
+			pinned, err := egress.Resolve(latest.OwnerId, latest.Id, settings)
+			if err != nil || pinned != proxy {
+				return nil, service.ErrAccountEgress
+			}
+			var raw []byte
 		if stored.Type == constant.ChannelTypeCline {
 			var prior service.ClineCredential
 			if common.Unmarshal([]byte(secret), &prior) != nil {
@@ -239,9 +307,17 @@ func refreshCredential(ctx context.Context, stored *model.Channel, egress servic
 			}
 			return nil, service.ErrAccountProtocol
 		}
-		if update.RowsAffected != 1 {
-			return nil, service.ErrAccountProtocol
-		}
+			if update.RowsAffected != 1 {
+				rotated, readErr := model.GetChannelById(stored.Id, true)
+				if readErr != nil {
+					return nil, service.ErrAccountProtocol
+				}
+				rotatedSecret, readErr := rotatedAccountSecret(stored, rotated, secret)
+				if readErr != nil {
+					return nil, service.ErrAccountProtocol
+				}
+				return rotatedSecret, nil
+			}
 		model.InitChannelCache()
 		return string(raw), nil
 	})

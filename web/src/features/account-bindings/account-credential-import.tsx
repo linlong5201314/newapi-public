@@ -124,11 +124,32 @@ export function AccountCredentialImport({
   const [problem, setProblem] = useState('')
   const [busy, setBusy] = useState(false)
   const fileGeneration = useRef(0)
+  const submitGeneration = useRef(0)
+  const mounted = useRef(true)
   useEffect(() => {
     onBusyChange?.(busy)
   }, [busy, onBusyChange])
+  useEffect(() => {
+    fileGeneration.current++
+    submitGeneration.current++
+    setAccounts([])
+    setSelected('')
+    setProblem('')
+    setBusy(false)
+  }, [provider])
+  useEffect(() => {
+    const file = fileGeneration
+    const submission = submitGeneration
+    return () => {
+      mounted.current = false
+      file.current++
+      submission.current++
+    }
+  }, [])
   const chooseFile = async (file?: File) => {
     const generation = ++fileGeneration.current
+    submitGeneration.current++
+    setBusy(false)
     setProblem('')
     setAccounts([])
     setSelected('')
@@ -150,15 +171,20 @@ export function AccountCredentialImport({
   const submit = async () => {
     const account = accounts.find((item) => item.id === selected)
     if (!account || accounts.length !== 1 && !selected) return
+    const generation = ++submitGeneration.current
     setBusy(true)
     setProblem('')
     try {
       const result = await importAccountCredentials(provider, account.value, options ?? {})
+      if (generation !== submitGeneration.current || !mounted.current) return
       onComplete(result)
     } catch (error) {
+      if (generation !== submitGeneration.current || !mounted.current) return
       setProblem(getServerErrorMessage(error, t('Failed to import account credentials')))
     } finally {
-      setBusy(false)
+      if (generation === submitGeneration.current && mounted.current) {
+        setBusy(false)
+      }
     }
   }
   const id = `credential-import-${provider}`
