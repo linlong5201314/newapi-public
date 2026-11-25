@@ -198,9 +198,18 @@ func FetchSelfModels(c *gin.Context) {
 		return
 	}
 	req.ChannelID = 0
+	if c.IsAborted() {
+		return
+	}
 	// Unsaved self-service channels use the same protected tenant transport and
 	// proxy policy as channels after creation. Keep this ownership server-side.
 	proxyURL, err := model.ResolveChannelProxyPolicy(c.GetInt("id"), func() (settings dto.ChannelSettings) {
+		if req.Setting != nil && strings.TrimSpace(*req.Setting) != "" {
+			if err := common.UnmarshalJsonStr(*req.Setting, &settings); err != nil {
+				common.ApiErrorT(c, "Invalid channel settings")
+				return settings
+			}
+		}
 		if req.Proxy != nil {
 			settings.Proxy = *req.Proxy
 		}

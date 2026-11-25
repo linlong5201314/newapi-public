@@ -165,6 +165,7 @@ import {
   CHANNEL_FORM_DEFAULT_VALUES,
   CHANNEL_TYPE_ADVANCED_CUSTOM,
   channelFormSchema,
+  buildSettingJSON,
   channelsQueryKeys,
   getAdvancedCustomStats,
   transformChannelToFormDefaults,
@@ -1214,6 +1215,7 @@ export function ChannelMutateDrawer({
         advanced_custom: currentAdvancedCustom,
         header_override: currentHeaderOverride,
         proxy: currentProxy,
+        setting: buildSettingJSON(formValues),
       },
     }),
     [
@@ -1225,6 +1227,7 @@ export function ChannelMutateDrawer({
       currentAdvancedCustom,
       currentHeaderOverride,
       currentProxy,
+      formValues,
     ]
   )
   const savedRequest = useMemo<ChannelModelDiscoveryRequest>(

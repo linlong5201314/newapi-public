@@ -319,6 +319,7 @@ export async function fetchModels(data: {
   advanced_custom?: string
   header_override?: string
   proxy?: string
+  setting?: string
 }): Promise<FetchModelsResponse> {
   const res = await api.post(
     `${SELF_BASE}/fetch_models`,

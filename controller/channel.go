@@ -1472,6 +1472,7 @@ type fetchModelsRequest struct {
 	AdvancedCustom *string `json:"advanced_custom"`
 	HeaderOverride *string `json:"header_override"`
 	Proxy          *string `json:"proxy"`
+	Setting        *string `json:"setting"`
 }
 
 func buildAdvancedCustomModelPreviewChannel(req fetchModelsRequest) (*model.Channel, error) {
