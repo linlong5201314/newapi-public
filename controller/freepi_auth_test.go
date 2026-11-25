@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -117,13 +118,25 @@ func TestFreePiAuthorizationDatabaseMatrix(t *testing.T) {
 			t.Cleanup(func() { *client = originalClient })
 			pollCalls, consentCalls := 0, 0
 			consentRequired, maliciousVerification, slowDown := false, false, false
+			catalogFailure := ""
 			completeVerification := ""
 			client.Transport = freePiTestTransport(func(request *http.Request) (*http.Response, error) {
 				assert.Equal(t, "api.freepi.ai", request.URL.Host)
 				text, status := "", http.StatusOK
 				switch request.URL.Path {
 				case "/client-version":
-					text = `{"latest":"0.6.22","models":[{"id":"test-freepi-model","free":true},{"id":"not-available","unavailable":true}]}`
+					switch catalogFailure {
+					case "network":
+						return nil, errors.New("synthetic proxy network failure")
+					case "status":
+						status, text = http.StatusServiceUnavailable, `{"message":"upstream unavailable"}`
+					case "invalid":
+						text = `{"latest":"invalid","models":[]}`
+					case "empty":
+						text = `{"latest":"0.6.22","models":[{"id":"not-available","unavailable":true}]}`
+					default:
+						text = `{"latest":"0.6.22","models":[{"id":"test-freepi-model","free":true},{"id":"not-available","unavailable":true}]}`
+					}
 				case "/auth/connect/start":
 					assert.Equal(t, "1", request.Header.Get("x-freepi-signin-exp"))
 					var payload map[string]any
@@ -369,6 +382,25 @@ func TestFreePiAuthorizationDatabaseMatrix(t *testing.T) {
 					require.Equal(t, 200, request("/cancel", fmt.Sprintf(`{"state":%q}`, response.Data.State)).Code)
 				}
 				completeVerification = ""
+			})
+			t.Run("catalog_failures_identify_egress_without_starting_authorization", func(t *testing.T) {
+				for _, tc := range []struct{ failure, code, message string }{
+					{"network", "FREEPI_CATALOG_UNREACHABLE", "Choose direct egress or test the selected proxy"},
+					{"status", "FREEPI_CATALOG_HTTP_STATUS", "unexpected upstream status"},
+					{"invalid", "FREEPI_CATALOG_INVALID", "invalid version or model list"},
+					{"empty", "FREEPI_CATALOG_EMPTY", "no available models"},
+				} {
+					t.Run(tc.failure, func(t *testing.T) {
+						catalogFailure = tc.failure
+						before := pollCalls
+						w := request("/start", `{"method":"connect"}`)
+						assert.Equal(t, http.StatusBadGateway, w.Code)
+						assert.Contains(t, w.Body.String(), `"code":`+strconv.Quote(tc.code))
+						assert.Contains(t, w.Body.String(), tc.message)
+						assert.Equal(t, before, pollCalls)
+						catalogFailure = ""
+					})
+				}
 			})
 			t.Run("browser_connect_uses_private_poll_secret_without_exposing_it", func(t *testing.T) {
 				state := start(`{"method":"connect"}`)

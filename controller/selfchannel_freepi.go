@@ -206,8 +206,16 @@ func StartFreePiOAuth(c *gin.Context) {
 		} `json:"models"`
 	}
 	status, err := freePiJSON(c.Request.Context(), proxy, http.MethodGet, "/client-version", "", nil, &catalog)
-	if err != nil || status != http.StatusOK || !freePiVersionPattern.MatchString(catalog.Latest) || len(catalog.Models) == 0 {
-		freePiError(c, http.StatusBadGateway, "FreePi model catalog could not be verified")
+	if err != nil {
+		freePiErrorWithCode(c, http.StatusBadGateway, "The FreePi model catalog could not be reached through the selected egress. Choose direct egress or test the selected proxy", "FREEPI_CATALOG_UNREACHABLE")
+		return
+	}
+	if status != http.StatusOK {
+		freePiErrorWithCode(c, http.StatusBadGateway, "FreePi model catalog returned an unexpected upstream status. Retry later or choose direct egress", "FREEPI_CATALOG_HTTP_STATUS")
+		return
+	}
+	if !freePiVersionPattern.MatchString(catalog.Latest) || len(catalog.Models) == 0 {
+		freePiErrorWithCode(c, http.StatusBadGateway, "FreePi model catalog returned an invalid version or model list", "FREEPI_CATALOG_INVALID")
 		return
 	}
 	models := make([]string, 0, len(catalog.Models))
@@ -217,7 +225,7 @@ func StartFreePiOAuth(c *gin.Context) {
 		}
 	}
 	if len(models) == 0 {
-		freePiError(c, http.StatusBadGateway, "FreePi model catalog could not be verified")
+		freePiErrorWithCode(c, http.StatusBadGateway, "FreePi model catalog has no available models", "FREEPI_CATALOG_EMPTY")
 		return
 	}
 	if req.Method == "" {
