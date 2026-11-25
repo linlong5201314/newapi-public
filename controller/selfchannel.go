@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -197,6 +198,19 @@ func FetchSelfModels(c *gin.Context) {
 		return
 	}
 	req.ChannelID = 0
+	// Unsaved self-service channels use the same protected tenant transport and
+	// proxy policy as channels after creation. Keep this ownership server-side.
+	proxyURL, err := model.ResolveChannelProxyPolicy(c.GetInt("id"), func() (settings dto.ChannelSettings) {
+		if req.Proxy != nil {
+			settings.Proxy = *req.Proxy
+		}
+		return settings
+	}())
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	req.Proxy = &proxyURL
 	fetchModelsExecute(c, req)
 }
 
@@ -283,8 +297,11 @@ func AddSelfChannel(c *gin.Context) {
 	addChannelRequest.Channel.UsedQuota = 0
 	addChannelRequest.Channel.Priority = common.GetPointer[int64](0)
 	weight := addChannelRequest.Channel.GetWeight()
+	if weight == 0 {
+		weight = 1
+	}
 	if weight < 1 || weight > 100 {
-		common.ApiErrorMsg(c, "Channel weight must be between 1 and 100")
+		common.ApiErrorMsg(c, "Channel weight must be an integer between 1 and 100")
 		return
 	}
 	addChannelRequest.Channel.Weight = common.GetPointer(uint(weight))
@@ -329,7 +346,13 @@ func UpdateSelfChannel(c *gin.Context) {
 	}
 	if weight, exists := req["weight"]; exists {
 		value, ok := weight.(float64)
-		if !ok || value < 1 || value > 100 || value != float64(int(value)) {
+		// A zero value was the historical form default. Treat it as the normal
+		// weight instead of rejecting an otherwise unchanged owner edit.
+		if ok && value == 0 {
+			req["weight"] = float64(1)
+		} else if weight == nil {
+			req["weight"] = float64(1)
+		} else if !ok || value < 1 || value > 100 || value != float64(int(value)) {
 			common.ApiErrorMsg(c, "Channel weight must be an integer between 1 and 100")
 			return
 		}
@@ -573,6 +596,9 @@ func FetchSelfChannelModels(c *gin.Context) {
 		common.ApiError(c, proxyErr)
 		return
 	}
+	settings := channel.GetSetting()
+	settings.Proxy = proxyURL
+	channel.SetSetting(settings)
 
 	seen := map[string]bool{}
 	var merged []string
@@ -596,9 +622,12 @@ func FetchSelfChannelModels(c *gin.Context) {
 		}
 	} else {
 		if len(merged) == 0 {
-			if ids, uerr := fetchChannelUpstreamModelIDs(channel); uerr == nil {
-				add(ids)
+			ids, uerr := fetchChannelUpstreamModelIDs(channel)
+			if uerr != nil {
+				common.ApiErrorMsg(c, "Unable to fetch upstream models: "+uerr.Error())
+				return
 			}
+			add(ids)
 		}
 		add(DefaultModelsForChannel(channel))
 	}

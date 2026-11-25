@@ -55,12 +55,12 @@ export function MyChannels() {
               <Info className='h-4 w-4' />
               <AlertDescription>
                 {t(
-                  'Channels here are private to you. API requests are only routed to your own channels.'
+                  'You can use platform free models, models shared by other users, and your own channels. Create a channel and fetch its upstream models here; you can edit, test, share, or delete your own channels.'
                 )}
                 {' · '}
                 <span>
                   {t(
-                    'Open a channel name to view details, manage your proxy, and select models.'
+                    'Open a channel name to manage it. Only superadministrators can manage all users and platform channels.'
                   )}
                 </span>
               </AlertDescription>

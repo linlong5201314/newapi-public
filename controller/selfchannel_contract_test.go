@@ -121,6 +121,23 @@ func TestSelfChannelOwnerCanUpdateWithoutAdminPermission(t *testing.T) {
 	assert.Equal(t, "model-one,model-two", channel.Models)
 }
 
+func TestSelfChannelDefaultAndLegacyWeightContracts(t *testing.T) {
+	uid := setupChannelCreateTest(t)
+	recorder := selfContractRequest(uid, http.MethodPost, "/", `{"mode":"single","channel":{"name":"default-weight","type":1,"key":"fixture-key","models":"model-one","group":"default"}}`, AddSelfChannel)
+	require.Contains(t, recorder.Body.String(), `"success":true`, recorder.Body.String())
+	var channel model.Channel
+	require.NoError(t, model.DB.Where("owner_id = ? AND name = ?", uid, "default-weight").First(&channel).Error)
+	require.NotNil(t, channel.Weight)
+	assert.EqualValues(t, 1, *channel.Weight)
+	for _, weight := range []string{"0", "null"} {
+		body := fmt.Sprintf(`{"id":%d,"type":1,"name":"legacy-weight","models":"model-one","group":"default","weight":%s}`, channel.Id, weight)
+		recorder = selfContractRequest(uid, http.MethodPut, "/", body, UpdateSelfChannel)
+		require.Contains(t, recorder.Body.String(), `"success":true`, recorder.Body.String())
+	}
+	require.NoError(t, model.DB.First(&channel, channel.Id).Error)
+	assert.EqualValues(t, 1, *channel.Weight)
+}
+
 func TestSelfChannelUpdateRejectsMissingIdentityBeforeAdminChecks(t *testing.T) {
 	recorder := selfContractRequest(0, http.MethodPut, "/", `{"id":1,"name":"should-not-save"}`, UpdateSelfChannel)
 	assert.Equal(t, http.StatusUnauthorized, recorder.Code)

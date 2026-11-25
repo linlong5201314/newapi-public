@@ -8581,6 +8581,8 @@
     "Zhipu GLM": "Zhipu GLM",
     "Zhipu V4": "Zhipu V4",
     "Zone that owns the primary domain. Leave blank to keep the current value.": "Zone that owns the primary domain. Leave blank to keep the current value.",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "You can use platform free models, models shared by other users, and your own channels. Create a channel and fetch its upstream models here; you can edit, test, share, or delete your own channels.": "You can use platform free models, models shared by other users, and your own channels. Create a channel and fetch its upstream models here; you can edit, test, share, or delete your own channels.",
+    "Open a channel name to manage it. Only superadministrators can manage all users and platform channels.": "Open a channel name to manage it. Only superadministrators can manage all users and platform channels."
   }
 }
