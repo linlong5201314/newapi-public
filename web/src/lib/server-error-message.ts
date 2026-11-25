@@ -167,7 +167,10 @@ export function getServerMessage(value: unknown): string | undefined {
       isRecord(value.message_params) ? value.message_params : undefined
     )
   }
-  return messageText(value.message)
+  return (
+    messageText(value.message) ??
+    (isRecord(value.message) ? messageText(value.message.key) : undefined)
+  )
 }
 
 /**

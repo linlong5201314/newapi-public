@@ -402,7 +402,7 @@ describe('FreePi device authorization', () => {
       screen.getByRole('button', { name: 'Start GitHub device authorization' })
     )
     await screen.findByText(session.userCode)
-    vi.useFakeTimers()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5000)
     })
@@ -430,7 +430,7 @@ describe('FreePi device authorization', () => {
         })
       ).not.toBeInTheDocument()
     )
-    vi.useFakeTimers()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5000)
     })

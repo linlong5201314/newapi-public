@@ -250,7 +250,15 @@ func StartFreePiOAuth(c *gin.Context) {
 			"client":          gin.H{"os": "new-api", "cli_version": catalog.Latest},
 		}, &connect, http.Header{"x-freepi-signin-exp": []string{"1"}})
 		connectURL, parseErr := url.Parse(connect.ConnectURL)
-		if err != nil || status != http.StatusOK || uuid.Validate(connect.SessionID) != nil || connect.PollSecret == "" || len(connect.PollSecret) > 1024 || connect.ConfirmCode == "" || len(connect.ConfirmCode) > 64 || strings.ContainsAny(connect.ConfirmCode, "\r\n") || parseErr != nil || connectURL.Scheme != "https" || connectURL.Hostname() != "freepi.ai" || connectURL.User != nil || connectURL.Fragment != "" {
+		if err != nil {
+			freePiError(c, http.StatusBadGateway, "FreePi browser connection could not reach the upstream service. Check the selected proxy or try GitHub device authorization")
+			return
+		}
+		if status != http.StatusOK {
+			freePiError(c, http.StatusBadGateway, "FreePi browser connection was not accepted by the upstream service. Retry later or use GitHub device authorization")
+			return
+		}
+		if uuid.Validate(connect.SessionID) != nil || connect.PollSecret == "" || len(connect.PollSecret) > 1024 || connect.ConfirmCode == "" || len(connect.ConfirmCode) > 64 || strings.ContainsAny(connect.ConfirmCode, "\r\n") || parseErr != nil || connectURL.Scheme != "https" || connectURL.Hostname() != "freepi.ai" || connectURL.User != nil || connectURL.Fragment != "" {
 			freePiError(c, http.StatusBadGateway, "FreePi browser connection response could not be verified")
 			return
 		}
@@ -268,6 +276,11 @@ func StartFreePiOAuth(c *gin.Context) {
 		validVerification = validVerification && verification.Host == "github.com" && verification.Path == "/login/device" && verification.RawQuery == ""
 	}
 	if err != nil || status != http.StatusOK || device.SessionID == "" || len(device.SessionID) > 512 || device.UserCode == "" || len(device.UserCode) > 64 || !validVerification || device.ExpiresIn <= 0 {
+		message := "FreePi device authorization response could not be verified"
+		if req.Method == "connect" {
+			message = "FreePi browser connection response could not be verified"
+		}
+		freePiError(c, http.StatusBadGateway, message)
 		freePiError(c, http.StatusBadGateway, "FreePi device authorization response could not be verified")
 		return
 	}
