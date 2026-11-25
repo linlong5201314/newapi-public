@@ -140,6 +140,21 @@ func TestSelfChannelOrganizationFieldPersistsThroughMapUpdate(t *testing.T) {
 	assert.Equal(t, "org-fixture", *channel.OpenAIOrganization)
 }
 
+// Ordinary channels persist through the struct path. The handler re-marshals the
+// request map before it is parsed into the struct by JSON tag, so the JSON name
+// must be kept there or the value is silently dropped without any error.
+func TestSelfChannelOrganizationFieldPersistsOnOrdinaryChannel(t *testing.T) {
+	uid := setupChannelCreateTest(t)
+	channel := &model.Channel{OwnerId: uid, Name: "plain", Type: constant.ChannelTypeOpenAI, Key: "fixture-key", Models: "model-one", Group: "default"}
+	require.NoError(t, channel.Insert())
+	body := fmt.Sprintf(`{"id":%d,"type":1,"name":"plain2","models":"model-one","group":"default","openai_organization":"org-plain","weight":0,"setting":"{\"proxy_policy\":{\"mode\":\"direct\"}}"}`, channel.Id)
+	recorder := selfContractRequest(uid, http.MethodPut, "/", body, UpdateSelfChannel)
+	require.Contains(t, recorder.Body.String(), `"success":true`, recorder.Body.String())
+	require.NoError(t, model.DB.First(channel, channel.Id).Error)
+	require.NotNil(t, channel.OpenAIOrganization, "organization must not be silently dropped on the struct path")
+	assert.Equal(t, "org-plain", *channel.OpenAIOrganization)
+}
+
 // Every account channel type the console can open must accept the editor's real
 // update payload. The editor always submits openai_organization, weight and the
 // proxy policy, so each type must persist them without an unknown-column error.

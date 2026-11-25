@@ -353,15 +353,11 @@ func UpdateSelfChannel(c *gin.Context) {
 	for _, field := range []string{"owner_id", "visibility", "tier", "allow_ips", "status", "used_quota", "priority"} {
 		delete(req, field)
 	}
-	// Account-type channels (Xiaoyi Work, etc.) persist through a map update whose
-	// keys become SQL column names. The JSON field openai_organization is stored in
-	// the historical open_ai_organization column, so translate it explicitly.
-	if value, exists := req["openai_organization"]; exists {
-		delete(req, "openai_organization")
-		if text, ok := value.(string); ok && strings.TrimSpace(text) != "" {
-			req["open_ai_organization"] = strings.TrimSpace(text)
-		}
-	}
+	// Keep JSON field names here. This map is re-marshalled into the request body
+	// and parsed into the channel struct by JSON tag, so rewriting
+	// openai_organization to its column name would make the struct binding drop
+	// the value. The map-only Xiaoyi path translates the column in
+	// model.SaveVerifiedSelfChannel instead.
 	if weight, exists := req["weight"]; exists {
 		value, ok := weight.(float64)
 		// A zero value was the historical form default. Treat it as the normal
