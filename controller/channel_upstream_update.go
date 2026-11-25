@@ -364,9 +364,30 @@ func getFetchModelsResponseBody(method string, requestURL string, channel *model
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("status code: %d", response.StatusCode)
+		return nil, upstreamStatusError(response.StatusCode)
 	}
 	return io.ReadAll(response.Body)
+}
+
+// upstreamStatusError turns an upstream refusal into a message that tells the
+// user what to do. "status code: 401" reads like a platform permission problem,
+// which sent users looking for a dashboard role that is not involved at all.
+// Only the status code is used; the upstream body is never echoed.
+func upstreamStatusError(status int) error {
+	switch status {
+	case http.StatusUnauthorized:
+		return errors.New("the upstream rejected the API key (401). Check that the key is correct, not expired and allowed to list models")
+	case http.StatusForbidden:
+		return errors.New("the upstream refused this key for model listing (403). The key may lack permission, or its IP or account is restricted")
+	case http.StatusNotFound:
+		return errors.New("the upstream has no model-list endpoint at this address (404). Check the API base URL")
+	case http.StatusTooManyRequests:
+		return errors.New("the upstream is rate limiting this key (429). Try again later")
+	}
+	if status >= 500 {
+		return fmt.Errorf("the upstream is unavailable (%d). Try again later", status)
+	}
+	return fmt.Errorf("the upstream returned an unexpected status (%d)", status)
 }
 
 func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {

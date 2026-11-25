@@ -141,8 +141,39 @@ func TestFetchAdvancedCustomModelsRejectsNonOKResponse(t *testing.T) {
 
 	channel := newAdvancedCustomModelListChannel(server.URL, "secret-key", "/v1/models", nil)
 	models, err := fetchChannelUpstreamModelIDs(channel)
-	require.ErrorContains(t, err, "status code: 502")
+	require.ErrorContains(t, err, "the upstream is unavailable (502)")
 	require.Nil(t, models)
+}
+
+// A 401 from the provider is a rejected key, not a dashboard permission problem.
+// The message must say what to do and must never echo the upstream body.
+func TestFetchModelsExplainsUpstreamAuthFailure(t *testing.T) {
+	for _, tc := range []struct {
+		status  int
+		want    string
+		forward bool
+	}{
+		{http.StatusUnauthorized, "the upstream rejected the API key (401)", false},
+		{http.StatusForbidden, "the upstream refused this key for model listing (403)", false},
+		{http.StatusNotFound, "no model-list endpoint at this address (404)", false},
+		{http.StatusTooManyRequests, "the upstream is rate limiting this key (429)", false},
+	} {
+		t.Run(http.StatusText(tc.status), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(`{"error":"secret-upstream-detail-token"}`))
+			}))
+			defer server.Close()
+
+			channel := newAdvancedCustomModelListChannel(server.URL, "secret-key", "/v1/models", nil)
+			_, err := fetchChannelUpstreamModelIDs(channel)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.want)
+			assert.NotContains(t, err.Error(), "secret-upstream-detail-token")
+			assert.NotContains(t, err.Error(), "status code:")
+			assert.NotContains(t, err.Error(), "secret-key")
+		})
+	}
 }
 
 func TestFetchAdvancedCustomModelsRedactsQueryKeyFromTransportErrors(t *testing.T) {
