@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -24,6 +25,74 @@ var channelsIDM map[int]*Channel                             // all channels inc
 // path-aware selection avoids re-parsing JSON per request. Refreshed on full sync.
 var channel2advancedCustomConfig map[int]*kitdto.AdvancedCustomConfig
 var channelSyncLock sync.RWMutex
+var channelCachePublishMu sync.Mutex
+var channelCachePublishPending bool
+
+const channelCacheEventChannel = "new-api:channels:changed"
+
+func publishChannelCacheChange() {
+	if !common.RedisEnabled || common.RDB == nil {
+		return
+	}
+	channelCachePublishMu.Lock()
+	if channelCachePublishPending {
+		channelCachePublishMu.Unlock()
+		return
+	}
+	channelCachePublishPending = true
+	channelCachePublishMu.Unlock()
+	go func() {
+		defer func() {
+			channelCachePublishMu.Lock()
+			channelCachePublishPending = false
+			channelCachePublishMu.Unlock()
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := common.RDB.Publish(ctx, channelCacheEventChannel, common.GetTimestamp()).Err(); err != nil {
+			common.SysError(common.LogText("channel cache event publish failed: %s", err.Error()))
+		}
+	}()
+}
+
+// StartChannelCacheEvents keeps independent nodes on the same committed snapshot.
+func StartChannelCacheEvents(ctx context.Context) {
+	if !common.RedisEnabled || common.RDB == nil || ctx == nil {
+		return
+	}
+	sub := common.RDB.Subscribe(ctx, channelCacheEventChannel)
+	go func() {
+		defer sub.Close()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case _, ok := <-sub.Channel():
+				if !ok {
+					return
+				}
+				InitChannelCache()
+			}
+		}
+	}()
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if !common.RedisEnabled || common.RDB == nil {
+					continue
+				}
+				// Periodic sync remains the fallback when pub/sub reconnects or
+				// a short Redis outage drops the invalidation event.
+				InitChannelCache()
+			}
+		}
+	}()
+}
 
 func InitChannelCache() {
 	if !common.MemoryCacheEnabled {
@@ -34,7 +103,10 @@ func InitChannelCache() {
 	newChannelId2channel := make(map[int]*Channel)
 	newChannel2advancedCustomConfig := make(map[int]*kitdto.AdvancedCustomConfig)
 	var channels []*Channel
-	DB.Find(&channels)
+	if err := DB.Find(&channels).Error; err != nil {
+		common.SysError(common.LogText("channel cache sync skipped: channel query failed: %s", err.Error()))
+		return
+	}
 	for _, channel := range channels {
 		newChannelId2channel[channel.Id] = channel
 		if channel.Type == constant.ChannelTypeAdvancedCustom {
@@ -44,7 +116,10 @@ func InitChannelCache() {
 		}
 	}
 	var abilities []*Ability
-	DB.Find(&abilities)
+	if err := DB.Find(&abilities).Error; err != nil {
+		common.SysError(common.LogText("channel cache sync skipped: ability query failed: %s", err.Error()))
+		return
+	}
 	groups := make(map[string]bool)
 	for _, ability := range abilities {
 		groups[ability.Group] = true
@@ -105,27 +180,47 @@ func InitChannelCache() {
 	InvalidatePricingCache()
 	rebuildTaskAliasView()
 	common.SysLog(common.LogText("channels synced from database"))
+	publishChannelCacheChange()
 }
 
 func SyncChannelCache(frequency int) {
+	if frequency <= 0 {
+		frequency = 60
+	}
 	for {
 		time.Sleep(time.Duration(frequency) * time.Second)
 		common.SysLog(common.LogText("syncing channels from database"))
-		InitChannelCache()
+		func() {
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					common.SysError(common.LogText("channel cache sync recovered from panic: %v", recovered))
+				}
+			}()
+			InitChannelCache()
+		}()
 	}
 }
 
 // selectOwnerBucketIDs applies tenant visibility while the caller holds channelSyncLock.
 func selectOwnerBucketIDs(owner2channels map[int][]int, ownerUserId int, modelName string) []int {
 	var ids []int
-	for _, list := range owner2channels {
-		for _, id := range list {
-			if ChannelModelVisibleToOwner(channelsIDM[id], modelName, ownerUserId) {
-				ids = append(ids, id)
+	// Trust tiers are never mixed by priority. A user's public channel is a
+	// fallback only after both the caller's own and eligible platform channels
+	// have no candidates.
+	for _, tier := range []int{1, 0, 2} {
+		for _, list := range owner2channels {
+			for _, id := range list {
+				channel := channelsIDM[id]
+				if channel != nil && ChannelSelectionTier(channel, ownerUserId) == tier && ChannelModelVisibleToOwner(channel, modelName, ownerUserId) {
+					ids = append(ids, id)
+				}
 			}
 		}
+		if len(ids) > 0 {
+			return ids
+		}
 	}
-	return ids
+	return nil
 }
 
 func GetRandomSatisfiedChannel(
@@ -144,12 +239,12 @@ func GetRandomSatisfiedChannel(
 	defer channelSyncLock.RUnlock()
 
 	// First, try to find channels with the exact model name.
-	channels, _ := filterCandidateIDs(selectOwnerBucketIDs(group2model2channels[group][model], ownerUserId, model), model, filters)
+	channels, _ := filterCandidateIDs(channelHealthCandidates(selectOwnerBucketIDs(group2model2channels[group][model], ownerUserId, model)), model, filters)
 
 	// If no channels found, try to find channels with the normalized model name.
 	if len(channels) == 0 {
 		normalizedModel := ratio_setting.RoutingMatchModelName(model)
-		channels, _ = filterCandidateIDs(selectOwnerBucketIDs(group2model2channels[group][normalizedModel], ownerUserId, model), model, filters)
+		channels, _ = filterCandidateIDs(channelHealthCandidates(selectOwnerBucketIDs(group2model2channels[group][normalizedModel], ownerUserId, model)), model, filters)
 	}
 
 	if len(channels) == 0 {
@@ -203,7 +298,7 @@ func GetRandomSatisfiedChannel(
 	weights := make([]float64, len(targetChannels))
 	var sumWeight float64
 	for i, channel := range targetChannels {
-		weights[i] = float64(channel.GetWeight()) * ChannelHealthFactor(channel.Id)
+		weights[i] = float64(channel.GetWeight()) * ChannelHealthFactorNoReservation(channel.Id)
 		sumWeight += weights[i]
 	}
 	if sumWeight <= 0 {

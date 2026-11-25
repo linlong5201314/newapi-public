@@ -492,6 +492,10 @@ export function BrowserAccountConnection({
           options={options}
           disabled={disabled}
           busy={busy}
+          onBusyChange={(next) => {
+            activeRequest.current = next
+            setBusy(next)
+          }}
           onComplete={finish}
         />
       )}

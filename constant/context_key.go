@@ -41,6 +41,9 @@ const (
 	ContextKeyChannelKey               ContextKey = "channel_key"
 	ContextKeyChannelTemplateID        ContextKey = "channel_template_id"
 	ContextKeyChannelAllowedModels     ContextKey = "channel_allowed_models"
+	// ContextKeyChannelOwnerUserId distinguishes tenant-controlled endpoints
+	// from platform/operator endpoints at the outbound transport boundary.
+	ContextKeyChannelOwnerUserId ContextKey = "channel_owner_user_id"
 
 	// ContextKeyUpstreamRequestOrigin is the scheme and host of the last upstream
 	// request, which differs from the base URL for absolute Advanced Custom routes
@@ -100,5 +103,7 @@ const (
 	ContextKeyRouteRuleLastErrorStatus ContextKey = "route_rule_last_error_status"
 	// ContextKeyRouteRuleModelOverride 保存当前选中目标的 modelOverride，
 	// SetupContextForSelectedChannel 会把它并入渠道 model_mapping。
-	ContextKeyRouteRuleModelOverride ContextKey = "route_rule_model_override"
+	ContextKeyRouteRuleModelOverride      ContextKey = "route_rule_model_override"
+	ContextKeyRouteRuleAttemptCancel      ContextKey = "route_rule_attempt_cancel"
+	ContextKeyRouteRuleAttemptHeaderTimer ContextKey = "route_rule_attempt_header_timer"
 )

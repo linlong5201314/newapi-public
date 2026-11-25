@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -23,6 +24,7 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -79,6 +81,17 @@ func newModelProbeFixture(t *testing.T) *modelProbeFixture {
 		_, _ = w.Write([]byte(`{"id":"fixture","model":"gpt-3.5-turbo","choices":[{"index":0,"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`))
 	}))
 	t.Cleanup(upstream.Close)
+	// These fixture servers intentionally listen on loopback. Production keeps
+	// the tenant private-address guard enabled; only this test opts into it.
+	fetch := system_setting.GetFetchSetting()
+	previousAllowPrivate, previousAllowedPorts := fetch.AllowPrivateIp, fetch.AllowedPorts
+	fetch.AllowPrivateIp = true
+	_, upstreamPort, err := net.SplitHostPort(strings.TrimPrefix(upstream.URL, "http://"))
+	require.NoError(t, err)
+	fetch.AllowedPorts = []string{upstreamPort}
+	t.Cleanup(func() {
+		fetch.AllowPrivateIp, fetch.AllowedPorts = previousAllowPrivate, previousAllowedPorts
+	})
 	settings := `{"proxy":"direct","proxy_policy":{"mode":"direct"}}`
 	f.channel = &model.Channel{OwnerId: uid, Type: constant.ChannelTypeOpenAI, Name: "model probe fixture", Key: "fixture-probe-key", Models: "gpt-3.5-turbo,gpt-4", OtherInfo: `{"allModels":["gpt-3.5-turbo","gpt-4","discovered-only"]}`, Group: "default", BaseURL: &upstream.URL, Setting: &settings, Status: common.ChannelStatusEnabled}
 	require.NoError(t, model.DB.Create(f.channel).Error)
@@ -250,10 +263,17 @@ func TestSelfModelProbePerNodeHistoryAndCancellation(t *testing.T) {
 		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"OK"}}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`))
 	}))
 	defer proxy.Close()
+	_, proxyPort, err := net.SplitHostPort(strings.TrimPrefix(proxy.URL, "http://"))
+	require.NoError(t, err)
+	fetch := system_setting.GetFetchSetting()
+	previousPorts := fetch.AllowedPorts
+	fetch.AllowedPorts = []string{strings.TrimPrefix(f.channel.GetBaseURL(), "http://127.0.0.1:"), proxyPort}
+	t.Cleanup(func() { fetch.AllowedPorts = previousPorts })
 	sub := &model.ProxySubscription{UserId: f.userID, Enabled: true}
 	require.NoError(t, model.DB.Create(sub).Error)
 	ep := &model.ProxyEndpoint{UserId: f.userID, Enabled: true, SubscriptionId: sub.Id, Url: proxy.URL}
 	require.NoError(t, model.DB.Create(ep).Error)
+	t.Cleanup(model.SetProxyEndpointURLProvidersForTest(func(endpoint model.ProxyEndpoint) (string, error) { return endpoint.Url, nil }))
 	w := f.request(http.MethodPost, "", fmt.Sprintf(`{"models":["gpt-3.5-turbo"],"endpoint_ids":[%d]}`, ep.Id), nil)
 	require.Equal(t, 200, w.Code, w.Body.String())
 	assert.Contains(t, w.Body.String(), `"status":"available"`)
@@ -469,6 +489,19 @@ func TestSelfModelProbeNativeAccountsKeepBoundedConfiguredEgress(t *testing.T) {
 				return selfContractResponse(200, `{"id":"fixture","choices":[{"index":0,"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`)
 			})
 			setSelfContractTransport(t, transport)
+			t.Cleanup(service.SetTenantHTTPClientFactoryForTest(func(*url.URL, service.HTTPTransportPolicy) (*http.Client, error) {
+				return &http.Client{Transport: transport}, nil
+			}))
+			if kind == constant.ChannelTypeZCode {
+				// The production ZCode adapter forbids insecure TLS; use the
+				// transport seam rather than weakening that security invariant.
+				w := f.request(http.MethodPost, "", `{"models":["gpt-3.5-turbo"]}`, nil)
+				require.Equal(t, 200, w.Code, w.Body.String())
+				assert.Contains(t, w.Body.String(), `"status":"available"`, w.Body.String())
+				assert.NotContains(t, w.Body.String(), "fixture-native-token")
+				assert.Equal(t, 1, calls)
+				return
+			}
 			fixture := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				response, err := transport(r)
 				require.NoError(t, err)
@@ -483,17 +516,19 @@ func TestSelfModelProbeNativeAccountsKeepBoundedConfiguredEgress(t *testing.T) {
 				require.NoError(t, err)
 			}))
 			t.Cleanup(fixture.Close)
-			nativeClient, err := service.NewQoderHTTPClient("")
-			require.NoError(t, err)
-			strict, ok := nativeClient.Transport.(*http.Transport)
-			require.True(t, ok)
-			strict.CloseIdleConnections()
-			previousTLS := strict.DialTLSContext
+			// This isolated fixture transport does not mutate any shared client.
+			strict := &http.Transport{ForceAttemptHTTP2: false, TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
 			strict.DialTLSContext = func(ctx context.Context, network, address string) (net.Conn, error) {
 				dialer := &tls.Dialer{Config: &tls.Config{InsecureSkipVerify: true}}
 				return dialer.DialContext(ctx, "tcp", fixture.Listener.Addr().String())
 			}
-			t.Cleanup(func() { strict.CloseIdleConnections(); strict.DialTLSContext = previousTLS })
+			nativeClient := &http.Client{Transport: strict}
+			previousNativeFactory := service.QoderHTTPClientFactory
+			service.QoderHTTPClientFactory = func(string) (*http.Client, error) { return nativeClient, nil }
+			t.Cleanup(func() {
+				service.QoderHTTPClientFactory = previousNativeFactory
+				strict.CloseIdleConnections()
+			})
 			w := f.request(http.MethodPost, "", `{"models":["gpt-3.5-turbo"]}`, nil)
 			require.Equal(t, 200, w.Code, w.Body.String())
 			assert.Contains(t, w.Body.String(), `"status":"available"`, w.Body.String())

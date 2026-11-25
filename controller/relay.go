@@ -72,6 +72,7 @@ func geminiRelayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewA
 func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	requestId := c.GetString(common.RequestIdKey)
+	baseReqCtx := c.Request.Context()
 	//group := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
 	//originalModel := common.GetContextKeyString(c, constant.ContextKeyOriginalModel)
 
@@ -139,12 +140,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	defer func() {
 		recovered := recover()
+		requestContext := baseReqCtx
 		resultErr := newAPIError
 		if recovered != nil {
 			resultErr = types.NewError(fmt.Errorf("relay panic: %v", recovered), types.ErrorCodeBadResponse)
 		}
 		if relayFormat != types.RelayFormatOpenAIRealtime {
-			perfmetrics.RecordRelayResult(c.Request.Context(), relayInfo, resultErr)
+			perfmetrics.RecordRelayResult(requestContext, relayInfo, resultErr)
 		}
 		if recovered != nil {
 			panic(recovered)
@@ -181,7 +183,6 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		retryBudget = ruleBudget
 	}
 
-	baseReqCtx := c.Request.Context()
 	for ; retryParam.GetRetry() <= retryBudget; retryParam.IncreaseRetry() {
 		relayInfo.StreamStatus = nil
 		relayInfo.PerformanceBusinessRejection = false

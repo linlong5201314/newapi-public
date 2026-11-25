@@ -254,6 +254,8 @@ type workerKVNode struct {
 	Id      int    `json:"id"`
 	Name    string `json:"name"`
 	Url     string `json:"url"`
+	Enabled bool   `json:"enabled"`
+	Weight  int    `json:"weight"`
 	Healthy bool   `json:"healthy"`
 }
 
@@ -283,11 +285,11 @@ func buildWorkerKV(active *model.Node, existing string) string {
 		if host == "" {
 			continue
 		}
-		items = append(items, workerKVNode{Id: node.Id, Name: node.Name, Url: "https://" + host, Healthy: node.Healthy})
+		items = append(items, workerKVNode{Id: node.Id, Name: node.Name, Url: "https://" + host, Enabled: true, Weight: 1, Healthy: node.Healthy})
 		seen[node.Id] = true
 	}
 	if !seen[active.Id] {
-		items = append(items, workerKVNode{Id: active.Id, Name: active.Name, Url: "https://" + nodeHost(active), Healthy: active.Healthy})
+		items = append(items, workerKVNode{Id: active.Id, Name: active.Name, Url: "https://" + nodeHost(active), Enabled: true, Weight: 1, Healthy: active.Healthy})
 	}
 	table["activeUrl"] = "https://" + nodeHost(active)
 	table["activeNodeId"] = active.Id

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 )
 
 // customConfig custom 站点配置（存 CheckinAccount.CredJson）。
@@ -25,8 +26,22 @@ type customConfig struct {
 	Expect      string            `json:"expect"`       // 期望值（缺省按真值判定："0"/"true"/非空）
 }
 
-// customHTTP custom 站点专用 client。
-var customHTTP = &http.Client{Timeout: 60 * time.Second}
+// customHTTP custom 站点专用 client。Redirects cannot carry credentials to a new origin.
+var customHTTP = func() *http.Client {
+	client := service.GetSSRFProtectedHTTPClient()
+	if client == nil {
+		client = &http.Client{}
+	}
+	return &http.Client{Transport: client.Transport, Timeout: 60 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) > 0 && !strings.EqualFold(via[0].URL.Host, req.URL.Host) {
+			return http.ErrUseLastResponse
+		}
+		if client.CheckRedirect != nil {
+			return client.CheckRedirect(req, via)
+		}
+		return nil
+	}}
+}()
 
 // runCustom 执行 custom 通用模板签到。
 func runCustom(acc *model.CheckinAccount) *RunResult {

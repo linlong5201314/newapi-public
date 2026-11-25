@@ -495,7 +495,12 @@ func BatchInsertChannels(channels []Channel) error {
 	for chunk := range slices.Chunk(channels, 50) {
 		// M5：账号型渠道凭据落库前加密（chunk 与 channels 共享底层数组，调用方可见）。
 		for i := range chunk {
-			chunk[i].Key = EncryptChannelKey(chunk[i].Type, chunk[i].Key)
+			encrypted, err := EncryptChannelKeyStrict(chunk[i].Type, chunk[i].Key)
+			if err != nil {
+				tx.Rollback()
+				return err
+			}
+			chunk[i].Key = encrypted
 		}
 		if err := tx.Create(&chunk).Error; err != nil {
 			tx.Rollback()
@@ -580,8 +585,11 @@ func (channel *Channel) GetStatusCodeMapping() string {
 
 func (channel *Channel) Insert() error {
 	// M5：账号型渠道凭据落库前加密（幂等，历史明文会在此升级为密文）。
-	channel.Key = EncryptChannelKey(channel.Type, channel.Key)
-	var err error
+	encryptedKey, err := EncryptChannelKeyStrict(channel.Type, channel.Key)
+	if err != nil {
+		return err
+	}
+	channel.Key = encryptedKey
 	err = DB.Create(channel).Error
 	if err != nil {
 		return err
@@ -591,13 +599,19 @@ func (channel *Channel) Insert() error {
 }
 
 func (channel *Channel) Update() error {
-	// M5：账号型渠道凭据落库前加密（幂等）。
-	channel.Key = EncryptChannelKey(channel.Type, channel.Key)
+	encryptedKey, err := EncryptChannelKeyStrict(channel.Type, channel.Key)
+	if err != nil {
+		return err
+	}
+	channel.Key = encryptedKey
 	// If this is a multi-key channel, recalculate MultiKeySize based on the current key list to avoid inconsistency after editing keys
 	if channel.ChannelInfo.IsMultiKey {
 		var keyStr string
 		if channel.Key != "" {
-			keyStr = channel.Key
+			keyStr = DecryptChannelKey(channel.Type, channel.Key)
+			if common.IsEncryptedSecret(channel.Key) && keyStr == "" {
+				return fmt.Errorf("channel credential could not be decrypted")
+			}
 		} else {
 			// If key is not provided, read the existing key from the database
 			if existing, err := GetChannelById(channel.Id, true); err == nil {
@@ -631,7 +645,6 @@ func (channel *Channel) Update() error {
 			}
 		}
 	}
-	var err error
 	err = DB.Model(channel).Updates(channel).Error
 	if err != nil {
 		return err

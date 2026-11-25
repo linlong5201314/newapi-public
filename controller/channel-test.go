@@ -1199,7 +1199,14 @@ func testOmniRouteChannel(ctx context.Context, channel *model.Channel) testResul
 	if key != "" {
 		req.Header.Set("Authorization", "Bearer "+key)
 	}
-	resp, err := service.GetHttpClient().Do(req)
+	client := service.GetHttpClient()
+	if channel.OwnerId > 0 {
+		client, err = service.GetTenantHTTPClientWithProxySettings("", channel.GetSetting())
+		if err != nil {
+			return testResult{localErr: errors.New("channel destination is not permitted")}
+		}
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return testResult{localErr: err}
 	}

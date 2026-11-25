@@ -45,6 +45,8 @@ func accountAuthorizationError(c *gin.Context, err error) {
 		c.Header("Retry-After", "2")
 	case errors.Is(err, model.ErrProxyPoolEmpty):
 		status, code, message = http.StatusServiceUnavailable, "ACCOUNT_PROXY_POOL_EMPTY", "No usable proxy endpoint in the selected proxy scope; add an endpoint or choose direct egress"
+	case errors.Is(err, model.ErrProxyConfiguration):
+		status, code, message = http.StatusServiceUnavailable, "ACCOUNT_PROXY_UNAVAILABLE", "Account proxy configuration is invalid; update it or choose direct egress"
 	case errors.Is(err, model.ErrProxyEndpointNotReady):
 		status, code, message = http.StatusServiceUnavailable, "ACCOUNT_PROXY_ENDPOINT_DOWN", "Selected proxy endpoint has no usable listener; reload the proxy kernel or choose another endpoint"
 	case errors.Is(err, service.ErrAccountServerAddress):
@@ -202,22 +204,22 @@ func selfTraeCredentialImport(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Realm           string                  `json:"realm"`
-		CallbackURL     string                  `json:"callbackUrl"`
-		RefreshToken    string                  `json:"refreshToken"`
-		UID             string                  `json:"uid"`
-		MachineID       string                  `json:"machineId"`
-		DeviceID        string                  `json:"deviceId"`
-			Mode            string                  `json:"mode"`
-			AccessToken     string                  `json:"accessToken"`
-			ExpiresAt       int64                   `json:"expiresAt"`
-			DevicePublicKey  string                 `json:"devicePublicKey"`
-			DevicePrivateKey string                 `json:"devicePrivateKey"`
-			DisplayName     string                  `json:"displayName"`
-		Public          bool                    `json:"public"`
-		ConfirmRotation bool                    `json:"confirmRotation"`
-		Proxy           string                  `json:"proxy"`
-		ProxyPolicy     *dto.ChannelProxyPolicy `json:"proxyPolicy"`
+		Realm            string                  `json:"realm"`
+		CallbackURL      string                  `json:"callbackUrl"`
+		RefreshToken     string                  `json:"refreshToken"`
+		UID              string                  `json:"uid"`
+		MachineID        string                  `json:"machineId"`
+		DeviceID         string                  `json:"deviceId"`
+		Mode             string                  `json:"mode"`
+		AccessToken      string                  `json:"accessToken"`
+		ExpiresAt        int64                   `json:"expiresAt"`
+		DevicePublicKey  string                  `json:"devicePublicKey"`
+		DevicePrivateKey string                  `json:"devicePrivateKey"`
+		DisplayName      string                  `json:"displayName"`
+		Public           bool                    `json:"public"`
+		ConfirmRotation  bool                    `json:"confirmRotation"`
+		Proxy            string                  `json:"proxy"`
+		ProxyPolicy      *dto.ChannelProxyPolicy `json:"proxyPolicy"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		accountAuthorizationError(c, model.ErrAuthFlowInvalid)
@@ -388,7 +390,7 @@ func newAccountFlow(identity model.AuthSessionIdentity, provider, realm, name st
 	if err != nil {
 		// Start-time selection failures name the actual problem (empty pool,
 		// dead listener); a mid-flow change keeps the generic egress error.
-		if errors.Is(err, model.ErrProxyPoolEmpty) || errors.Is(err, model.ErrProxyEndpointNotReady) {
+		if errors.Is(err, model.ErrProxyPoolEmpty) || errors.Is(err, model.ErrProxyEndpointNotReady) || errors.Is(err, model.ErrProxyConfiguration) {
 			return "", err
 		}
 		if rootEgress {

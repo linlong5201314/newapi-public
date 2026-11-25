@@ -2,7 +2,9 @@
 package controller
 
 import (
+	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -11,7 +13,27 @@ import (
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
+
+func validateFreeSourceInput(name, rawURL, signupURL, homepageURL, description, quota, proxy, apiBase string, models, tags []string) error {
+	if len([]rune(name)) > 200 || len([]rune(description)) > 4000 || len([]rune(quota)) > 200 || len(models) > 100 || len(tags) > 20 {
+		return errors.New("free source fields exceed the allowed size")
+	}
+	for _, item := range []string{rawURL, signupURL, homepageURL, apiBase} {
+		if item == "" {
+			continue
+		}
+		parsed, err := url.Parse(item)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" || parsed.User != nil || len(item) > 500 {
+			return errors.New("free source URLs must be valid HTTP(S) URLs")
+		}
+	}
+	if len(proxy) > 300 {
+		return errors.New("proxy value is too long")
+	}
+	return nil
+}
 
 // GetFreeSourcePools GET /api/free_source_pools?sort=rating|newest — 公共池列表（评分排序）。
 func GetFreeSourcePools(c *gin.Context) {
@@ -33,7 +55,7 @@ func GetFreeSourcePools(c *gin.Context) {
 			"description":  p.Description,
 			"tags":         p.Tags,
 			"quota":        p.Quota,
-			"proxy":        p.Proxy,
+			"proxy":        maskProxyUrl(p.Proxy),
 			"api_base":     p.ApiBase,
 			"rating":       p.Rating,
 			"rating_count": p.RatingCount,
@@ -101,8 +123,8 @@ func SubmitFreeSourcePool(c *gin.Context) {
 		common.ApiErrorMsg(c, "name and url are required")
 		return
 	}
-	if !strings.HasPrefix(req.Url, "http://") && !strings.HasPrefix(req.Url, "https://") {
-		common.ApiErrorMsg(c, "url must start with http:// or https://")
+	if err := validateFreeSourceInput(strings.TrimSpace(req.Name), strings.TrimSpace(req.Url), strings.TrimSpace(req.SignupUrl), strings.TrimSpace(req.HomepageUrl), strings.TrimSpace(req.Description), strings.TrimSpace(req.Quota), strings.TrimSpace(req.Proxy), strings.TrimSpace(req.ApiBase), req.Models, req.Tags); err != nil {
+		common.ApiErrorMsg(c, "Invalid free source fields")
 		return
 	}
 
@@ -170,19 +192,18 @@ func UpdateFreeSourcePool(c *gin.Context) {
 	updates := map[string]interface{}{}
 	if req.Name != nil {
 		name := strings.TrimSpace(*req.Name)
-		if name == "" {
-			common.ApiErrorMsg(c, "name cannot be empty")
+		if name == "" || len([]rune(name)) > 200 {
+			common.ApiErrorMsg(c, "name must be 1-200 characters")
 			return
 		}
 		updates["name"] = name
 	}
 	if req.Url != nil {
-		url := strings.TrimSpace(*req.Url)
-		if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-			common.ApiErrorMsg(c, "url must start with http:// or https://")
+		if err := validateFreeSourceInput(pool.Name, strings.TrimSpace(*req.Url), "", "", "", "", "", "", nil, nil); err != nil {
+			common.ApiErrorMsg(c, "Invalid free source URL")
 			return
 		}
-		updates["url"] = url
+		updates["url"] = strings.TrimSpace(*req.Url)
 	}
 	if req.SignupUrl != nil {
 		updates["signup_url"] = strings.TrimSpace(*req.SignupUrl)
@@ -284,6 +305,10 @@ func ReviewFreeSourcePool(c *gin.Context) {
 		common.ApiErrorMsg(c, "invalid request body")
 		return
 	}
+	if len([]rune(req.Comment)) > 2000 {
+		common.ApiErrorMsg(c, "comment is too long")
+		return
+	}
 	if strings.TrimSpace(req.Comment) == "" {
 		common.ApiErrorMsg(c, "comment is required")
 		return
@@ -318,15 +343,36 @@ func GetFreeSourcePoolReviews(c *gin.Context) {
 		common.ApiErrorMsg(c, "invalid id")
 		return
 	}
+	page, pageErr := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, sizeErr := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	if pageErr != nil || sizeErr != nil || page < 1 || pageSize < 1 || pageSize > 100 {
+		common.ApiErrorMsg(c, "invalid review pagination")
+		return
+	}
 	var reviews []model.FreeSourcePoolRating
-	err = model.DB.Where("pool_id = ? AND comment != ''", id).Order("created_at desc").Find(&reviews).Error
+	err = model.DB.Where("pool_id = ? AND comment != ''", id).Order("created_at desc").Offset((page - 1) * pageSize).Limit(pageSize).Find(&reviews).Error
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	out := make([]gin.H, 0, len(reviews))
+	userIDs := make([]int, 0, len(reviews))
+	for _, review := range reviews {
+		userIDs = append(userIDs, review.UserId)
+	}
+	var users []model.User
+	if len(userIDs) > 0 {
+		if err := model.DB.Select("id,username").Where("id IN ?", userIDs).Find(&users).Error; err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	}
+	usernames := make(map[int]string, len(users))
+	for _, user := range users {
+		usernames[user.Id] = user.Username
+	}
 	for _, r := range reviews {
-		username, _ := model.GetUsernameById(r.UserId, true)
+		username := usernames[r.UserId]
 		out = append(out, gin.H{
 			"id":         r.Id,
 			"user":       gin.H{"id": r.UserId, "name": username},
@@ -356,7 +402,12 @@ func DeleteFreeSourcePool(c *gin.Context) {
 		common.ApiErrorMsg(c, "permission denied")
 		return
 	}
-	if err := model.DeleteFreeSourcePool(id); err != nil {
+	if err := model.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("pool_id = ?", id).Delete(&model.FreeSourcePoolRating{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&model.FreeSourcePool{}, id).Error
+	}); err != nil {
 		common.ApiError(c, err)
 		return
 	}

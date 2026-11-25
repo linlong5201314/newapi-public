@@ -20,6 +20,9 @@ func TestMultiKeyEnableRestoresOnlyExhaustedChannels(t *testing.T) {
 	previousDB, previousLogDB := model.DB, model.LOG_DB
 	previousType, previousLogType := common.MainDatabaseType(), common.LogDatabaseType()
 	previousMaster, previousCache, previousRedis, previousSQLite := common.IsMasterNode, common.MemoryCacheEnabled, common.RedisEnabled, common.SQLitePath
+	previousCrypto, previousConfigured := common.CryptoSecret, common.CryptoSecretConfigured
+	common.CryptoSecret, common.CryptoSecretConfigured = "test-only-multi-key-crypto-secret", true
+	t.Cleanup(func() { common.CryptoSecret, common.CryptoSecretConfigured = previousCrypto, previousConfigured })
 	t.Cleanup(func() {
 		model.DB, model.LOG_DB = previousDB, previousLogDB
 		common.SetDatabaseTypes(previousType, previousLogType)

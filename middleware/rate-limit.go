@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
@@ -116,7 +117,12 @@ func redisRateLimiter(c *gin.Context, maxRequestNum int, duration int64, mark st
 	)
 	if err != nil {
 		logger.LogError(c.Request.Context(), common.LogText("rate limit check failed (mark=%s): %v", mark, err))
-		c.Status(http.StatusInternalServerError)
+		if mark != "CT" && !strings.HasPrefix(mark, "UC:") {
+			inMemoryRateLimiter.Init(common.RateLimitKeyExpirationDuration)
+			memoryRateLimiter(c, maxRequestNum, duration, mark)
+			return
+		}
+		c.Status(http.StatusServiceUnavailable)
 		c.Abort()
 		return
 	}
@@ -251,8 +257,15 @@ func userRedisRateLimiter(c *gin.Context, maxRequestNum int, duration int64, key
 	allowed, _, ttlSeconds, err := redisFixedWindowTake(c.Request.Context(), key, maxRequestNum, duration)
 	if err != nil {
 		logger.LogError(c.Request.Context(), common.LogText("rate limit check failed (key=%s): %v", key, err))
-		c.Status(http.StatusInternalServerError)
-		c.Abort()
+		if strings.Contains(key, ":user:UC:") {
+			c.Status(http.StatusServiceUnavailable)
+			c.Abort()
+			return
+		}
+		inMemoryRateLimiter.Init(common.RateLimitKeyExpirationDuration)
+		if !inMemoryRateLimiter.Request(key, maxRequestNum, duration) {
+			writeRateLimited(c, duration)
+		}
 		return
 	}
 	if !allowed {

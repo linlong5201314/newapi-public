@@ -83,7 +83,7 @@ func ValidatePublicIP(ip net.IP) error {
 
 // reservedV4 显式保留段（net.IsPrivate 未覆盖部分）。
 var reservedV4 = []net.IPNet{
-	{IP: net.IPv4(0, 0, 0, 0).To4(), Mask: net.CIDRMask(8, 32)},        // 0.0.0.0/8
+	{IP: net.IPv4(0, 0, 0, 0).To4(), Mask: net.CIDRMask(8, 32)},       // 0.0.0.0/8
 	{IP: net.IPv4(100, 64, 0, 0).To4(), Mask: net.CIDRMask(10, 32)},   // CGNAT
 	{IP: net.IPv4(192, 0, 0, 0).To4(), Mask: net.CIDRMask(24, 32)},    // IETF 协议分配
 	{IP: net.IPv4(192, 0, 2, 0).To4(), Mask: net.CIDRMask(24, 32)},    // TEST-NET-1

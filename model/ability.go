@@ -3,12 +3,14 @@ package model
 import (
 	"errors"
 	"math/rand"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/samber/lo"
@@ -74,7 +76,7 @@ func GetGroupEnabledModelsForOwner(group string, ownerUserId int) []string {
 	models := make([]string, 0, len(rows))
 	seen := make(map[string]bool, len(rows))
 	for _, row := range rows {
-		if !seen[row.ModelName] && ChannelModelVisibleToOwner(&row.Channel, row.ModelName, ownerUserId) {
+		if !seen[row.ModelName] && ChannelModelVisibleToOwner(&row.Channel, row.ModelName, ownerUserId) && ChannelSelectionTier(&row.Channel, ownerUserId) >= 0 {
 			seen[row.ModelName] = true
 			models = append(models, row.ModelName)
 		}
@@ -148,6 +150,9 @@ func getChannelByOwners(
 	ownerChannelsSubQuery := DB.Model(&Channel{}).Select("id").
 		Where("status = ?", common.ChannelStatusEnabled).
 		Where("owner_id IN ? OR owner_id = 0 OR visibility = 1", ownerIds)
+	if ownerIds[0] > 0 && !operation_setting.SelfChannelUsePublicFallback {
+		ownerChannelsSubQuery = ownerChannelsSubQuery.Where("owner_id <> 0")
+	}
 	var abilities []Ability
 	err := DB.Where(commonGroupCol+" = ? and model = ? and enabled = ? and channel_id in (?)", group, model, true, ownerChannelsSubQuery).Order("priority DESC, weight DESC").Find(&abilities).Error
 	if err != nil {
@@ -187,12 +192,23 @@ func getChannelByOwners(
 	}
 	channel := Channel{}
 	if len(abilities) > 0 {
+		eligible := make([]int, 0, len(abilities))
+		for _, ability := range abilities {
+			if ChannelHealthFactor(ability.ChannelId) > 0 {
+				eligible = append(eligible, ability.ChannelId)
+			}
+		}
+		if len(abilities) > 1 && len(eligible) > 0 {
+			abilities = lo.Filter(abilities, func(ability Ability, _ int) bool {
+				return slices.Contains(eligible, ability.ChannelId)
+			})
+		}
 		// 按「权重 × 健康度」加权随机；健康度把近几次成功率算进去，
 		// 快而稳的渠道多分流量，连续失败的自然降权。
 		weights := make([]float64, len(abilities))
 		var weightSum float64
 		for i, ability := range abilities {
-			weights[i] = float64(ability.Weight+10) * ChannelHealthFactor(ability.ChannelId)
+			weights[i] = float64(ability.Weight+10) * ChannelHealthFactorNoReservation(ability.ChannelId)
 			weightSum += weights[i]
 		}
 		if weightSum <= 0 {
@@ -243,6 +259,28 @@ func filterAbilitiesByConstraints(abilities []Ability, modelName string, filters
 			return nil
 		}
 		return abilities
+	}
+
+	if len(ownerIDs) > 0 {
+		tiers := make(map[int]bool)
+		for _, channel := range channels {
+			tier := ChannelSelectionTier(channel, ownerIDs[0])
+			if tier >= 0 && ChannelModelVisibleToOwner(channel, modelName, ownerIDs[0]) {
+				tiers[tier] = true
+			}
+		}
+		for _, tier := range []int{1, 0, 2} {
+			if tiers[tier] {
+				allowed := make(map[int]bool)
+				for _, channel := range channels {
+					if ChannelSelectionTier(channel, ownerIDs[0]) == tier {
+						allowed[channel.Id] = true
+					}
+				}
+				abilities = lo.Filter(abilities, func(ability Ability, _ int) bool { return allowed[ability.ChannelId] })
+				break
+			}
+		}
 	}
 
 	channelsByID := make(map[int]*Channel, len(channels))

@@ -153,20 +153,23 @@ func memoryRateLimitHandler(subject string, duration int64, totalMaxCount, succe
 				abortWithOpenAiMessage(c, http.StatusTooManyRequests, i18n.T(c, i18n.MsgRateLimitReached, map[string]any{"Minutes": setting.ModelRequestRateLimitDurationMinutes, "Max": successMaxCount}))
 				return
 			}
-			defer reservation.Complete(false)
+			// A rejected reservation has already returned; only admitted requests
+			// complete their reservation after the handler has finished.
 		}
 
 		// 3. 处理请求
 		c.Next()
 
 		// 4. 如果请求成功，记录到实际的成功请求计数中
-		reservation.Complete(modelRequestSucceeded(c))
+		if reservation != nil {
+			reservation.Complete(modelRequestSucceeded(c))
+		}
 	}
 }
 
 func modelRequestSucceeded(c *gin.Context) bool {
 	status, _ := common.GetContextKeyType[*relaycommon.StreamStatus](c, constant.ContextKeyResponseStreamStatus)
-	return c.Writer.Status() < 400 && !status.ResponseFailed()
+	return c.Writer.Status() < 400 && (status == nil || !status.ResponseFailed())
 }
 
 // ModelRequestRateLimit 模型请求限流中间件

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -21,6 +22,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -79,6 +81,17 @@ func (b *nativeRouteBilling) Reserve(quota int) error {
 // ReserveBeforeSubmit holds nothing: this fixture charges in Reserve once the
 // upstream has accepted.
 func (*nativeRouteBilling) ReserveBeforeSubmit(int) error { return nil }
+
+func allowNativeTestUpstream(t *testing.T, upstream *httptest.Server) {
+	t.Helper()
+	fetch := system_setting.GetFetchSetting()
+	previousPrivate, previousPorts := fetch.AllowPrivateIp, fetch.AllowedPorts
+	fetch.AllowPrivateIp = true
+	_, port, err := net.SplitHostPort(strings.TrimPrefix(upstream.URL, "http://"))
+	require.NoError(t, err)
+	fetch.AllowedPorts = []string{port}
+	t.Cleanup(func() { fetch.AllowPrivateIp, fetch.AllowedPorts = previousPrivate, previousPorts })
+}
 
 func TestKlingNativeRouteSubmitPollSettleAndQuery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -139,6 +152,7 @@ func TestKlingNativeRouteSubmitPollSettleAndQuery(t *testing.T) {
 		}
 	}))
 	defer upstream.Close()
+	allowNativeTestUpstream(t, upstream)
 
 	channel := model.Channel{
 		Type:    constant.ChannelTypeKling,
@@ -346,6 +360,7 @@ func TestDoubaoRelayedImageStreamSettlement(t *testing.T) {
 		}
 	}))
 	defer upstream.Close()
+	allowNativeTestUpstream(t, upstream)
 	channel := model.Channel{Type: constant.ChannelTypeDoubaoVideo, Name: "ark-relayed-stream", Key: "ark-key", BaseURL: &upstream.URL,
 		Status: common.ChannelStatusEnabled, Models: seedream, Group: "default"}
 	require.NoError(t, database.Create(&channel).Error)

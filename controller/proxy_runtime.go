@@ -3,6 +3,8 @@ package controller
 import (
 	"net/http"
 	"strconv"
+	"sync"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/service/proxy_pool"
@@ -89,11 +91,46 @@ func runtimeProxyURL(port int, ok bool) string {
 	return "http://127.0.0.1:" + strconv.Itoa(port)
 }
 
-// triggerKernelReload 节点有变化时异步重建内核配置；失败只记日志，不影响主流程。
+// triggerKernelReload coalesces a burst of edits into one running rebuild and
+// one trailing rebuild; a panic cannot terminate the process.
+var kernelReloadState struct {
+	sync.Mutex
+	running bool
+	pending bool
+}
+
 func triggerKernelReload() {
+	kernelReloadState.Lock()
+	kernelReloadState.pending = true
+	if kernelReloadState.running {
+		kernelReloadState.Unlock()
+		return
+	}
+	kernelReloadState.running = true
+	kernelReloadState.Unlock()
 	go func() {
-		if _, err := proxy_pool.ReloadAll(); err != nil {
-			common.SysLog("mihomo reload failed: " + err.Error())
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				common.SysError("mihomo reload recovered from panic")
+			}
+			kernelReloadState.Lock()
+			kernelReloadState.running = false
+			kernelReloadState.Unlock()
+		}()
+		for {
+			time.Sleep(time.Second)
+			kernelReloadState.Lock()
+			kernelReloadState.pending = false
+			kernelReloadState.Unlock()
+			if _, err := proxy_pool.ReloadAll(); err != nil {
+				common.SysError("mihomo reload failed: " + err.Error())
+			}
+			kernelReloadState.Lock()
+			pending := kernelReloadState.pending
+			kernelReloadState.Unlock()
+			if !pending {
+				return
+			}
 		}
 	}()
 }

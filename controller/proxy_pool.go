@@ -22,7 +22,7 @@ import (
 
 const (
 	// proxyEndpointLimit 单用户出口节点上限。
-	proxyEndpointLimit = 10000
+	proxyEndpointLimit = 500
 	// proxySubscriptionLimit 单用户订阅上限。
 	proxySubscriptionLimit = 20
 	// proxyProbeTimeout 单节点连通性探测超时。
@@ -103,6 +103,10 @@ func CreateProxyEndpoint(c *gin.Context) {
 	}
 
 	userId := c.GetInt("id")
+	if req.Public && c.GetInt("role") != common.RoleRootUser {
+		common.ApiErrorMsg(c, "Only root can publish proxy endpoints")
+		return
+	}
 	total, err := model.CountProxyEndpoints(userId)
 	if err != nil {
 		common.ApiError(c, err)
@@ -161,6 +165,10 @@ func UpdateProxyEndpoint(c *gin.Context) {
 		fields["enabled"] = *req.Enabled
 	}
 	if req.Public != nil {
+		if *req.Public && c.GetInt("role") != common.RoleRootUser {
+			common.ApiErrorMsg(c, "Only root can publish proxy endpoints")
+			return
+		}
 		fields["public"] = *req.Public
 	}
 	if req.Weight != nil {
@@ -236,7 +244,7 @@ func TestProxyEndpoint(c *gin.Context) {
 		}
 		delayMs, kerr := proxy_pool.ManagerInstance().ProbeEndpointDelay(endpoint.Id)
 		if kerr != nil {
-			message := kerr.Error()
+			message := "proxy endpoint probe failed"
 			model.InvalidateProxyPoolCache(userId)
 			if err := model.MarkProxyEndpointLatency(endpoint.Id, false, 0, message); err != nil {
 				common.ApiError(c, err)
@@ -266,7 +274,7 @@ func TestProxyEndpoint(c *gin.Context) {
 	ip, err := probeProxyEndpoint(endpoint.Url)
 	latencyMs := int(time.Since(startedAt).Milliseconds())
 	if err != nil {
-		message := err.Error()
+		message := "proxy endpoint probe failed"
 		model.InvalidateProxyPoolCache(userId)
 		if markErr := model.MarkProxyEndpointLatency(endpoint.Id, false, 0, message); markErr != nil {
 			common.ApiError(c, markErr)
@@ -396,7 +404,7 @@ func CreateProxySubscription(c *gin.Context) {
 			"id":         sub.Id,
 			"node_count": nodeCount,
 			"format":     detectedFormat,
-			"error":      syncErr.Error(),
+			"error":      "The proxy subscription could not be fetched",
 		}})
 		return
 	}
@@ -426,7 +434,7 @@ func SyncProxySubscription(c *gin.Context) {
 	}
 	nodeCount, detectedFormat, syncErr := syncProxySubscription(sub)
 	if syncErr != nil {
-		common.ApiError(c, syncErr)
+		common.ApiErrorMsg(c, "The proxy subscription could not be fetched")
 		return
 	}
 	triggerKernelReload()
@@ -443,7 +451,7 @@ func syncProxySubscription(sub *model.ProxySubscription) (int, string, error) {
 	now := time.Now()
 	body, traffic, fetchErr := fetchProxySubscription(sub.Url)
 	if fetchErr != nil {
-		message := truncateProxyError(fetchErr.Error())
+		message := "The proxy subscription could not be fetched"
 		if err := model.UpdateProxySubscription(sub.UserId, sub.Id, map[string]any{
 			"last_sync_at": now,
 			"last_error":   message,
@@ -581,7 +589,7 @@ func parseSubscriptionUserInfo(header string) proxyTrafficInfo {
 }
 
 func fetchProxySubscription(rawUrl string) ([]byte, proxyTrafficInfo, error) {
-	client, err := service.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
+	client, err := service.GetTenantHTTPClientWithProxySettings("", dto.ChannelSettings{})
 	if err != nil {
 		return nil, proxyTrafficInfo{}, err
 	}

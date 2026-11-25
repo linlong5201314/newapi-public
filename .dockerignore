@@ -10,3 +10,16 @@ docs
 /web/node_modules
 /web/dist
 !THIRD-PARTY-LICENSES.md
+.env
+.env.*
+*.pem
+*.key
+*_jwt.txt
+*_token.txt
+_evidence
+_verify
+logs
+bin
+android-apk
+*.log
+*.apk

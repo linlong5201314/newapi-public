@@ -86,6 +86,11 @@ func TestProcessChannelErrorMasksDisableReasonAndNotification(t *testing.T) {
 	common.MemoryCacheEnabled, common.RedisEnabled = false, false
 	common.AutomaticDisableChannelEnabled, constant.ErrorLogEnabled = true, false
 	constant.NotifyLimitCount = 10
+	previousCrypto, previousCryptoConfigured := common.CryptoSecret, common.CryptoSecretConfigured
+	common.CryptoSecret, common.CryptoSecretConfigured = "test-only-relay-error-crypto-secret", true
+	t.Cleanup(func() {
+		common.CryptoSecret, common.CryptoSecretConfigured = previousCrypto, previousCryptoConfigured
+	})
 	channel := &model.Channel{Name: "relay-review", Key: "fixture-key", Type: 1, Status: common.ChannelStatusEnabled, Group: "default", Models: "test-model"}
 	require.NoError(t, channel.Insert())
 	notifications := make(chan []byte, 1)

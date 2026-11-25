@@ -327,6 +327,7 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"POST /api/channel/self/oauth/start":     accessTokenScopeRule("channel:write"),
 	"GET /api/channel/self/oauth/poll":       accessTokenScopeRule("channel:write"),
 	"POST /api/channel/self/import_trae":     accessTokenScopeRule("channel:write"),
+	"POST /api/channel/self/import_raccoon":  accessTokenScopeRule("channel:write"),
 
 	// Self-service account binding, probe, proxy-pool, public-pool, free-source
 	// and internal maintenance routes (declared for PAT scope coverage).
@@ -397,7 +398,7 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"DELETE /api/proxy-pool/endpoints/:id":                    accessTokenScopeRule("channel:write"),
 	"POST /api/proxy-pool/endpoints/:id/test":                 accessTokenScopeRule("channel:write"),
 	"GET /api/proxy-pool/export":                              accessTokenScopeRule("channel:read"),
-	"GET /api/proxy-pool/runtime":                             accessTokenScopeRule("channel:read"),
+	"GET /api/proxy-pool/runtime/diagnose":                    accessTokenSessionRule,
 	"POST /api/proxy-pool/runtime/select":                     accessTokenScopeRule("channel:write"),
 	"POST /api/proxy-pool/runtime/reload":                     accessTokenScopeRule("channel:write"),
 	"GET /api/proxy-pool/subscriptions":                       accessTokenScopeRule("channel:read"),

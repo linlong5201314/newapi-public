@@ -28,6 +28,8 @@ func TestMain(m *testing.M) {
 	common.RedisEnabled = false
 	common.BatchUpdateEnabled = false
 	common.LogConsumeEnabled = true
+	common.CryptoSecret = "test-only-stable-crypto-secret"
+	common.CryptoSecretConfigured = true
 	initCol()
 
 	sqlDB, err := db.DB()

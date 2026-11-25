@@ -111,11 +111,19 @@ type qoderClient struct{ http *http.Client }
 
 var qoderTransports = proxyHTTPClientCache{clients: make(map[string]*http.Client), aliases: make(map[string]string)}
 
+// QoderHTTPClientFactory is replaced only by package-level protocol tests.
+// Production always uses NewQoderHTTPClient and its strict pinned transport.
+var QoderHTTPClientFactory = newQoderHTTPClient
+
 // NewQoderHTTPClient uses exactly the pinned egress, including real direct
 // transport for an empty proxy. It never honors environment proxy fallback,
 // provider cookies, redirects, or global insecure TLS flags. The returned client
 // can be copied to change timeout; its pooled transport must not be mutated.
 func NewQoderHTTPClient(proxy string) (*http.Client, error) {
+	return QoderHTTPClientFactory(proxy)
+}
+
+func newQoderHTTPClient(proxy string) (*http.Client, error) {
 	var parsed *url.URL
 	var err error
 	if proxy != "" {

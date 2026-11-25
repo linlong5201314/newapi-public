@@ -172,7 +172,7 @@ func TestM5NodeManagementEndToEnd(t *testing.T) {
 	// 加密落库：sqlite 原始列是密文，读取透明解密。
 	var rawToken string
 	require.NoError(t, database.Model(&model.Node{}).Where("id = ?", nodeID).Pluck("api_token_enc", &rawToken).Error)
-	require.True(t, strings.HasPrefix(rawToken, common.EncryptedSecretPrefix), "token at rest must be encrypted, got %q", rawToken)
+	require.True(t, common.IsEncryptedSecret(rawToken), "token at rest must be encrypted")
 	require.NotContains(t, rawToken, "railway-token-e2e")
 	loaded, err := model.GetNodeById(nodeID)
 	require.NoError(t, err)

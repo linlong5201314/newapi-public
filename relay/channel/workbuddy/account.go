@@ -199,13 +199,28 @@ func ChannelLock(channelId int) *sync.Mutex {
 // 调用方应持有 ChannelLock（adaptor 的刷新单飞已保证同渠道串行）。
 // M5：写回前加密（WorkBuddy 属账号型渠道，CRYPTO_SECRET 派生 AES-GCM）。
 func SaveCred(channelId int, cred *Cred) error {
+	return saveCredCAS(channelId, "", cred)
+}
+
+func saveCredCAS(channelId int, expectedKey string, cred *Cred) error {
 	raw := cred.Marshal()
 	if raw == "" {
 		return fmt.Errorf("workbuddy credential marshal failed")
 	}
-	raw = model.EncryptChannelKey(constant.ChannelTypeWorkBuddy, raw)
-	if err := model.DB.Model(&model.Channel{}).Where("id = ?", channelId).Update("key", raw).Error; err != nil {
-		return fmt.Errorf("workbuddy credential persist: %w", err)
+	raw, err := model.EncryptChannelKeyStrict(constant.ChannelTypeWorkBuddy, raw)
+	if err != nil {
+		return fmt.Errorf("workbuddy credential encryption: %w", err)
+	}
+	query := model.DB.Model(&model.Channel{}).Where("id = ? AND type = ?", channelId, constant.ChannelTypeWorkBuddy)
+	if expectedKey != "" {
+		query = query.Where("key = ?", expectedKey)
+	}
+	result := query.Update("key", raw)
+	if result.Error != nil {
+		return fmt.Errorf("workbuddy credential persist: %w", result.Error)
+	}
+	if result.RowsAffected != 1 {
+		return fmt.Errorf("workbuddy credential changed concurrently")
 	}
 	// 缓存失效：重读并刷新内存渠道缓存（MemoryCacheEnabled 时才有意义，函数内部安全）。
 	if common.MemoryCacheEnabled {

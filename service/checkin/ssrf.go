@@ -74,16 +74,16 @@ func validatePublicIP(ip net.IP) error {
 
 // reservedV4 / reservedV6 显式保留段（net.IsPrivate 未覆盖部分）。
 var reservedV4 = []net.IPNet{
-	{IP: net.IPv4(0, 0, 0, 0).To4(), Mask: net.CIDRMask(8, 32)},         // 0.0.0.0/8
-	{IP: net.IPv4(100, 64, 0, 0).To4(), Mask: net.CIDRMask(10, 32)},    // CGNAT
-	{IP: net.IPv4(192, 0, 0, 0).To4(), Mask: net.CIDRMask(24, 32)},     // IETF 协议分配
-	{IP: net.IPv4(192, 0, 2, 0).To4(), Mask: net.CIDRMask(24, 32)},     // TEST-NET-1
-	{IP: net.IPv4(192, 88, 99, 0).To4(), Mask: net.CIDRMask(24, 32)},   // 6to4 relay
-	{IP: net.IPv4(198, 18, 0, 0).To4(), Mask: net.CIDRMask(15, 32)},    // benchmark
-	{IP: net.IPv4(198, 51, 100, 0).To4(), Mask: net.CIDRMask(24, 32)},  // TEST-NET-2
-	{IP: net.IPv4(203, 0, 113, 0).To4(), Mask: net.CIDRMask(24, 32)},   // TEST-NET-3
-	{IP: net.IPv4(224, 0, 0, 0).To4(), Mask: net.CIDRMask(4, 32)},      // 组播+
-	{IP: net.IPv4(240, 0, 0, 0).To4(), Mask: net.CIDRMask(4, 32)},      // 保留
+	{IP: net.IPv4(0, 0, 0, 0).To4(), Mask: net.CIDRMask(8, 32)},       // 0.0.0.0/8
+	{IP: net.IPv4(100, 64, 0, 0).To4(), Mask: net.CIDRMask(10, 32)},   // CGNAT
+	{IP: net.IPv4(192, 0, 0, 0).To4(), Mask: net.CIDRMask(24, 32)},    // IETF 协议分配
+	{IP: net.IPv4(192, 0, 2, 0).To4(), Mask: net.CIDRMask(24, 32)},    // TEST-NET-1
+	{IP: net.IPv4(192, 88, 99, 0).To4(), Mask: net.CIDRMask(24, 32)},  // 6to4 relay
+	{IP: net.IPv4(198, 18, 0, 0).To4(), Mask: net.CIDRMask(15, 32)},   // benchmark
+	{IP: net.IPv4(198, 51, 100, 0).To4(), Mask: net.CIDRMask(24, 32)}, // TEST-NET-2
+	{IP: net.IPv4(203, 0, 113, 0).To4(), Mask: net.CIDRMask(24, 32)},  // TEST-NET-3
+	{IP: net.IPv4(224, 0, 0, 0).To4(), Mask: net.CIDRMask(4, 32)},     // 组播+
+	{IP: net.IPv4(240, 0, 0, 0).To4(), Mask: net.CIDRMask(4, 32)},     // 保留
 }
 
 func isReserved(ip net.IP) bool {

@@ -21,6 +21,11 @@ func setupChannelCreateTest(t *testing.T) int {
 	previousDB, previousLogDB := model.DB, model.LOG_DB
 	previousType, previousLogType := common.MainDatabaseType(), common.LogDatabaseType()
 	previousMaster, previousCache, previousRedis, previousSQLite := common.IsMasterNode, common.MemoryCacheEnabled, common.RedisEnabled, common.SQLitePath
+	previousCrypto, previousCryptoConfigured := common.CryptoSecret, common.CryptoSecretConfigured
+	common.CryptoSecret, common.CryptoSecretConfigured = "test-only-channel-crypto-secret", true
+	t.Cleanup(func() {
+		common.CryptoSecret, common.CryptoSecretConfigured = previousCrypto, previousCryptoConfigured
+	})
 	t.Cleanup(func() {
 		model.DB, model.LOG_DB = previousDB, previousLogDB
 		common.SetDatabaseTypes(previousType, previousLogType)
@@ -134,7 +139,7 @@ func TestAddChannelReturnsCreatedIDs(t *testing.T) {
 			for i, channel := range created {
 				assert.Positive(t, result.Data.IDs[i])
 				assert.Equal(t, channel.Id, result.Data.IDs[i])
-				assert.Equal(t, tc.wantKeys[i], channel.Key)
+				assert.Equal(t, tc.wantKeys[i], model.DecryptChannelKey(channel.Type, channel.Key))
 				assert.Equal(t, tc.mode == "multi_to_single", channel.ChannelInfo.IsMultiKey)
 			}
 			require.NotNil(t, result.Data.Results, "empty creations must return an empty results array")
@@ -195,19 +200,24 @@ func TestAddChannelInvalidVertexBatchDoesNotReturnResults(t *testing.T) {
 func TestAddChannelRollbackDoesNotReturnIDs(t *testing.T) {
 	rootID := setupChannelCreateTest(t)
 	// Force a real database error in the second chunk, after the first 50 rows
-	// received IDs. This constraint exists only in the isolated test database.
-	column := `"key"`
-	if common.UsingMainDatabase(common.DatabaseTypeMySQL) {
-		column = "`key`(191)"
-	}
-	const indexName = "channel_create_test_unique_key"
-	require.NoError(t, model.DB.Exec("CREATE UNIQUE INDEX "+indexName+" ON channels ("+column+")").Error)
-	t.Cleanup(func() { require.NoError(t, model.DB.Migrator().DropIndex(&model.Channel{}, indexName)) })
+	// received IDs. Encryption makes duplicate plaintext values unsuitable for
+	// this test, so the injected failure is on the second insert itself.
+	const callback = "test:channel-create-rollback"
+	createCalls := 0
+	require.NoError(t, model.DB.Callback().Create().Before("gorm:create").Register(callback, func(tx *gorm.DB) {
+		if tx.Statement.Table == "channels" {
+			createCalls++
+			if createCalls == 2 {
+				tx.AddError(fmt.Errorf("injected second channel insert failure"))
+			}
+		}
+	}))
+	t.Cleanup(func() { require.NoError(t, model.DB.Callback().Create().Remove(callback)) })
 	keys := make([]string, 51)
 	for i := range keys[:50] {
 		keys[i] = fmt.Sprintf("sk-create-rollback-%02d", i)
 	}
-	keys[50] = keys[0]
+	keys[50] = "sk-create-rollback-50"
 	request, err := common.Marshal(AddChannelRequest{Mode: "batch", Channel: &model.Channel{
 		Name: "created-id-rollback", Type: 1, Key: strings.Join(keys, "\n"), Models: "test-model", Group: "default",
 	}})

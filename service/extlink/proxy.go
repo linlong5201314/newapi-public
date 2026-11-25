@@ -82,6 +82,9 @@ var sharedTransport = &http.Transport{
 
 // NewReverseProxy 为单条外链构建反向代理。target 已确认 http(s)。
 func NewReverseProxy(link *model.ExtLink) (*httputil.ReverseProxy, error) {
+	if link == nil || !link.Enabled || link.Mode != model.ExtLinkModeProxy || !link.Trusted {
+		return nil, fmt.Errorf("external proxy link is not enabled and trusted")
+	}
 	target, err := url.Parse(link.Url)
 	if err != nil {
 		return nil, err
@@ -93,11 +96,21 @@ func NewReverseProxy(link *model.ExtLink) (*httputil.ReverseProxy, error) {
 			pr.SetURL(target)
 			// Host 改写为目标 host（SetURL 已同步 Host；显式兜底端口形态）。
 			pr.Out.Host = target.Host
+			// Never forward platform or upstream browser credentials. The reverse
+			// proxy is an isolated application, not a session-sharing boundary.
+			for _, name := range []string{"Cookie", "Authorization", "Proxy-Authorization", "X-Auth-Session", "X-Api-Key"} {
+				pr.Out.Header.Del(name)
+			}
+			pr.SetXForwarded()
 			// 剥 Accept-Encoding：Transport 会自动补 gzip 并透明解压，
 			// ModifyResponse 因此总是看到明文 body；br/zstd 不透传。
 			pr.Out.Header.Del("Accept-Encoding")
 		},
 		ModifyResponse: func(resp *http.Response) error {
+			for _, name := range []string{"Clear-Site-Data", "Service-Worker-Allowed", "Origin-Agent-Cluster"} {
+				resp.Header.Del(name)
+			}
+			resp.Header.Set("X-Content-Type-Options", "nosniff")
 			stripFramingHeaders(resp)
 			rewriteLocationHeader(resp, target, slug)
 			rewriteSetCookieHeaders(resp, slug)
@@ -109,8 +122,7 @@ func NewReverseProxy(link *model.ExtLink) (*httputil.ReverseProxy, error) {
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			w.WriteHeader(http.StatusBadGateway)
-			_, _ = w.Write([]byte(`{"success":false,"message":"extlink upstream error: ` +
-				strings.ReplaceAll(err.Error(), `"`, `'`) + `"}`))
+			_, _ = w.Write([]byte(`{"success":false,"message":"The external service is temporarily unavailable"}`))
 		},
 	}
 	return proxy, nil

@@ -31,6 +31,8 @@ const maxDailyRetries = 2
 // sweepPageSize sweep 分页大小。
 const sweepPageSize = 200
 
+var accountRunSlots = make(chan struct{}, 4)
+
 // StartScheduler 启动调度器（阻塞循环；main.go goroutine 调用）。
 func StartScheduler(ctx context.Context) {
 	if ctx == nil {
@@ -103,8 +105,8 @@ func acquireSweepLock(ctx context.Context, day, slot string) bool {
 // sweep 执行一个槽位的全量账号扫描。
 func sweep(ctx context.Context, day, slot string, slotFire, now time.Time) {
 	count := 0
-	for offset := 0; ; offset += sweepPageSize {
-		accounts, err := model.GetEnabledCheckinAccounts(offset, sweepPageSize)
+	for lastID := 0; ; {
+		accounts, err := model.GetEnabledCheckinAccountsAfter(lastID, sweepPageSize)
 		if err != nil {
 			common.SysLog("checkin sweep query failed: " + err.Error())
 			return
@@ -117,8 +119,11 @@ func sweep(ctx context.Context, day, slot string, slotFire, now time.Time) {
 			if !shouldRun(acc, day, slotFire, now) {
 				continue
 			}
-			runAccount(acc, "cron")
+			runAccountWithContext(ctx, acc, "cron")
 			count++
+		}
+		if len(accounts) > 0 {
+			lastID = accounts[len(accounts)-1].Id
 		}
 		if len(accounts) < sweepPageSize {
 			break
@@ -139,7 +144,7 @@ func shouldRun(acc *model.CheckinAccount, day string, slotFire, now time.Time) b
 		return false
 	}
 	if acc.LastStatus == "failed" {
-		if acc.FailCount > maxDailyRetries {
+		if acc.FailCount > maxDailyRetries || acc.RetryAfterUntil > now.Unix() {
 			return false
 		}
 		if time.Since(time.Unix(acc.UpdatedTime, 0)) < retryMinInterval {
@@ -166,8 +171,8 @@ func SweepAllNow() int {
 	now := time.Now().In(cst)
 	day := now.Format("2006-01-02")
 	count := 0
-	for offset := 0; ; offset += sweepPageSize {
-		accounts, err := model.GetEnabledCheckinAccounts(offset, sweepPageSize)
+	for lastID := 0; ; {
+		accounts, err := model.GetEnabledCheckinAccountsAfter(lastID, sweepPageSize)
 		if err != nil {
 			common.SysLog("checkin sweep-now query failed: " + err.Error())
 			return count
@@ -185,6 +190,9 @@ func SweepAllNow() int {
 			}
 			runAccount(acc, "cron")
 			count++
+		}
+		if len(accounts) > 0 {
+			lastID = accounts[len(accounts)-1].Id
 		}
 		if len(accounts) < sweepPageSize {
 			break

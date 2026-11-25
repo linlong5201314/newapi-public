@@ -490,7 +490,11 @@ func searchChannelsExecute(c *gin.Context, ownerId int) {
 	pagedData := channelData[startIdx:endIdx]
 
 	for _, datum := range pagedData {
-		clearChannelInfo(datum)
+		if ownerId >= 0 {
+			sanitizeSelfChannel(datum)
+		} else {
+			clearChannelInfo(datum)
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{

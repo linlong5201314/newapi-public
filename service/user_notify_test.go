@@ -165,6 +165,9 @@ func TestChannelNoticesFollowEachAdministratorsSwitch(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, database.Create(&model.User{Username: user.name, Role: user.role, Status: user.status, Setting: string(setting), AffCode: user.name}).Error)
 	}
+	previousCrypto, previousConfigured := common.CryptoSecret, common.CryptoSecretConfigured
+	common.CryptoSecret, common.CryptoSecretConfigured = "test-only-channel-notice-crypto-secret", true
+	t.Cleanup(func() { common.CryptoSecret, common.CryptoSecretConfigured = previousCrypto, previousConfigured })
 	channel := &model.Channel{Name: "notice-review", Key: "fixture-key", Type: 1, Status: common.ChannelStatusEnabled, Group: "default", Models: "test-model"}
 	require.NoError(t, channel.Insert())
 

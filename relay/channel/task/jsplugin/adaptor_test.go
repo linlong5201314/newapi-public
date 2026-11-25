@@ -2716,6 +2716,15 @@ func newAPIGateway(t *testing.T, routes map[string]string, seen *[]string) *http
 	}))
 }
 
+func allowLocalTaskGateway(t *testing.T, gateway *httptest.Server) {
+	t.Helper()
+	fetch := system_setting.GetFetchSetting()
+	previous := *fetch
+	fetch.AllowPrivateIp = true
+	fetch.AllowedPorts = []string{strings.TrimPrefix(gateway.URL, "http://127.0.0.1:")}
+	t.Cleanup(func() { *fetch = previous })
+}
+
 func TestTaskAdaptorChainsDoubaoThroughNewAPIUpstream(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	service.InitHttpClient()
@@ -2725,6 +2734,7 @@ func TestTaskAdaptorChainsDoubaoThroughNewAPIUpstream(t *testing.T) {
 		"GET /doubao/api/v3/contents/generations/tasks/task_up_public": `{"id":"task_up_public","status":"succeeded","content":{"video_url":"https://cdn.example/v.mp4"},"usage":{"completion_tokens":1200,"total_tokens":1200}}`,
 	}, &seen)
 	defer gateway.Close()
+	allowLocalTaskGateway(t, gateway)
 
 	source, err := plugins.Source("doubao")
 	require.NoError(t, err)
@@ -2784,6 +2794,7 @@ func TestTaskAdaptorChainsSunoBatchFetchThroughNewAPIUpstream(t *testing.T) {
 		"POST /suno/fetch":        `{"code":"success","message":"","data":[{"task_id":"task_up_public","status":"SUCCESS","progress":"100%","data":[{"id":"clip-1","status":"complete","audio_url":"https://cdn.example/a.mp3"}]}]}`,
 	}, &seen)
 	defer gateway.Close()
+	allowLocalTaskGateway(t, gateway)
 
 	source, err := plugins.Source("sunoapi")
 	require.NoError(t, err)

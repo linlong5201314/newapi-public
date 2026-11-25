@@ -6,6 +6,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -135,5 +136,63 @@ func TestModelModifierNamesRouteWithAndWithoutMemoryCache(t *testing.T) {
 		selected, err = GetRandomSatisfiedChannel("default", "deepseek-pro@effort:max", 0, nil, 0)
 		require.NoError(t, err)
 		assert.Nil(t, selected, "memory cache %v", memoryCache)
+	}
+}
+
+func TestPublicChannelCannotOutrankCallerAndPlatformChannels(t *testing.T) {
+	truncateTables(t)
+	channelSyncLock.Lock()
+	group2model2channels = make(map[string]map[string]map[int][]int)
+	channelsIDM = make(map[int]*Channel)
+	channelSyncLock.Unlock()
+	originalMemoryCache := common.MemoryCacheEnabled
+	originalFallback := operation_setting.SelfChannelUsePublicFallback
+	operation_setting.SelfChannelUsePublicFallback = true
+	t.Cleanup(func() {
+		common.MemoryCacheEnabled = originalMemoryCache
+		operation_setting.SelfChannelUsePublicFallback = originalFallback
+		InitChannelCache()
+	})
+	priority := int64(0)
+	highPriority := int64(100)
+	weight := uint(1)
+	channels := []Channel{
+		{Id: 940001, OwnerId: 0, Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Name: "platform", Models: "shared", Group: "default", Priority: &priority, Weight: &weight},
+		{Id: 940002, OwnerId: 71, Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Name: "other-public", Models: "shared", Group: "default", Visibility: 1, Priority: &highPriority, Weight: &weight},
+		{Id: 940003, OwnerId: 72, Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Name: "own", Models: "shared", Group: "default", Priority: &priority, Weight: &weight},
+	}
+	for i := range channels {
+		require.NoError(t, channels[i].Insert())
+	}
+	for _, memoryCache := range []bool{false, true} {
+		common.MemoryCacheEnabled = memoryCache
+		for _, tc := range []struct {
+			name string
+			ids  []int
+			want string
+		}{
+			{"own wins", []int{0, 1, 2}, "own"},
+			{"platform before public", []int{0, 1}, "platform"},
+			{"public only as last resort", []int{1}, "other-public"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				truncateTables(t)
+				for _, id := range tc.ids {
+					channel := channels[id]
+					channel.Id = 0
+					require.NoError(t, channel.Insert())
+				}
+				InitChannelCache()
+				selected, err := GetRandomSatisfiedChannel("default", "shared", 0, nil, 72)
+				require.NoError(t, err)
+				var cached *Channel
+				for _, id := range group2model2channels["default"]["shared"][71] {
+					cached = channelsIDM[id]
+				}
+				t.Logf("cached=%+v", cached)
+				require.NotNil(t, selected, "cache=%v ids=%v buckets=%v visible=%v", memoryCache, tc.ids, group2model2channels["default"]["shared"], ChannelModelVisibleToOwner(cached, "shared", 72))
+				assert.Equal(t, tc.want, selected.Name)
+			})
+		}
 	}
 }

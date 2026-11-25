@@ -43,6 +43,7 @@ export function useDemoChat(userId: number) {
     conversationId: string
     messageId: string
   } | null>(null)
+  const imageAbortRef = useRef<AbortController | null>(null)
   const thinkingRef = useRef(false)
   const { sendStreamRequest, stopStream } = useStreamRequest()
 
@@ -86,6 +87,8 @@ export function useDemoChat(userId: number) {
     const request = requestRef.current
     requestRef.current = null
     stopStream()
+    imageAbortRef.current?.abort()
+    imageAbortRef.current = null
     setPending(false)
     if (request) {
       patchMessage(request.conversationId, request.messageId, (message) => ({
@@ -103,7 +106,7 @@ export function useDemoChat(userId: number) {
     window.addEventListener('pagehide', stop)
     document.addEventListener('visibilitychange', onVisibilityChange)
     return () => {
-      requestRef.current = null
+      stop()
       window.removeEventListener('offline', stop)
       window.removeEventListener('pagehide', stop)
       document.removeEventListener('visibilitychange', onVisibilityChange)
@@ -322,6 +325,8 @@ export function useDemoChat(userId: number) {
       messageId: assistantMessage.id,
     }
     requestRef.current = request
+    const abortController = new AbortController()
+    imageAbortRef.current = abortController
     setPending(true)
     const startedAt = Date.now()
     try {
@@ -329,9 +334,13 @@ export function useDemoChat(userId: number) {
         model,
         group,
         prompt: trimmed,
+        signal: abortController.signal,
       })
       if (requestRef.current !== request) return false
       requestRef.current = null
+      if (imageAbortRef.current === abortController) {
+        imageAbortRef.current = null
+      }
       setPending(false)
       patchMessage(conversation.id, assistantMessage.id, (message) => ({
         ...message,
@@ -341,6 +350,7 @@ export function useDemoChat(userId: number) {
       }))
       return true
     } catch (error) {
+      if (requestRef.current !== request) return false
       if (requestRef.current === request) {
         requestRef.current = null
         setPending(false)

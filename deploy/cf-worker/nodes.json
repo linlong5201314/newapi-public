@@ -48,6 +48,14 @@
       "weight": 2,
       "enabled": true,
       "healthy": true
+    },
+    {
+      "id": "node8",
+      "url": "https://newapi-public-production-49f64774.up.railway.app",
+      "provider": "railway871",
+      "weight": 2,
+      "enabled": true,
+      "healthy": true
     }
   ]
 }

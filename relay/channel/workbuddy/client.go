@@ -16,6 +16,9 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/service"
 )
 
 // 四域默认 base。
@@ -47,12 +50,13 @@ type apiEnvelope struct {
 
 // Client 上游 HTTP 客户端（按凭据构造；传输层全包共享）。
 type Client struct {
-	cred *Cred
+	cred          *Cred
+	allowOverride bool
 }
 
 // NewClient 以渠道凭据构造上游客户端。
 func NewClient(cred *Cred) *Client {
-	return &Client{cred: cred}
+	return &Client{cred: cred, allowOverride: envBaseOverride() != ""}
 }
 
 // Cred 返回客户端持有的凭据快照。
@@ -83,7 +87,7 @@ func envBaseOverride() string {
 }
 
 func (c *Client) resolveBase(prodCN, prodGlobal string) string {
-	if c.cred.BaseOverride != "" {
+	if c.allowOverride && c.cred.BaseOverride != "" {
 		return strings.TrimSuffix(c.cred.BaseOverride, "/")
 	}
 	if env := envBaseOverride(); env != "" {
@@ -127,9 +131,20 @@ func (c *Client) checkinMeterPaths() []string {
 // 基础请求助手
 // ---------------------------------------------------------------------------
 
+func (c *Client) doWithProtectedTransport(req *http.Request, base *http.Client) (*http.Response, error) {
+	protected, err := service.GetTenantHTTPClientWithProxySettings("", dto.ChannelSettings{ProxyPolicy: &dto.ChannelProxyPolicy{Mode: "direct"}})
+	if err != nil {
+		return nil, err
+	}
+	client := *base
+	client.Transport = protected.Transport
+	client.CheckRedirect = protected.CheckRedirect
+	return client.Do(req)
+}
+
 // doJSON 发请求并解信封；HTTP 非 2xx 或业务 code != 0 时返回带分类的 *Error。
 func (c *Client) doJSON(req *http.Request) (json.RawMessage, error) {
-	resp, err := jsonHTTP.Do(req)
+	resp, err := c.doWithProtectedTransport(req, jsonHTTP)
 	if err != nil {
 		return nil, err
 	}
@@ -284,7 +299,7 @@ func (c *Client) ChatStream(ctx context.Context, body []byte) (rc io.ReadCloser,
 		return nil, 0, nil, err
 	}
 	ChatHeaders(req, c.cred, ChatMeta{})
-	resp, err := chatHTTP.Do(req)
+	resp, err := c.doWithProtectedTransport(req, chatHTTP)
 	if err != nil {
 		return nil, 0, nil, err
 	}

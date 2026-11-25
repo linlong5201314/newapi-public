@@ -22,13 +22,13 @@ type ModelInfo struct {
 
 // dynModelEntry 上游模型目录单条模型解析形态（两域同构）。
 type dynModelEntry struct {
-	ID              string `json:"id"`
-	Name            string `json:"name"`
-	ModelID         string `json:"modelId"`
-	Model           string `json:"model"`
-	MaxInputTokens  int64  `json:"maxInputTokens"`
-	MaxOutputTokens int64  `json:"maxOutputTokens"`
-	Disabled        bool   `json:"disabled"`
+	ID              string   `json:"id"`
+	Name            string   `json:"name"`
+	ModelID         string   `json:"modelId"`
+	Model           string   `json:"model"`
+	MaxInputTokens  int64    `json:"maxInputTokens"`
+	MaxOutputTokens int64    `json:"maxOutputTokens"`
+	Disabled        bool     `json:"disabled"`
 	Tags            []string `json:"tags"`
 }
 

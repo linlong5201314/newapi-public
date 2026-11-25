@@ -65,7 +65,10 @@ func InitEnv() {
 	} else {
 		CryptoSecret = SessionSecret
 		CryptoSecretConfigured = false
-		log.Println(LogText("WARNING: CRYPTO_SECRET is not set. Sensitive fields (node API tokens, check-in credentials, 2api channel credentials, Cloudflare token) will be stored with the 'plain:' prefix. Set CRYPTO_SECRET to a strong random string in production and re-save those records to migrate them to AES-GCM ciphertext."))
+		log.Println(LogText("WARNING: CRYPTO_SECRET is not set. Sensitive fields cannot be stored securely until a stable key is configured."))
+	}
+	if strings.EqualFold(os.Getenv("GIN_MODE"), "release") && (!CryptoSecretConfigured || len(strings.TrimSpace(CryptoSecret)) < 32) {
+		log.Fatal(LogText("CRYPTO_SECRET must be explicitly configured with at least 32 characters in release mode"))
 	}
 	if err := InitSessionCookieSettings(); err != nil {
 		log.Fatal(err)

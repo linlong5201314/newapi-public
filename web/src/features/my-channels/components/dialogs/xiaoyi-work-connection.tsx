@@ -137,6 +137,10 @@ export function XiaoyiWorkConnection() {
       )
       const next = response.data?.data as AuthorizationStart | undefined
       if (!next?.sessionId || !next.authUrl) throw new Error('Authorization could not be started')
+      const target = new URL(next.authUrl)
+      if (target.protocol !== 'https:' || target.hostname !== 'oauth-login.cloud.huawei.com' || target.port || target.username || target.password) {
+        throw new Error(t('The authorization URL is not from the official provider'))
+      }
       setAuthorization(next)
       const popup = window.open(next.authUrl, '_blank', 'noopener,noreferrer')
       if (!popup) toast.info(t('Open the authorization link below in your browser'))

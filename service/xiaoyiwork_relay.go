@@ -31,11 +31,13 @@ func doXiaoyiWorkRelay(ctx context.Context, channelID int, encryptedSession stri
 	}
 	var session XiaoyiWorkOAuthSession
 	var plaintextSession string
+	storedKey := ""
 	if channelID > 0 {
 		stored, err := model.GetChannelById(channelID, true)
 		if err != nil || stored.Type != constant.ChannelTypeXiaoyiWork || !common.IsEncryptedSecret(stored.Key) {
 			return nil, types.NewError(errors.New("Xiaoyi Work stored credential is invalid"), types.ErrorCodeDoRequestFailed)
 		}
+		storedKey = stored.Key
 		decrypted, err := common.DecryptSecret(stored.Key)
 		if err != nil {
 			return nil, types.NewError(errors.New("Xiaoyi Work credential could not be decrypted"), types.ErrorCodeDoRequestFailed)
@@ -71,7 +73,7 @@ func doXiaoyiWorkRelay(ctx context.Context, channelID int, encryptedSession stri
 		if err != nil || !common.IsEncryptedSecret(stored) {
 			return errors.New("Xiaoyi Work credential could not be securely stored")
 		}
-		result := model.DB.Model(&model.Channel{}).Where("id = ? AND type = ?", channelID, constant.ChannelTypeXiaoyiWork).Updates(map[string]any{"key": stored})
+		result := model.DB.Model(&model.Channel{}).Where("id = ? AND type = ? AND key = ?", channelID, constant.ChannelTypeXiaoyiWork, storedKey).Updates(map[string]any{"key": stored})
 		if result.Error != nil {
 			return result.Error
 		}

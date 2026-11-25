@@ -24,6 +24,8 @@ func setupTaskPluginBindChannelTest(t *testing.T) {
 	wasMaster := common.IsMasterNode
 	common.IsMasterNode = true
 	previousRedisEnabled := common.RedisEnabled
+	previousCrypto, previousConfigured := common.CryptoSecret, common.CryptoSecretConfigured
+	common.CryptoSecret, common.CryptoSecretConfigured = "test-only-task-plugin-crypto-secret", true
 	common.RedisEnabled = false
 	originalDB, originalLogDB := model.DB, model.LOG_DB
 	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -38,6 +40,7 @@ func setupTaskPluginBindChannelTest(t *testing.T) {
 	t.Cleanup(func() {
 		common.IsMasterNode = wasMaster
 		common.RedisEnabled = previousRedisEnabled
+		common.CryptoSecret, common.CryptoSecretConfigured = previousCrypto, previousConfigured
 		model.DB = originalDB
 		model.LOG_DB = originalLogDB
 	})

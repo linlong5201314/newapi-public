@@ -1,11 +1,15 @@
 package extlink
 
 import (
+	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/QuantumNous/new-api/model"
 
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 )
@@ -80,6 +84,42 @@ func TestStripFramingHeaders(t *testing.T) {
 		t.Fatal("empty CSP should be removed")
 	}
 }
+
+func TestReverseProxyStripsPlatformCredentialsAndDangerousHeaders(t *testing.T) {
+	link := &model.ExtLink{Slug: "external", Url: "https://upstream.example/base", Mode: model.ExtLinkModeProxy, Enabled: true, Trusted: true}
+	proxy, err := NewReverseProxy(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		for _, key := range []string{"Cookie", "Authorization", "Proxy-Authorization", "X-Api-Key"} {
+			if req.Header.Get(key) != "" {
+				t.Errorf("forwarded credential header %s", key)
+			}
+		}
+		return &http.Response{StatusCode: 200, Header: http.Header{
+			"Content-Type": {"text/html"}, "Clear-Site-Data": {`"*"`},
+			"Service-Worker-Allowed": {"/"}, "Origin-Agent-Cluster": {"?1"},
+		}, Body: io.NopCloser(strings.NewReader("<html><head></head></html>"))}, nil
+	})
+	req := httptest.NewRequest(http.MethodGet, "https://gateway.example/app/external/", nil)
+	req.Header.Set("Cookie", "session=private")
+	req.Header.Set("Authorization", "Bearer private")
+	response := httptest.NewRecorder()
+	proxy.ServeHTTP(response, req)
+	for _, key := range []string{"Clear-Site-Data", "Service-Worker-Allowed", "Origin-Agent-Cluster"} {
+		if response.Header().Get(key) != "" {
+			t.Errorf("forwarded dangerous header %s", key)
+		}
+	}
+	if response.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d", response.Code)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
 
 func TestAllowHostWhitelist(t *testing.T) {
 	old := operation_setting.ExtLinkAllowHosts

@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/QuantumNous/new-api/setting/system_setting"
 )
 
 // refreshMockServer 模拟 workbuddy 刷新端点 + 信封格式。
@@ -48,6 +51,12 @@ func TestRefreshSingleflightConcurrent(t *testing.T) {
 	var hits atomic.Int32
 	srv := refreshMockServer(t, &hits, 50*time.Millisecond)
 	defer srv.Close()
+	t.Setenv("WORKBUDDY_BASE_URL", srv.URL)
+	fetch := system_setting.GetFetchSetting()
+	previousFetch := *fetch
+	fetch.AllowPrivateIp = true
+	fetch.AllowedPorts = []string{strings.TrimPrefix(srv.URL, "http://127.0.0.1:")}
+	t.Cleanup(func() { *fetch = previousFetch })
 
 	cred := &Cred{
 		AccessToken:  "at-old",

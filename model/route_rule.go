@@ -22,10 +22,10 @@ import (
 // FallbackOnlyOnQuotaExhaustion=true 的目标只在前一目标报配额耗尽类错误
 // （402/429）时才参与选择。
 type RouteRuleTarget struct {
-	ChannelId                       int    `json:"channelId"`
-	Weight                          int    `json:"weight,omitempty"`
-	ModelOverride                   string `json:"modelOverride,omitempty"`
-	FallbackOnlyOnQuotaExhaustion   bool   `json:"fallbackOnlyOnQuotaExhaustion,omitempty"`
+	ChannelId                     int    `json:"channelId"`
+	Weight                        int    `json:"weight,omitempty"`
+	ModelOverride                 string `json:"modelOverride,omitempty"`
+	FallbackOnlyOnQuotaExhaustion bool   `json:"fallbackOnlyOnQuotaExhaustion,omitempty"`
 }
 
 // RouteRuleConfig 是 Config JSON 的内容；零值字段取默认值。
@@ -90,8 +90,14 @@ func (r *RouteRule) GetConfig() RouteRuleConfig {
 	if cfg.RetryDelayMs < 0 {
 		cfg.RetryDelayMs = 0
 	}
-	if cfg.TargetTimeoutMs <= 0 {
+	if cfg.TargetTimeoutMs <= 0 && cfg.TargetTimeoutMs != 0 {
 		cfg.TargetTimeoutMs = RouteRuleDefaultTargetTimeoutMs
+	}
+	if cfg.MaxRetries > 5 {
+		cfg.MaxRetries = 5
+	}
+	if cfg.RetryDelayMs > 10000 {
+		cfg.RetryDelayMs = 10000
 	}
 	return cfg
 }

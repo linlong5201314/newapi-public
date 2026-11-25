@@ -45,12 +45,15 @@ func InitSessionCookieSettings() error {
 	secureRaw := strings.TrimSpace(os.Getenv("SESSION_COOKIE_SECURE"))
 	trustedURLsRaw := strings.TrimSpace(os.Getenv("SESSION_COOKIE_TRUSTED_URL"))
 
-	SessionCookieSecure = false
+	SessionCookieSecure = strings.EqualFold(os.Getenv("GIN_MODE"), "release")
 	SessionCookieTrustedURLs = nil
 
 	if secureRaw == "" || strings.EqualFold(secureRaw, "false") {
 		if trustedURLsRaw != "" {
 			return fmt.Errorf("SESSION_COOKIE_TRUSTED_URL requires SESSION_COOKIE_SECURE=true")
+		}
+		if SessionCookieSecure {
+			return fmt.Errorf("release mode requires HTTPS session cookies and trusted origins")
 		}
 		return nil
 	}

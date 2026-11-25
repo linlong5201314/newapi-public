@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"os"
 	"strings"
 	"sync"
 
@@ -31,6 +32,8 @@ import (
 const (
 	// EncryptedSecretPrefix 已加密值的存储前缀（版本化，便于未来轮换算法）。
 	EncryptedSecretPrefix = "enc:v1:"
+	// EncryptedSecretV2Prefix carries a stable key identifier for rotation.
+	EncryptedSecretV2Prefix = "enc:v2:"
 	// PlainSecretPrefix 未配置 CRYPTO_SECRET 时的显式明文前缀。
 	PlainSecretPrefix = "plain:"
 
@@ -50,13 +53,43 @@ var (
 	secretAEADErr  error
 	secretAEADSeed string
 	secretAEADMu   sync.Mutex
+	secretKeyID    string
 )
+
+func deriveSecretKey(secret string) (cipher.AEAD, error) {
+	digest := sha256.Sum256([]byte(secretDerivationLabel + secret))
+	block, err := aes.NewCipher(digest[:])
+	if err != nil {
+		return nil, err
+	}
+	return cipher.NewGCM(block)
+}
+
+func deriveSecretKeyID(secret string) string {
+	digest := sha256.Sum256([]byte("new-api:crypto:key-id:" + secret))
+	return base64.RawURLEncoding.EncodeToString(digest[:6])
+}
+
+func previousSecretAEADs() map[string]cipher.AEAD {
+	result := make(map[string]cipher.AEAD)
+	for secret := range strings.SplitSeq(os.Getenv("CRYPTO_SECRET_PREVIOUS"), ",") {
+		secret = strings.TrimSpace(secret)
+		if secret == "" || secret == CryptoSecret {
+			continue
+		}
+		if aead, err := deriveSecretKey(secret); err == nil {
+			result[deriveSecretKeyID(secret)] = aead
+		}
+	}
+	return result
+}
 
 // secretAEADFor 返回当前 CryptoSecret 派生的 AES-GCM AEAD。密钥变更（测试/热配置）
 // 时重新派生，生产环境 CryptoSecret 启动后不变。
 func secretAEADFor() (cipher.AEAD, error) {
 	secretAEADMu.Lock()
 	defer secretAEADMu.Unlock()
+	secretKeyID = deriveSecretKeyID(CryptoSecret)
 	if !CryptoSecretConfigured || strings.TrimSpace(CryptoSecret) == "" {
 		return nil, errSecretKeyUnavailable
 	}
@@ -84,7 +117,7 @@ func secretAEADFor() (cipher.AEAD, error) {
 
 // IsEncryptedSecret 判断存储值是否已是密文（enc:v1: 前缀）。
 func IsEncryptedSecret(value string) bool {
-	return strings.HasPrefix(value, EncryptedSecretPrefix)
+	return strings.HasPrefix(value, EncryptedSecretPrefix) || strings.HasPrefix(value, EncryptedSecretV2Prefix)
 }
 
 // IsPlainPrefixedSecret 判断存储值是否显式标记为明文（plain: 前缀）。
@@ -92,17 +125,14 @@ func IsPlainPrefixedSecret(value string) bool {
 	return strings.HasPrefix(value, PlainSecretPrefix)
 }
 
-// EncryptSecret 加密敏感字段。CRYPTO_SECRET 未配置时返回 plain:<原文>（nil error），
-// 由启动 WARN 提示运维补齐并迁移；配置后返回 enc:v1:<base64url>。
+// EncryptSecret encrypts with the current key. Missing keys reject new writes;
+// historical plaintext remains readable only for the explicit migration path.
 func EncryptSecret(plaintext string) (string, error) {
 	if plaintext == "" {
 		return "", nil
 	}
 	aead, err := secretAEADFor()
 	if err != nil {
-		if errors.Is(err, errSecretKeyUnavailable) {
-			return PlainSecretPrefix + plaintext, nil
-		}
 		return "", err
 	}
 	nonce := make([]byte, aead.NonceSize())
@@ -113,7 +143,7 @@ func EncryptSecret(plaintext string) (string, error) {
 	payload := make([]byte, 0, len(nonce)+len(sealed))
 	payload = append(payload, nonce...)
 	payload = append(payload, sealed...)
-	return EncryptedSecretPrefix + base64.RawURLEncoding.EncodeToString(payload), nil
+	return EncryptedSecretV2Prefix + secretKeyID + ":" + base64.RawURLEncoding.EncodeToString(payload), nil
 }
 
 // EncryptSecretBestEffort 与 EncryptSecret 相同，但把随机源/配置异常降级为
@@ -121,8 +151,8 @@ func EncryptSecret(plaintext string) (string, error) {
 func EncryptSecretBestEffort(plaintext string) string {
 	encrypted, err := EncryptSecret(plaintext)
 	if err != nil {
-		SysError(LogText("secret encryption failed, storing plain-prefixed value: %s", err.Error()))
-		return PlainSecretPrefix + plaintext
+		SysError(LogText("secret encryption failed; refusing to store plaintext: %s", err.Error()))
+		return ""
 	}
 	return encrypted
 }
@@ -146,7 +176,22 @@ func DecryptSecret(stored string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(stored, EncryptedSecretPrefix))
+	payload := strings.TrimPrefix(stored, EncryptedSecretPrefix)
+	if strings.HasPrefix(stored, EncryptedSecretV2Prefix) {
+		keyID, encoded, found := strings.Cut(strings.TrimPrefix(stored, EncryptedSecretV2Prefix), ":")
+		if !found || keyID == "" {
+			return "", errors.New("encrypted secret has no key id")
+		}
+		if keyID != secretKeyID {
+			var ok bool
+			aead, ok = previousSecretAEADs()[keyID]
+			if !ok {
+				return "", errors.New("encrypted secret key is not available")
+			}
+		}
+		payload = encoded
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(payload)
 	if err != nil {
 		return "", err
 	}
