@@ -1299,8 +1299,6 @@
     "Channels and groups": "渠道与分组",
     "Channels deleted successfully": "渠道删除成功",
     "Channels here are private to you. API requests are only routed to your own channels.": "渠道归你私有，API 请求只会路由到你自己的渠道",
-    "You can use platform free models, models shared by other users, and your own channels. Create a channel and fetch its upstream models here; you can edit, test, share, or delete your own channels.": "你可以使用平台免费模型、其他用户公开的模型和自己的渠道。点击“创建渠道”可填写上游信息并获取模型；自己的渠道可编辑、测试、公开或删除。",
-    "Open a channel name to manage it. Only superadministrators can manage all users and platform channels.": "点击渠道名称即可管理；只有超级管理员可以管理全部用户及平台渠道。",
     "Channels must also enable Auto Ban before automatic disabling can take effect.": "各渠道还需开启“自动禁用”，全局禁用规则才会对其生效。",
     "Channels remain private until you explicitly publish them. Choose which models to share in My models.": "渠道默认私有，只有你主动公开后才会共享。可在「我的模型」中选择公开哪些模型。",
     "Channels shared with the public pool": "共享至公共池的渠道",
@@ -2811,7 +2809,7 @@
     "Exchange rate adjustments: {{count}}": "按汇率调整：{{count}} 个模型",
     "Exchange rate is required": "汇率为必填项",
     "Exchange rate must be greater than 0": "汇率必须大于 0",
-    "Excludes the first attempt. Counted per group.": "不含首次，按分组计算。",
+    "Up to 3 additional attempts. Failed channels are skipped when another channel serves the same model.": "最多额外尝试 3 次；同一模型有其他渠道时，自动跳过失败渠道。",
     "Execute code in a sandbox during the response": "在响应过程中沙箱执行代码",
     "Executor": "执行实例",
     "Exhausted": "已耗尽",
@@ -3313,7 +3311,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "相关项目",
     "footer.defaultCopyright": "版权所有。",
-    "footer.newapi.projectAttributionSuffix": "版权所有，由项目贡献者设计与开发。",
+    "footer.new\u0061pi.projectAttributionSuffix": "版权所有，由项目贡献者设计与开发。",
     "For advanced custom channels this applies only to /v1/responses routes without protocol conversion.": "高级自定义渠道仅对 /v1/responses 且不做协议转换的路由生效。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "对于 2025 年 5 月 10 日之后添加的渠道，在部署时无需从模型名称中移除 \".\"",
     "For private deployments, format: https://fastgpt.run/api/openapi": "对于私有部署，格式为：https://fastgpt.run/api/openapi",
@@ -8583,6 +8581,8 @@
     "Zhipu GLM": "智谱GLM",
     "Zhipu V4": "智谱 V4",
     "Zone that owns the primary domain. Leave blank to keep the current value.": "主域名所属的 Zone。留空则保持不变。",
-    "Zoom": "缩放"
+    "Zoom": "缩放",
+    "You can use platform free models, models shared by other users, and your own channels. Create a channel and fetch its upstream models here; you can edit, test, share, or delete your own channels.": "你可以使用平台免费模型、其他用户公开的模型和自己的渠道。点击“创建渠道”可填写上游信息并获取模型；自己的渠道可编辑、测试、公开或删除。",
+    "Open a channel name to manage it. Only superadministrators can manage all users and platform channels.": "点击渠道名称即可管理；只有超级管理员可以管理全部用户及平台渠道。"
   }
 }

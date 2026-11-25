@@ -200,7 +200,7 @@ it('editing a rule and retries saves one draft without dropping transforms or ex
   const retries = await screen.findByRole('spinbutton', {
     name: 'Maximum retries',
   })
-  fireEvent.change(retries, { target: { value: '5' } })
+  fireEvent.change(retries, { target: { value: '3' } })
   await userEvent.click(screen.getByRole('button', { name: 'Edit Rule' }))
   const dialog = screen.getByRole('dialog')
   const behavior = within(dialog).getByRole('combobox', {
@@ -219,7 +219,7 @@ it('editing a rule and retries saves one draft without dropping transforms or ex
   const payload = vi.mocked(api.patch).mock.calls[0][1] as {
     options: Record<string, string>
   }
-  expect(payload.options.RetryTimes).toBe('5')
+  expect(payload.options.RetryTimes).toBe('3')
   expect(Object.keys(payload.options)).toEqual([
     'RetryTimes',
     'channel_affinity_setting.rules',
@@ -302,7 +302,7 @@ it('a failed save retains the edited retries and rules for another save', async 
   const retries = await screen.findByRole('spinbutton', {
     name: 'Maximum retries',
   })
-  fireEvent.change(retries, { target: { value: '5' } })
+  fireEvent.change(retries, { target: { value: '3' } })
   await userEvent.click(screen.getByRole('button', { name: 'Edit Rule' }))
   const dialog = screen.getByRole('dialog')
   fireEvent.change(within(dialog).getByRole('textbox', { name: /^Name/ }), {
@@ -311,7 +311,7 @@ it('a failed save retains the edited retries and rules for another save', async 
   await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
   await userEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
   expect(await screen.findByText('Save rejected')).toBeVisible()
-  expect(retries).toHaveValue(5)
+  expect(retries).toHaveValue(3)
   expect(screen.getByRole('table')).toHaveTextContent('Unsaved rule')
   await userEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
   await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(2))
@@ -389,7 +389,7 @@ it('switching between visual and JSON editing preserves the shared draft', async
     await screen.findByRole('spinbutton', {
       name: 'Maximum retries',
     }),
-    { target: { value: '7' } }
+    { target: { value: '2' } }
   )
   await userEvent.click(screen.getByRole('tab', { name: 'JSON' }))
   const editor = await screen.findByRole('textbox', { name: 'Rules JSON' })
@@ -402,10 +402,10 @@ it('switching between visual and JSON editing preserves the shared draft', async
     screen.getByRole('spinbutton', {
       name: 'Maximum retries',
     })
-  ).toHaveValue(7)
+  ).toHaveValue(2)
   await userEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
   await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1))
-  expect(currentOptions.RetryTimes).toBe('7')
+  expect(currentOptions.RetryTimes).toBe('2')
   expect(
     JSON.parse(currentOptions['channel_affinity_setting.rules'])[0]
   ).toMatchObject({ name: 'JSON rule', future_field: { retained: true } })
@@ -424,7 +424,7 @@ it('editing a rule without a session mode saves the chosen override with the ret
     await screen.findByRole('spinbutton', {
       name: 'Maximum retries',
     }),
-    { target: { value: '4' } }
+    { target: { value: '3' } }
   )
   await userEvent.click(screen.getByRole('button', { name: 'Edit Rule' }))
   const dialog = screen.getByRole('dialog')
@@ -439,7 +439,7 @@ it('editing a rule without a session mode saves the chosen override with the ret
   await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
   await userEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
   await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1))
-  expect(currentOptions.RetryTimes).toBe('4')
+  expect(currentOptions.RetryTimes).toBe('3')
   const savedRule = JSON.parse(
     currentOptions['channel_affinity_setting.rules']
   )[0]
@@ -545,7 +545,7 @@ it('refreshing settings preserves unsaved rule and retry edits', async () => {
     await screen.findByRole('spinbutton', {
       name: 'Maximum retries',
     }),
-    { target: { value: '7' } }
+    { target: { value: '2' } }
   )
   await userEvent.click(screen.getByRole('button', { name: 'More actions' }))
   await userEvent.click(screen.getByRole('menuitem', { name: 'Delete Rule' }))
@@ -565,7 +565,7 @@ it('refreshing settings preserves unsaved rule and retry edits', async () => {
     screen.getByRole('spinbutton', {
       name: 'Maximum retries',
     })
-  ).toHaveValue(7)
+  ).toHaveValue(2)
   await userEvent.click(
     screen.getByRole('button', { name: 'Affinity cache settings' })
   )
@@ -580,8 +580,9 @@ it('refreshing settings preserves unsaved rule and retry edits', async () => {
   await userEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
   await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1))
   expect(vi.mocked(api.patch).mock.calls[0][1]).toEqual({
-    options: { RetryTimes: '7', 'channel_affinity_setting.rules': '[]' },
+    options: { 'channel_affinity_setting.rules': '[]' },
   })
+  expect(currentOptions.RetryTimes).toBe('2')
 })
 
 it('disabling global affinity preserves every rule and saves zero retries as zero', async () => {

@@ -202,14 +202,21 @@ func SyncChannelCache(frequency int) {
 }
 
 // selectOwnerBucketIDs applies tenant visibility while the caller holds channelSyncLock.
-func selectOwnerBucketIDs(owner2channels map[int][]int, ownerUserId int, modelName string) []int {
+func selectOwnerBucketIDs(owner2channels map[int][]int, ownerUserId int, modelName string, excluded ...map[int]bool) []int {
 	var ids []int
+	var exclude map[int]bool
+	if len(excluded) > 0 {
+		exclude = excluded[0]
+	}
 	// Trust tiers are never mixed by priority. A user's public channel is a
 	// fallback only after both the caller's own and eligible platform channels
 	// have no candidates.
 	for _, tier := range []int{1, 0, 2} {
 		for _, list := range owner2channels {
 			for _, id := range list {
+				if exclude[id] {
+					continue
+				}
 				channel := channelsIDM[id]
 				if channel != nil && ChannelSelectionTier(channel, ownerUserId) == tier && ChannelModelVisibleToOwner(channel, modelName, ownerUserId) {
 					ids = append(ids, id)
@@ -229,22 +236,27 @@ func GetRandomSatisfiedChannel(
 	retry int,
 	filters []dto.ChannelFilter,
 	ownerUserId int,
+	excluded ...map[int]bool,
 ) (*Channel, error) {
+	var exclude map[int]bool
+	if len(excluded) > 0 {
+		exclude = excluded[0]
+	}
 	// if memory cache is disabled, get channel directly from database
 	if !common.MemoryCacheEnabled {
-		return GetChannel(group, model, retry, filters, ownerUserId)
+		return GetChannel(group, model, retry, filters, ownerUserId, exclude)
 	}
 
 	channelSyncLock.RLock()
 	defer channelSyncLock.RUnlock()
 
 	// First, try to find channels with the exact model name.
-	channels, _ := filterCandidateIDs(channelHealthCandidates(selectOwnerBucketIDs(group2model2channels[group][model], ownerUserId, model)), model, filters)
+	channels, _ := filterCandidateIDs(channelHealthCandidates(selectOwnerBucketIDs(group2model2channels[group][model], ownerUserId, model, exclude)), model, filters)
 
 	// If no channels found, try to find channels with the normalized model name.
 	if len(channels) == 0 {
 		normalizedModel := ratio_setting.RoutingMatchModelName(model)
-		channels, _ = filterCandidateIDs(channelHealthCandidates(selectOwnerBucketIDs(group2model2channels[group][normalizedModel], ownerUserId, model)), model, filters)
+		channels, _ = filterCandidateIDs(channelHealthCandidates(selectOwnerBucketIDs(group2model2channels[group][normalizedModel], ownerUserId, model, exclude)), model, filters)
 	}
 
 	if len(channels) == 0 {

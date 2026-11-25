@@ -49,13 +49,13 @@ export function RetrySection() {
                 <Input
                   type='number'
                   min={0}
-                  max={99}
+                  max={3}
                   step={1}
                   {...safeNumberFieldProps(field)}
                 />
               </FormControl>
               <FormDescription>
-                {t('Excludes the first attempt. Counted per group.')}
+                {t('Up to 3 additional attempts. Failed channels are skipped when another channel serves the same model.')}
               </FormDescription>
               <FormMessage />
             </FormItem>

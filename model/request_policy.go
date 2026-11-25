@@ -127,8 +127,8 @@ func BuildRequestPolicy(options map[string]string) (*RequestPolicySnapshot, erro
 		return nil, err
 	}
 	snapshot.RetryTimes, err = strconv.Atoi(raw["RetryTimes"])
-	if err != nil || snapshot.RetryTimes < 0 || snapshot.RetryTimes == math.MaxInt {
-		return nil, fmt.Errorf("retry times must be a non-negative integer with room for the initial attempt")
+	if err != nil || snapshot.RetryTimes < 0 || snapshot.RetryTimes > common.MaxRelayRetryTimes {
+		return nil, fmt.Errorf("retry times must be between 0 and %d", common.MaxRelayRetryTimes)
 	}
 	snapshot.AutoDisable, err = strconv.ParseBool(raw["AutomaticDisableChannelEnabled"])
 	if err != nil {

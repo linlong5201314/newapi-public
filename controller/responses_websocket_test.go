@@ -1024,6 +1024,19 @@ func TestResponsesHTTPHealthCountsFinalResult(t *testing.T) {
 				_, _ = fmt.Fprint(w, `{"id":"completed","status":"completed","usage":{"input_tokens":1000,"output_tokens":1,"total_tokens":1001}}`)
 			}))
 			t.Cleanup(upstream.Close)
+			var failover *model.Channel
+			if tc.success {
+				failover = &model.Channel{Name: "responses-ws-upstream-failover", Key: "backup-key", Status: common.ChannelStatusEnabled, Type: constant.ChannelTypeOpenAI, Group: "default", Models: "ws-billing", BaseURL: &upstream.URL}
+				modelMapping := `{"ws-billing":"gpt-4o"}`
+				failover.ModelMapping = &modelMapping
+				failover.SetOtherSettings(dto.ChannelOtherSettings{AllowServiceTier: true})
+				require.NoError(t, model.DB.Create(failover).Error)
+				require.NoError(t, model.DB.Create(&model.Ability{ChannelId: failover.Id, Model: "ws-billing", Group: "default", Enabled: true}).Error)
+				t.Cleanup(func() {
+					require.NoError(t, model.DB.Where("channel_id = ?", failover.Id).Delete(&model.Ability{}).Error)
+					require.NoError(t, model.DB.Delete(failover).Error)
+				})
+			}
 			require.NoError(t, model.DB.Model(&model.Channel{}).Where("name = ?", "responses-ws-upstream").Update("base_url", upstream.URL).Error)
 			request, err := http.NewRequest(http.MethodPost, fixture.gatewayURL+"/v1/responses", strings.NewReader(`{"model":"ws-billing","input":"hello"}`))
 			require.NoError(t, err)

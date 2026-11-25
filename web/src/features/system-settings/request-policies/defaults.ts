@@ -47,7 +47,7 @@ export type RequestPolicySettings = RetrySettings &
   Pick<ChannelAffinitySettings, keyof ChannelAffinitySettings>
 
 export const defaultRequestPolicySettings: RequestPolicySettings = {
-  RetryTimes: 0,
+  RetryTimes: 2,
   AutomaticRetryStatusCodes:
     '100-199,300-399,401-407,409-499,500-503,505-523,525-599',
   ChannelDisableThreshold: '',

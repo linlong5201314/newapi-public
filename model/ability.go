@@ -136,8 +136,12 @@ func getChannelQuery(group string, model string, retry int) (*gorm.DB, error) {
 }
 
 // GetChannel selects enabled owner, shared or platform channels in the requested group.
-func GetChannel(group string, model string, retry int, filters []dto.ChannelFilter, ownerUserId int) (*Channel, error) {
-	return getChannelByOwners(group, model, retry, filters, []int{ownerUserId})
+func GetChannel(group string, model string, retry int, filters []dto.ChannelFilter, ownerUserId int, excluded ...map[int]bool) (*Channel, error) {
+	var exclude map[int]bool
+	if len(excluded) > 0 {
+		exclude = excluded[0]
+	}
+	return getChannelByOwners(group, model, retry, filters, []int{ownerUserId}, exclude)
 }
 
 func getChannelByOwners(
@@ -146,6 +150,7 @@ func getChannelByOwners(
 	retry int,
 	filters []dto.ChannelFilter,
 	ownerIds []int,
+	exclude map[int]bool,
 ) (*Channel, error) {
 	ownerChannelsSubQuery := DB.Model(&Channel{}).Select("id").
 		Where("status = ?", common.ChannelStatusEnabled).
@@ -158,7 +163,7 @@ func getChannelByOwners(
 	if err != nil {
 		return nil, err
 	}
-	abilities = filterAbilitiesByConstraints(abilities, model, filters, ownerIds[0])
+	abilities = filterAbilitiesByConstraints(abilities, model, filters, ownerIds[0], exclude)
 	// Like the memory cache, retry with the routing name (for example without
 	// @ modifiers) when no channel serves the exact name.
 	if normalized := ratio_setting.RoutingMatchModelName(model); len(abilities) == 0 && normalized != "" && normalized != model {
@@ -166,7 +171,7 @@ func getChannelByOwners(
 		if err != nil {
 			return nil, err
 		}
-		abilities = filterAbilitiesByConstraints(abilities, model, filters, ownerIds[0])
+		abilities = filterAbilitiesByConstraints(abilities, model, filters, ownerIds[0], exclude)
 	}
 	if len(abilities) > 0 {
 		priorities := make([]int64, 0)
@@ -238,7 +243,17 @@ func getChannelByOwners(
 // filterAbilitiesByConstraints applies the same ChannelSatisfiesFilters
 // predicate used by the memory-cache path. A failed channel lookup fails
 // closed when a task-plugin identity is required and fails open otherwise.
-func filterAbilitiesByConstraints(abilities []Ability, modelName string, filters []dto.ChannelFilter, ownerIDs ...int) []Ability {
+func filterAbilitiesByConstraints(abilities []Ability, modelName string, filters []dto.ChannelFilter, owners ...any) []Ability {
+	ownerUserId := -1
+	var exclude map[int]bool
+	for _, owner := range owners {
+		switch value := owner.(type) {
+		case int:
+			ownerUserId = value
+		case map[int]bool:
+			exclude = value
+		}
+	}
 	if len(abilities) == 0 {
 		return nil
 	}
@@ -255,17 +270,17 @@ func filterAbilitiesByConstraints(abilities []Ability, modelName string, filters
 
 	var channels []*Channel
 	if err := DB.Where("id IN ?", channelIds).Find(&channels).Error; err != nil {
-		if len(ownerIDs) > 0 || identityFilterRequiresKey(filters) {
+		if ownerUserId >= 0 || identityFilterRequiresKey(filters) {
 			return nil
 		}
 		return abilities
 	}
 
-	if len(ownerIDs) > 0 {
+	if ownerUserId >= 0 {
 		tiers := make(map[int]bool)
 		for _, channel := range channels {
-			tier := ChannelSelectionTier(channel, ownerIDs[0])
-			if tier >= 0 && ChannelModelVisibleToOwner(channel, modelName, ownerIDs[0]) {
+			tier := ChannelSelectionTier(channel, ownerUserId)
+			if tier >= 0 && ChannelModelVisibleToOwner(channel, modelName, ownerUserId) {
 				tiers[tier] = true
 			}
 		}
@@ -273,11 +288,11 @@ func filterAbilitiesByConstraints(abilities []Ability, modelName string, filters
 			if tiers[tier] {
 				allowed := make(map[int]bool)
 				for _, channel := range channels {
-					if ChannelSelectionTier(channel, ownerIDs[0]) == tier {
+					if ChannelSelectionTier(channel, ownerUserId) == tier {
 						allowed[channel.Id] = true
 					}
 				}
-				abilities = lo.Filter(abilities, func(ability Ability, _ int) bool { return allowed[ability.ChannelId] })
+				abilities = lo.Filter(abilities, func(ability Ability, _ int) bool { return allowed[ability.ChannelId] && !exclude[ability.ChannelId] })
 				break
 			}
 		}
@@ -291,7 +306,7 @@ func filterAbilitiesByConstraints(abilities []Ability, modelName string, filters
 	filtered := make([]Ability, 0, len(abilities))
 	for _, ability := range abilities {
 		channel := channelsByID[ability.ChannelId]
-		if len(ownerIDs) > 0 && !ChannelModelVisibleToOwner(channel, modelName, ownerIDs[0]) {
+		if ownerUserId >= 0 && !ChannelModelVisibleToOwner(channel, modelName, ownerUserId) {
 			continue
 		}
 		if ok, _ := ChannelSatisfiesFilters(channel, modelName, filters); ok {

@@ -5,7 +5,7 @@ import { parseHttpStatusCodeRules } from '@/lib/http-status-code-rules'
 
 export function createRoutingPolicySchema(t: TFunction) {
   return z.object({
-    RetryTimes: z.number().int().min(0).max(99),
+    RetryTimes: z.number().int().min(0).max(3),
     AutomaticRetryStatusCodes: z
       .string()
       .refine(

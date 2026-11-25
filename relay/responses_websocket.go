@@ -335,7 +335,7 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 				service.ResetStatusCode(apiErr, c.GetString("status_code_mapping"))
 				info.LastError = apiErr
 				service.RecordRouteRuleAttemptError(c, apiErr.StatusCode)
-				decision := service.DecideRelayRetry(c, apiErr, common.RetryTimes-retry.GetRetry())
+				decision := service.DecideRelayRetry(c, apiErr, retryBudget-retry.GetRetry())
 				service.RecordPolicyFailure(c, channel.Id, apiErr, decision)
 				service.ProcessChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, info.ApiKey, channel.GetAutoBan()), apiErr, info)
 				if decision.Action == "retry" {

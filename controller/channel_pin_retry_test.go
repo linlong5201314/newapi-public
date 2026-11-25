@@ -172,15 +172,15 @@ func TestChannelAffinityRetryPriorities(t *testing.T) {
 					crossGroup bool
 					want       []int
 				}{
-					{name: "ordinary routing", mode: "off", retries: 2, want: []int{24, 27, 30}},
-					{name: "affinity miss", mode: "prefer", retries: 2, want: []int{24, 27, 30}},
-					{name: "affinity hit", mode: "prefer", binding: 27, retries: 2, want: []int{27, 24, 27}},
+					{name: "ordinary routing", mode: "off", retries: 2, want: []int{24, 30, 27}},
+					{name: "affinity miss", mode: "prefer", retries: 2, want: []int{24, 30, 27}},
+					{name: "affinity hit", mode: "prefer", binding: 27, retries: 2, want: []int{27, 24, 30}},
 					{name: "no retry budget", mode: "prefer", binding: 27, want: []int{27}},
 					{name: "one retry", mode: "prefer", binding: 27, retries: 1, want: []int{27, 24}},
 					{name: "strict session", mode: "strict", binding: 27, retries: 2, want: []int{27}},
 					{name: "auto group", mode: "prefer", binding: 27, retries: 1, autoGroups: []string{"default", "vip"}, want: []int{27, 24}},
 					{name: "cross group", mode: "prefer", binding: 27, retries: 1, autoGroups: []string{"default", "vip"}, crossGroup: true, want: []int{27, 24, 34, 37}},
-					{name: "skip empty group", mode: "prefer", binding: 27, retries: 1, autoGroups: []string{"empty", "default"}, want: []int{27, 24, 27}},
+					{name: "skip empty group", mode: "prefer", binding: 27, retries: 1, autoGroups: []string{"empty", "default"}, want: []int{27, 24, 30}},
 				} {
 					t.Run(fmt.Sprintf("cache=%t/%s", cached, tc.name), func(t *testing.T) {
 						common.RetryTimes = tc.retries

@@ -95,11 +95,11 @@ func TestRequestPolicyDatabaseMatrix(t *testing.T) {
 			snapshot := CurrentRequestPolicy()
 			assert.Error(t, UpdateRequestPolicyOptions(map[string]string{"channel_affinity_setting.session_mode": "unknown"}))
 			assert.Same(t, snapshot, CurrentRequestPolicy())
-			for _, value := range []string{"-1", "1.5", "bad", strconv.Itoa(math.MaxInt)} {
+			for _, value := range []string{"-1", "1.5", "4", "bad", strconv.Itoa(math.MaxInt)} {
 				assert.Error(t, UpdateRequestPolicyOptions(map[string]string{"RetryTimes": value}))
 				assert.Same(t, snapshot, CurrentRequestPolicy())
 			}
-			assert.Error(t, UpdateRequestPolicyOptions(map[string]string{"channel_affinity_setting.rules": "[", "RetryTimes": "8"}))
+			assert.Error(t, UpdateRequestPolicyOptions(map[string]string{"RetryTimes": "4"}))
 			assert.Same(t, snapshot, CurrentRequestPolicy())
 			var option Option
 			require.NoError(t, db.Where(map[string]any{"key": "RetryTimes"}).First(&option).Error)

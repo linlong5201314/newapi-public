@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -134,6 +135,14 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 	filters := GetChannelConstraints(param.Ctx).Filters
 	affinityRetryOffset := param.Ctx.GetInt(ginKeyChannelAffinityRetryOffset)
 	ownerUserId := GetRequestOwnerUserId(param.Ctx)
+	failedChannels := map[int]bool{}
+	if param.Ctx != nil {
+		for _, id := range param.Ctx.GetStringSlice("use_channel") {
+			if channelID, parseErr := strconv.Atoi(id); parseErr == nil {
+				failedChannels[channelID] = true
+			}
+		}
+	}
 
 	// M2 用户级路由规则：解析 model 后先查该用户 enabled 规则（60s 缓存）。
 	// 命中 → 规则执行路径（策略排序 + 目标内回退）；未命中 → M1 现有路径不动。
@@ -176,6 +185,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 				priorityRetry,
 				filters,
 				ownerUserId,
+				failedChannels,
 			)
 			if channel == nil {
 				// Current group has no available channel for this model, try next group
@@ -223,6 +233,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			max(param.GetRetry()-affinityRetryOffset, 0),
 			filters,
 			ownerUserId,
+			failedChannels,
 		)
 		if err != nil {
 			return nil, param.TokenGroup, err

@@ -259,7 +259,7 @@ describe('request policy settings', () => {
       name: 'Blocked keywords',
     })
     fireEvent.change(keywords, { target: { value: 'unsaved' } })
-    settings.RetryTimes = 5
+    settings.RetryTimes = 3
     await act(async () => {
       await queryClient.invalidateQueries({ queryKey: ['system-options'] })
     })
@@ -289,12 +289,12 @@ describe('request policy settings', () => {
     const retries = await screen.findByRole('spinbutton', {
       name: 'Maximum retries',
     })
-    fireEvent.change(retries, { target: { value: '4' } })
+    fireEvent.change(retries, { target: { value: '3' } })
     await userEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Save Changes' })).toBeEnabled()
     )
-    expect(retries).toHaveValue(4)
+    expect(retries).toHaveValue(3)
     await userEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
     await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(2))
   })

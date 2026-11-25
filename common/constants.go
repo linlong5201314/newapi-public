@@ -140,7 +140,10 @@ var QuotaRemindThreshold = 1000
 // use quota_setting.pre_consume_multiplier and the estimated input cost.
 var PreConsumedQuota = 500
 
-var RetryTimes = 0
+// RetryTimes permits a bounded second and third same-model attempt by default.
+const MaxRelayRetryTimes = 3
+
+var RetryTimes = 2
 
 //var RootUserEmail = ""
 

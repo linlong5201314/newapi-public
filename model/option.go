@@ -747,6 +747,7 @@ func updateOptionMap(key string, value string) (err error) {
 		err = setting.UpdateModelRequestRateLimitGroupByJSONString(value)
 	case "RetryTimes":
 		common.RetryTimes, _ = strconv.Atoi(value)
+		common.RetryTimes = max(0, min(common.RetryTimes, common.MaxRelayRetryTimes))
 	case "DataExportInterval":
 		common.DataExportInterval, _ = strconv.Atoi(value)
 	case "DataExportDefaultTime":

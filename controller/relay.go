@@ -245,7 +245,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		relayInfo.LastError = newAPIError
 		service.RecordRouteRuleAttemptError(c, newAPIError.StatusCode)
 
-		decision := service.DecideRelayRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry())
+		decision := service.DecideRelayRetry(c, newAPIError, retryBudget-retryParam.GetRetry())
+		if relayInfo.HasSendResponse() {
+			decision = service.PolicyDecision{Action: "stop", Reason: "response_already_started", Source: "system"}
+		}
 		service.RecordPolicyFailure(c, channel.Id, newAPIError, decision)
 		// 渠道健康度：只把「上游侧」失败计入降权，客户端参数错误不算渠道的问题。
 		if types.IsChannelError(newAPIError) || newAPIError.StatusCode >= 500 || newAPIError.StatusCode == http.StatusTooManyRequests {
