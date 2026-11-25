@@ -158,6 +158,20 @@ func TestSelfChannelOrganizationFieldPersistsOnOrdinaryChannel(t *testing.T) {
 // Every account channel type the console can open must accept the editor's real
 // update payload. The editor always submits openai_organization, weight and the
 // proxy policy, so each type must persist them without an unknown-column error.
+func TestSelfChannelAccountAuthFailureIsActionable(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	accountAuthorizationError(c, service.ErrDesktopLoginExpired)
+	assert.Equal(t, http.StatusBadRequest, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "ACCOUNT_SESSION_EXPIRED")
+	assert.Contains(t, recorder.Body.String(), "Reconnect the account")
+	recorder = httptest.NewRecorder()
+	c, _ = gin.CreateTestContext(recorder)
+	accountAuthorizationError(c, service.ErrAccountUpstream)
+	assert.Equal(t, http.StatusBadGateway, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "Reconnect the account if its session expired")
+}
+
 func TestSelfChannelAccountTypesAcceptEditorUpdate(t *testing.T) {
 	for _, tc := range []struct {
 		name string

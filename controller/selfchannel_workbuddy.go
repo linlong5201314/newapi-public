@@ -53,8 +53,12 @@ func accountAuthorizationError(c *gin.Context, err error) {
 		status, code, message = http.StatusServiceUnavailable, "ACCOUNT_SERVER_ADDRESS_INVALID", "Server address (ServerAddress) is missing or invalid; set the public HTTPS address of this gateway before account authorization"
 	case errors.Is(err, service.ErrAccountEgress):
 		status, code, message = http.StatusServiceUnavailable, "ACCOUNT_PROXY_UNAVAILABLE", "Account proxy changed or is unavailable; restart authorization"
-	case errors.Is(err, service.ErrAccountUpstream), errors.Is(err, service.ErrAccountProtocol):
-		status, code, message = http.StatusBadGateway, "ACCOUNT_UPSTREAM_FAILED", "Account provider request failed; retry or restart authorization"
+	case errors.Is(err, service.ErrDesktopLoginExpired):
+		status, code, message = http.StatusBadRequest, "ACCOUNT_SESSION_EXPIRED", "This provider account session has expired. Reconnect the account to restore model access"
+	case errors.Is(err, service.ErrAccountUpstream):
+		status, code, message = http.StatusBadGateway, "ACCOUNT_UPSTREAM_FAILED", "The account provider rejected this request. Reconnect the account if its session expired, or retry the request"
+	case errors.Is(err, service.ErrAccountProtocol):
+		status, code, message = http.StatusBadGateway, "ACCOUNT_UPSTREAM_FAILED", "The account provider returned an invalid response; retry or restart authorization"
 	}
 	// Static context plus the sentinel/wrapped cause text: sentinels are fixed
 	// strings and wrappers carry only status codes or hosts, never payloads or

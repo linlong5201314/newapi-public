@@ -8,6 +8,7 @@
 package controller
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -33,6 +34,17 @@ func SelfOAuthStart(c *gin.Context) { selfWorkBuddyOAuthStart(c) }
 // mode=preview（默认）：成功后返回脱敏凭据预览，由前端确认后走常规建渠道流程；
 // mode=create：成功后直接建渠道（name/group/models 可用 query 传入）。
 func SelfOAuthPoll(c *gin.Context) { selfWorkBuddyOAuthPoll(c) }
+
+// normalizeAccountModelFetchError keeps only provider classification, never the
+// provider response body. Existing adaptors classify session and server failures
+// before this point; all other failures remain upstream diagnostics.
+func normalizeAccountModelFetchError(err error) error {
+	var traeErr *trae.Error
+	if errors.As(err, &traeErr) && traeErr.Kind == trae.ErrSessionDead {
+		return service.ErrDesktopLoginExpired
+	}
+	return service.ErrAccountUpstream
+}
 
 // SelfImportTrae 导入 Trae 凭据：callbackUrl 或 refreshToken(+uid) 二选一。
 // 返回脱敏凭据预览 + 可一键建渠道的 key（前端确认后走 POST /api/channel/self 建渠道，
@@ -411,8 +423,12 @@ func SelfFetchAccountModels(c *gin.Context, channel *model.Channel) ([]string, b
 			merged = append(merged, m)
 		}
 	}
-	if len(merged) == 0 && err != nil {
-		common.ApiError(c, err)
+	// An authentication failure must never look like a successful refresh. The
+	// default list can supplement an actual upstream catalog, never replace an
+	// upstream refusal with models the account cannot access. Provider error
+	// payloads belong in server diagnostics, not in a user-facing response.
+	if err != nil {
+		accountAuthorizationError(c, normalizeAccountModelFetchError(err))
 		return nil, true
 	}
 	// 持久化全量候选模型池到 other_info.allModels
