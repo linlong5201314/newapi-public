@@ -258,6 +258,8 @@ func StartFreePiOAuth(c *gin.Context) {
 			"client":          gin.H{"os": "new-api", "cli_version": catalog.Latest},
 		}, &connect, http.Header{"x-freepi-signin-exp": []string{"1"}})
 		connectURL, parseErr := url.Parse(connect.ConnectURL)
+		connectionToken, hasConnectionToken := strings.CutPrefix(connectURL.Fragment, "t=")
+		validConnectionToken := hasConnectionToken && connectionToken != "" && len(connectionToken) <= 1024 && !strings.ContainsAny(connectionToken, "&#/?")
 		if err != nil {
 			freePiError(c, http.StatusBadGateway, "FreePi browser connection could not reach the upstream service. Check the selected proxy or try GitHub device authorization")
 			return
@@ -266,7 +268,7 @@ func StartFreePiOAuth(c *gin.Context) {
 			freePiError(c, http.StatusBadGateway, "FreePi browser connection was not accepted by the upstream service. Retry later or use GitHub device authorization")
 			return
 		}
-		if uuid.Validate(connect.SessionID) != nil || connect.PollSecret == "" || len(connect.PollSecret) > 1024 || connect.ConfirmCode == "" || len(connect.ConfirmCode) > 64 || strings.ContainsAny(connect.ConfirmCode, "\r\n") || parseErr != nil || connectURL.Scheme != "https" || connectURL.Hostname() != "freepi.ai" || connectURL.User != nil || connectURL.Fragment != "" {
+		if uuid.Validate(connect.SessionID) != nil || connect.PollSecret == "" || len(connect.PollSecret) > 1024 || connect.ConfirmCode == "" || len(connect.ConfirmCode) > 64 || strings.ContainsAny(connect.ConfirmCode, "\r\n") || parseErr != nil || connectURL.Scheme != "https" || connectURL.Hostname() != "freepi.ai" || connectURL.User != nil || !validConnectionToken {
 			freePiError(c, http.StatusBadGateway, "FreePi browser connection response could not be verified")
 			return
 		}
@@ -277,10 +279,12 @@ func StartFreePiOAuth(c *gin.Context) {
 		status, err = freePiJSON(c.Request.Context(), proxy, http.MethodPost, "/auth/github/device", "", struct{}{}, &device)
 	}
 	verification, parseErr := url.Parse(device.VerificationURI)
-	validVerification := parseErr == nil && verification.Scheme == "https" && verification.User == nil && verification.Fragment == ""
+	validVerification := parseErr == nil && verification.Scheme == "https" && verification.User == nil
 	if req.Method == "connect" {
-		validVerification = validVerification && verification.Hostname() == "freepi.ai"
+		connectionToken, hasConnectionToken := strings.CutPrefix(verification.Fragment, "t=")
+		validVerification = validVerification && verification.Host == "freepi.ai" && verification.Path == "/connect" && verification.RawQuery == "" && hasConnectionToken && connectionToken != "" && len(connectionToken) <= 1024 && !strings.ContainsAny(connectionToken, "&#/?")
 	} else {
+		validVerification = validVerification && verification.Fragment == ""
 		validVerification = validVerification && verification.Host == "github.com" && verification.Path == "/login/device" && verification.RawQuery == ""
 	}
 	if err != nil || status != http.StatusOK || device.SessionID == "" || len(device.SessionID) > 512 || device.UserCode == "" || len(device.UserCode) > 64 || !validVerification || device.ExpiresIn <= 0 {
@@ -289,14 +293,13 @@ func StartFreePiOAuth(c *gin.Context) {
 			message = "FreePi browser connection response could not be verified"
 		}
 		freePiError(c, http.StatusBadGateway, message)
-		freePiError(c, http.StatusBadGateway, "FreePi device authorization response could not be verified")
 		return
 	}
 	if device.Interval > 600 {
 		freePiError(c, http.StatusBadGateway, "FreePi device authorization response could not be verified")
 		return
 	}
-	interval, expires := max(5, device.Interval), min(device.ExpiresIn, 600)
+	interval, expires := max(2, device.Interval), min(device.ExpiresIn, 1800)
 	name := strings.TrimSpace(req.DisplayName)
 	if name == "" {
 		name = "FreePi"

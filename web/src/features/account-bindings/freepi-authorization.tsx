@@ -141,7 +141,9 @@ export function FreePiAuthorizationCard(props: FreePiAuthorizationProps) {
               uri.hostname === 'freepi.ai' &&
               !uri.username &&
               !uri.password &&
-              !uri.hash
+              uri.pathname === '/connect' &&
+              !uri.search &&
+              /^#t=[^&#/?]{1,1024}$/.test(uri.hash)
             : data.method === 'device' &&
               data.verificationUri === 'https://github.com/login/device'
       } catch {

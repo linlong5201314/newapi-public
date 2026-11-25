@@ -79,7 +79,7 @@ describe('FreePi browser Connect authorization', () => {
             state: 'opaque-connect-state',
             userCode: 'WXYZ-1234',
             verificationUri:
-              'https://freepi.ai/connect?session=upstream-reference',
+              'https://freepi.ai/connect#t=public-connection-token',
             interval: 5,
             expiresIn: 600,
             flow: 'browser_connect',
@@ -102,7 +102,7 @@ describe('FreePi browser Connect authorization', () => {
       screen.getByRole('link', { name: 'Open FreePi to sign in and Connect' })
     ).toHaveAttribute(
       'href',
-      'https://freepi.ai/connect?session=upstream-reference'
+      'https://freepi.ai/connect#t=public-connection-token'
     )
     expect(api.post).toHaveBeenCalledWith(
       '/api/channel/self/oauth/freepi/start',

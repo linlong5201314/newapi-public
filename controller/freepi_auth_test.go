@@ -143,7 +143,7 @@ func TestFreePiAuthorizationDatabaseMatrix(t *testing.T) {
 					require.NoError(t, common.DecodeJson(request.Body, &payload))
 					assert.Equal(t, "4", payload["consent_version"])
 					assert.Equal(t, map[string]any{"os": "new-api", "cli_version": "0.6.22"}, payload["client"])
-					uri := "https://freepi.ai/connect"
+					uri := "https://freepi.ai/connect#t=test-public-connection-token"
 					if maliciousVerification {
 						uri = "https://attacker.invalid/connect"
 					}
