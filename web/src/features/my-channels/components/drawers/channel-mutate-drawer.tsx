@@ -415,10 +415,11 @@ export function ChannelMutateDrawer({
   const queryClient = useQueryClient()
   const { setOpen } = useChannels()
   // [M1-FE] Self-service: the backend enforces owner_id = current user, so
-  // every admin-permission gate from the platform console is granted locally.
+  // every owner-scoped channel operation is granted locally. Task-plugin binding
+  // is a separate administrator feature and must not trigger permission errors.
   const canEditSensitive = true
   const canOperateChannel = true
-  const canBindTaskPlugin = true
+  const canBindTaskPlugin = false
   const canRevealChannelKey = true
   const [isCodexCredentialRefreshing, setIsCodexCredentialRefreshing] =
     useState(false)
