@@ -22,10 +22,13 @@ import (
 )
 
 type Channel struct {
-	Id                 int     `json:"id"`
-	Type               int     `json:"type" gorm:"default:0"`
-	Key                string  `json:"key" gorm:"not null"`
-	OpenAIOrganization *string `json:"openai_organization"`
+	Id   int    `json:"id"`
+	Type int    `json:"type" gorm:"default:0"`
+	Key  string `json:"key" gorm:"not null"`
+	// The JSON name is openai_organization, but the historical column is
+	// open_ai_organization. Pin it so map-based owner updates cannot emit the
+	// JSON name as SQL (PostgreSQL 42703) and existing tables keep working.
+	OpenAIOrganization *string `json:"openai_organization" gorm:"column:open_ai_organization"`
 	TestModel          *string `json:"test_model"`
 	Status             int     `json:"status" gorm:"default:1"`
 	Name               string  `json:"name" gorm:"index"`
@@ -656,10 +659,41 @@ func (channel *Channel) Update() error {
 
 var ErrSelfChannelChanged = errors.New("The channel changed while saving. Reload it and try again")
 
+// selfChannelColumnAliases maps JSON field names that differ from the stored
+// column. Map updates turn their keys straight into SQL, so a JSON name would
+// otherwise reach the database as an unknown column.
+var selfChannelColumnAliases = map[string]string{
+	"openai_organization": "open_ai_organization",
+}
+
+// normalizeSelfChannelColumns rewrites aliased keys and rejects keys that are not
+// real channel columns, so no caller can send an arbitrary name to SQL.
+func normalizeSelfChannelColumns(updates map[string]any) error {
+	for key, column := range selfChannelColumnAliases {
+		if value, ok := updates[key]; ok {
+			delete(updates, key)
+			updates[column] = value
+		}
+	}
+	stmt := &gorm.Statement{DB: DB}
+	if err := stmt.Parse(&Channel{}); err != nil {
+		return err
+	}
+	for key := range updates {
+		if _, ok := stmt.Schema.FieldsByDBName[key]; !ok {
+			return fmt.Errorf("invalid channel field: %s", key)
+		}
+	}
+	return nil
+}
+
 // SaveVerifiedSelfChannel applies changes checked against a live provider catalog.
 // Reject an outdated snapshot so a concurrent credential change or unpublish
 // cannot silently invalidate the checks made before entering the transaction.
 func SaveVerifiedSelfChannel(original *Channel, updates map[string]any) error {
+	if err := normalizeSelfChannelColumns(updates); err != nil {
+		return err
+	}
 	return DB.Transaction(func(tx *gorm.DB) error {
 		var current Channel
 		if err := lockForUpdate(tx).Where("id = ? AND owner_id = ?", original.Id, original.OwnerId).First(&current).Error; err != nil {

@@ -121,6 +121,67 @@ func TestSelfChannelOwnerCanUpdateWithoutAdminPermission(t *testing.T) {
 	assert.Equal(t, "model-one,model-two", channel.Models)
 }
 
+// The editor always submits openai_organization. Xiaoyi Work persists through a
+// map update, so the JSON key must be translated to the stored column instead of
+// reaching SQL as an unknown column (PostgreSQL 42703).
+func TestSelfChannelOrganizationFieldPersistsThroughMapUpdate(t *testing.T) {
+	uid := setupChannelCreateTest(t)
+	channel := &model.Channel{OwnerId: uid, Name: "map-update", Type: constant.ChannelTypeXiaoyiWork, Key: "fixture-credential", Models: "model-one", Group: "default"}
+	channel.SetOtherInfo(map[string]any{"allModels": []any{"model-one"}, "templateId": constant.XiaoyiWorkTemplateID})
+	require.NoError(t, channel.Insert())
+	// This is the exact editor payload shape that produced SQLSTATE 42703.
+	body := fmt.Sprintf(`{"id":%d,"type":76,"name":"renamed","models":"model-one","group":"default","openai_organization":"org-fixture","weight":0}`, channel.Id)
+	recorder := selfContractRequest(uid, http.MethodPut, "/", body, UpdateSelfChannel)
+	require.Contains(t, recorder.Body.String(), `"success":true`, recorder.Body.String())
+	assert.NotContains(t, recorder.Body.String(), "42703", recorder.Body.String())
+	require.NoError(t, model.DB.First(channel, channel.Id).Error)
+	assert.Equal(t, "renamed", channel.Name)
+	require.NotNil(t, channel.OpenAIOrganization)
+	assert.Equal(t, "org-fixture", *channel.OpenAIOrganization)
+}
+
+// Every account channel type the console can open must accept the editor's real
+// update payload. The editor always submits openai_organization, weight and the
+// proxy policy, so each type must persist them without an unknown-column error.
+func TestSelfChannelAccountTypesAcceptEditorUpdate(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		kind int
+		tpl  string
+	}{
+		{"xiaoyi-work", constant.ChannelTypeXiaoyiWork, constant.XiaoyiWorkTemplateID},
+		{"freepi", constant.ChannelTypeFreePi, ""},
+		{"nous-portal", constant.ChannelTypeNousPortal, ""},
+		{"workbuddy", constant.ChannelTypeWorkBuddy, ""},
+		{"cline", constant.ChannelTypeCline, ""},
+		{"qoder", constant.ChannelTypeQoder, ""},
+		{"trae", constant.ChannelTypeTrae, ""},
+		{"raccoon", constant.ChannelTypeRaccoon, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			uid := setupChannelCreateTest(t)
+			channel := &model.Channel{OwnerId: uid, Name: "account-" + tc.name, Type: tc.kind, Key: "fixture-credential", Models: "model-one", Group: "default"}
+			info := map[string]any{"allModels": []any{"model-one"}}
+			if tc.tpl != "" {
+				info["templateId"] = tc.tpl
+			}
+			channel.SetOtherInfo(info)
+			channel.SetSetting(dto.ChannelSettings{ProxyPolicy: &dto.ChannelProxyPolicy{Mode: "direct"}})
+			require.NoError(t, channel.Insert())
+			body := fmt.Sprintf(`{"id":%d,"type":%d,"name":"renamed-%s","models":"model-one","group":"default","openai_organization":"org-fixture","weight":0,"setting":"{\"proxy_policy\":{\"mode\":\"direct\"}}"}`, channel.Id, tc.kind, tc.name)
+			recorder := selfContractRequest(uid, http.MethodPut, "/", body, UpdateSelfChannel)
+			require.Contains(t, recorder.Body.String(), `"success":true`, tc.name+": "+recorder.Body.String())
+			assert.NotContains(t, recorder.Body.String(), "42703", recorder.Body.String())
+			assert.NotContains(t, recorder.Body.String(), "no such column", recorder.Body.String())
+			assert.NotContains(t, recorder.Body.String(), "invalid channel field", recorder.Body.String())
+			require.NoError(t, model.DB.First(channel, channel.Id).Error)
+			assert.Equal(t, "renamed-"+tc.name, channel.Name)
+			require.NotNil(t, channel.Weight)
+			assert.EqualValues(t, 1, *channel.Weight)
+		})
+	}
+}
+
 func TestSelfChannelDefaultAndLegacyWeightContracts(t *testing.T) {
 	uid := setupChannelCreateTest(t)
 	recorder := selfContractRequest(uid, http.MethodPost, "/", `{"mode":"single","channel":{"name":"default-weight","type":1,"key":"fixture-key","models":"model-one","group":"default"}}`, AddSelfChannel)
