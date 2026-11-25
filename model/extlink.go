@@ -13,17 +13,20 @@ import (
 
 // ExtLink 外部应用/链接。slug 唯一，映射站内二级路径 /app/<slug>。
 type ExtLink struct {
-	Id          int    `json:"id" gorm:"primaryKey;autoIncrement"`
-	Slug        string `json:"slug" gorm:"uniqueIndex;size:64;not null"`
-	Name        string `json:"name" gorm:"size:128;not null"`
-	Url         string `json:"url" gorm:"size:1024;not null"`
-	Icon        string `json:"icon" gorm:"size:64;default:''"`
-	Mode        string `json:"mode" gorm:"size:16;not null;default:'proxy'"` // proxy | iframe | newtab
-	Position    string `json:"position" gorm:"size:16;not null;default:'home_card'"` // home_card | sidebar | both
-	Enabled     bool   `json:"enabled" gorm:"not null;default:true"`
-	SortOrder   int    `json:"sort_order" gorm:"not null;default:0"`
-	CreatedTime int64  `json:"created_time" gorm:"bigint"`
-	UpdatedTime int64  `json:"updated_time" gorm:"bigint"`
+	Id       int    `json:"id" gorm:"primaryKey;autoIncrement"`
+	Slug     string `json:"slug" gorm:"uniqueIndex;size:64;not null"`
+	Name     string `json:"name" gorm:"size:128;not null"`
+	Url      string `json:"url" gorm:"size:1024;not null"`
+	Icon     string `json:"icon" gorm:"size:64;default:''"`
+	Mode     string `json:"mode" gorm:"size:16;not null;default:'proxy'"`         // proxy | iframe | newtab
+	Position string `json:"position" gorm:"size:16;not null;default:'home_card'"` // home_card | sidebar | both
+	Enabled  bool   `json:"enabled" gorm:"not null;default:true"`
+	// Trusted is an explicit root acknowledgement for executing upstream content.
+	// Existing records remain untrusted until they are deliberately reviewed.
+	Trusted     bool  `json:"trusted" gorm:"not null;default:false"`
+	SortOrder   int   `json:"sort_order" gorm:"not null;default:0"`
+	CreatedTime int64 `json:"created_time" gorm:"bigint"`
+	UpdatedTime int64 `json:"updated_time" gorm:"bigint"`
 }
 
 func (ExtLink) TableName() string {
@@ -142,6 +145,8 @@ var (
 )
 
 const extLinkCacheTTL = 60 * time.Second
+const extLinkNegativeCacheTTL = 10 * time.Second
+const extLinkCacheLimit = 4096
 
 // GetExtLinkBySlugCached 反代热路径查询：60s 缓存（含负缓存）。
 // 返回 (nil, nil) 表示 slug 不存在或已禁用——调用方按 404 处理。
@@ -158,6 +163,19 @@ func GetExtLinkBySlugCached(slug string) (*ExtLink, error) {
 
 	extLinkCacheMu.Lock()
 	defer extLinkCacheMu.Unlock()
+	if len(extLinkCache) >= extLinkCacheLimit {
+		for key, value := range extLinkCache {
+			if now.After(value.expiresAt) {
+				delete(extLinkCache, key)
+			}
+		}
+		if len(extLinkCache) >= extLinkCacheLimit {
+			for key := range extLinkCache {
+				delete(extLinkCache, key)
+				break
+			}
+		}
+	}
 	// double-check
 	if entry, ok := extLinkCache[slug]; ok && now.Before(entry.expiresAt) {
 		return entry.link, nil
@@ -172,9 +190,9 @@ func GetExtLinkBySlugCached(slug string) (*ExtLink, error) {
 		}
 		return nil, err
 	}
-	if !link.Enabled {
+	if !link.Enabled || (link.Mode == ExtLinkModeProxy && !link.Trusted) {
 		// 禁用的也走负缓存语义（60s 内启用变更允许延迟生效，与蓝图 60s 缓存一致）。
-		extLinkCache[slug] = &extLinkCacheEntry{link: nil, expiresAt: now.Add(extLinkCacheTTL)}
+		extLinkCache[slug] = &extLinkCacheEntry{link: nil, expiresAt: now.Add(extLinkNegativeCacheTTL)}
 		return nil, nil
 	}
 	copied := link

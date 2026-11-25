@@ -109,7 +109,7 @@ func EnsureProxyPoolSchema() error {
 				continue
 			}
 			if err := migrator.AddColumn(target, field.Name); err != nil {
-				if !migrator.HasColumn(target, field.DBName) {
+				if !migrator.HasColumn(target, field.DBName) && !strings.Contains(strings.ToLower(err.Error()), "already exists") && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
 					return fmt.Errorf("add proxy pool field %s.%s: %w", stmt.Table, field.DBName, err)
 				}
 			}
@@ -464,7 +464,7 @@ func ValidateSelfChannelProxyPolicy(userID int, policy *dto.ChannelProxyPolicy, 
 	case "fixed":
 		parsed, err := common.ParseProxyURLStrict(strings.TrimSpace(fixedProxy))
 		if err != nil || parsed == nil {
-			return fmt.Errorf("fixed proxy policy requires a valid proxy URL")
+			return fmt.Errorf("%w: fixed proxy policy requires a valid proxy URL", ErrProxyConfiguration)
 		}
 		return nil
 	case "endpoint", "subscription":
@@ -611,6 +611,7 @@ func BindChannelProxyAccount(ownerID, channelID int, accountKey string) error {
 var (
 	ErrProxyPoolEmpty        = errors.New("no usable proxy endpoint in the selected proxy scope")
 	ErrProxyEndpointNotReady = errors.New("selected proxy endpoint has no usable listener in this process")
+	ErrProxyConfiguration    = errors.New("proxy configuration is invalid")
 )
 
 // ResolveRootChannelProxyPolicy gives the super administrator the global egress
@@ -664,6 +665,9 @@ func ResolveRootChannelProxyPolicy(ownerID int, accountKey string, setting dto.C
 		if _, err := endpointProxyURLProvider(endpoint); err == nil {
 			loaded = append(loaded, endpoint)
 		}
+	}
+	if len(endpoints) == 0 {
+		return "", ErrProxyPoolEmpty
 	}
 	if len(loaded) == 0 {
 		return "", ErrProxyEndpointNotReady
@@ -857,6 +861,15 @@ var endpointProxyURLProvider = func(ProxyEndpoint) (string, error) {
 // Passive pool enumeration must keep using endpointProxyURLProvider.
 var selectedEndpointProxyURLProvider = func(endpoint ProxyEndpoint) (string, error) {
 	return endpointProxyURLProvider(endpoint)
+}
+
+// SetProxyEndpointURLProvidersForTest returns a cleanup restoring both resolvers.
+func SetProxyEndpointURLProvidersForTest(fn func(ProxyEndpoint) (string, error)) func() {
+	previous, previousSelected := endpointProxyURLProvider, selectedEndpointProxyURLProvider
+	endpointProxyURLProvider, selectedEndpointProxyURLProvider = fn, fn
+	return func() {
+		endpointProxyURLProvider, selectedEndpointProxyURLProvider = previous, previousSelected
+	}
 }
 
 // SetEndpointProxyURLProvider registers the loaded, fixed-node listener resolver at startup.

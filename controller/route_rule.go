@@ -102,14 +102,14 @@ func validateRouteRulePayload(c *gin.Context, rule *model.RouteRule) string {
 		if err := common.Unmarshal([]byte(rule.Config), &probe); err != nil {
 			return "Invalid config JSON: expect {maxRetries?, retryDelayMs?, targetTimeoutMs?}"
 		}
-		if probe.MaxRetries != nil && *probe.MaxRetries < 0 {
-			return "config.maxRetries must be >= 0"
+		if probe.MaxRetries != nil && (*probe.MaxRetries < 0 || *probe.MaxRetries > 5) {
+			return "config.maxRetries must be between 0 and 5"
 		}
-		if probe.RetryDelayMs != nil && *probe.RetryDelayMs < 0 {
-			return "config.retryDelayMs must be >= 0"
+		if probe.RetryDelayMs != nil && (*probe.RetryDelayMs < 0 || *probe.RetryDelayMs > 10000) {
+			return "config.retryDelayMs must be between 0 and 10000"
 		}
-		if probe.TargetTimeoutMs != nil && *probe.TargetTimeoutMs < 1000 {
-			return "config.targetTimeoutMs must be >= 1000"
+		if probe.TargetTimeoutMs != nil && *probe.TargetTimeoutMs != 0 && *probe.TargetTimeoutMs < 1000 {
+			return "config.targetTimeoutMs must be 0 or at least 1000"
 		}
 	}
 	// Targets 落库前重新序列化（去空白/统一字段）

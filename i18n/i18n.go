@@ -64,6 +64,9 @@ func Init() error {
 // GetLocalizer returns a localizer for the specified language
 func GetLocalizer(lang string) *i18n.Localizer {
 	lang = normalizeLang(lang)
+	if err := Init(); err != nil || bundle == nil {
+		return nil
+	}
 
 	mu.RLock()
 	loc, ok := localizers[lang]
@@ -99,6 +102,9 @@ func Translate(lang, key string, args ...map[string]any) string {
 		lang = common.DefaultLanguage
 	}
 	loc := GetLocalizer(lang)
+	if loc == nil {
+		return key
+	}
 
 	config := &i18n.LocalizeConfig{
 		MessageID: key,

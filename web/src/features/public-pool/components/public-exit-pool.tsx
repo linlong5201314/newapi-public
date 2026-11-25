@@ -15,10 +15,12 @@ import { kindLabel } from '@/features/proxy-pool/types'
 import { toIntlLocale } from '@/i18n/languages'
 import { formatNumber } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
+import { useAuthStore } from '@/stores/auth-store'
 import { requireServerSuccess } from '@/lib/server-error-message'
 
 export function PublicExitPool() {
   const { t, i18n } = useTranslation()
+  const isRoot = useAuthStore((state) => state.auth.user?.role === 100)
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const query = useQuery({
     queryKey: ['public-pool', 'exit-inventory-preview'],
@@ -53,6 +55,7 @@ export function PublicExitPool() {
           )}
         </p>
         <div className='flex flex-wrap gap-2'>
+          {isRoot && (
           <Button
             variant='outline'
             disabled={mutation.isPending}
@@ -62,6 +65,7 @@ export function PublicExitPool() {
               ? t('Importing...')
               : t('Sync Haizhu proxy exits')}
           </Button>
+          )}
           <Button
             variant='outline'
             role='link'

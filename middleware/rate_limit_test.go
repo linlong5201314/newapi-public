@@ -219,12 +219,20 @@ func TestRedisFailurePolicies(t *testing.T) {
 	})
 
 	ipResponse := performRateLimitRequest(router, "/ip", "192.0.2.60:12345")
-	assert.Equal(t, http.StatusInternalServerError, ipResponse.Code)
+	assert.Equal(t, http.StatusNoContent, ipResponse.Code, "ordinary IP traffic has a bounded local fallback")
+	assert.Empty(t, ipResponse.Body.String())
 	assert.Empty(t, ipResponse.Body.String())
 	userResponse := performRateLimitRequest(router, "/user", "192.0.2.61:12345")
-	assert.Equal(t, http.StatusInternalServerError, userResponse.Code)
+	assert.Equal(t, http.StatusNoContent, userResponse.Code, "ordinary user traffic has a bounded local fallback")
 	assert.Empty(t, userResponse.Body.String())
 	assert.Equal(t, http.StatusNoContent, performRateLimitRequest(router, "/email", "192.0.2.62:12345").Code)
+	previousCritical := common.CriticalRateLimitEnable
+	common.CriticalRateLimitEnable = true
+	t.Cleanup(func() { common.CriticalRateLimitEnable = previousCritical })
+	router.GET("/critical", CriticalRateLimit(), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	router.GET("/user-critical", func(c *gin.Context) { c.Set("id", 7) }, UserCriticalRateLimit("oauth"), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	assert.Equal(t, http.StatusServiceUnavailable, performRateLimitRequest(router, "/critical", "192.0.2.63:12345").Code)
+	assert.Equal(t, http.StatusServiceUnavailable, performRateLimitRequest(router, "/user-critical", "192.0.2.64:12345").Code)
 }
 
 func TestGlobalWebRateLimitCountsFrontendFilesInStaticBucket(t *testing.T) {

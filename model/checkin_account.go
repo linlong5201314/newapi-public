@@ -3,28 +3,35 @@
 package model
 
 import (
+	"errors"
+	"time"
+
 	"github.com/QuantumNous/new-api/common"
+	"gorm.io/gorm"
 )
 
 // CheckinAccount 签到账号（每用户自助登记的外部站点签到凭据）。
 type CheckinAccount struct {
-	Id             int    `json:"id" gorm:"primaryKey;autoIncrement"`
-	UserId         int    `json:"user_id" gorm:"not null;index:idx_checkin_accounts_user"`
-	Site           string `json:"site" gorm:"type:varchar(32);not null;index"` // workbuddy | trae | apinex | custom
-	Label          string `json:"label" gorm:"type:varchar(128);default:''"`
-	ChannelId      int    `json:"channel_id" gorm:"default:0"`                   // 引用自有渠道（workbuddy/trae），0=独立凭据
-	CredJson       string `json:"cred_json" gorm:"type:text"`                    // 独立凭据（apinex cookie / custom 配置），M5 统一加密
-	Mode           string `json:"mode" gorm:"type:varchar(16);default:'api'"`    // api | agent
-	AgentUrl       string `json:"agent_url" gorm:"type:varchar(512);default:''"` // mode=agent 时执行器地址
-	Enabled        bool   `json:"enabled" gorm:"default:true"`
-	LastStatus     string `json:"last_status" gorm:"type:varchar(32);default:''"`      // ok | failed | skipped
-	LastResult     string `json:"last_result" gorm:"type:varchar(512);default:''"`     // 最近一次结果摘要
-	Streak         int    `json:"streak" gorm:"default:0"`                             // 连续签到天数（站点支持时更新）
-	TotalReward    int64  `json:"total_reward" gorm:"bigint;default:0"`                // 累计积分/额度
-	LastCheckinDay string `json:"last_checkin_day" gorm:"type:varchar(10);default:''"` // CST 日期，判重
-	FailCount      int    `json:"fail_count" gorm:"default:0"`                         // 当日失败次数（补跑 ≤2 次判据）
-	CreatedTime    int64  `json:"created_time" gorm:"bigint"`
-	UpdatedTime    int64  `json:"updated_time" gorm:"bigint"`
+	Id              int    `json:"id" gorm:"primaryKey;autoIncrement"`
+	UserId          int    `json:"user_id" gorm:"not null;index:idx_checkin_accounts_user"`
+	Site            string `json:"site" gorm:"type:varchar(32);not null;index"` // workbuddy | trae | apinex | custom
+	Label           string `json:"label" gorm:"type:varchar(128);default:''"`
+	ChannelId       int    `json:"channel_id" gorm:"default:0"`                   // 引用自有渠道（workbuddy/trae），0=独立凭据
+	CredJson        string `json:"cred_json" gorm:"type:text"`                    // 独立凭据（apinex cookie / custom 配置），M5 统一加密
+	Mode            string `json:"mode" gorm:"type:varchar(16);default:'api'"`    // api | agent
+	AgentUrl        string `json:"agent_url" gorm:"type:varchar(512);default:''"` // mode=agent 时执行器地址
+	Enabled         bool   `json:"enabled" gorm:"default:true"`
+	LastStatus      string `json:"last_status" gorm:"type:varchar(32);default:''"`      // ok | failed | skipped
+	LastResult      string `json:"last_result" gorm:"type:varchar(512);default:''"`     // 最近一次结果摘要
+	Streak          int    `json:"streak" gorm:"default:0"`                             // 连续签到天数（站点支持时更新）
+	TotalReward     int64  `json:"total_reward" gorm:"bigint;default:0"`                // 累计积分/额度
+	LastCheckinDay  string `json:"last_checkin_day" gorm:"type:varchar(10);default:''"` // CST 日期，判重
+	FailCount       int    `json:"fail_count" gorm:"default:0"`                         // 当日失败次数（补跑 ≤2 次判据）
+	RetryAfterUntil int64  `json:"retry_after_until" gorm:"bigint;default:0"`
+	CreatedTime     int64  `json:"created_time" gorm:"bigint"`
+	UpdatedTime     int64  `json:"updated_time" gorm:"bigint"`
+	RunLeaseUntil   int64  `json:"-" gorm:"bigint;default:0;index"`
+	RunLeaseToken   string `json:"-" gorm:"type:varchar(64);default:''"`
 }
 
 func (CheckinAccount) TableName() string {
@@ -90,12 +97,68 @@ func UpdateCheckinAccount(acc *CheckinAccount) error {
 	).Updates(acc).Error
 }
 
-// SaveCheckinRunResult 保存一次执行结果（状态/摘要/连签/累计奖励/判重日期/失败计数）。
-func SaveCheckinRunResult(acc *CheckinAccount) error {
+var ErrCheckinLeaseLost = errors.New("check-in account lease is held by another execution")
+
+func ClaimCheckinAccount(acc *CheckinAccount, token string, now time.Time, ttl time.Duration) error {
+	if acc == nil || acc.Id <= 0 || token == "" {
+		return ErrCheckinLeaseLost
+	}
+	result := DB.Model(&CheckinAccount{}).Where("id = ? AND (run_lease_token = ? OR run_lease_until <= ? OR run_lease_until = 0)", acc.Id, token, now.Unix()).Updates(map[string]any{"run_lease_until": now.Add(ttl).Unix(), "run_lease_token": token, "updated_time": now.UnixNano()})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return ErrCheckinLeaseLost
+	}
+	acc.RunLeaseUntil, acc.RunLeaseToken = now.Add(ttl).Unix(), token
+	return nil
+}
+
+func RenewCheckinAccountLease(acc *CheckinAccount, now time.Time, ttl time.Duration) error {
+	if acc == nil || acc.RunLeaseToken == "" {
+		return ErrCheckinLeaseLost
+	}
+	result := DB.Model(&CheckinAccount{}).Where("id = ? AND run_lease_token = ?", acc.Id, acc.RunLeaseToken).Update("run_lease_until", now.Add(ttl).Unix())
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return ErrCheckinLeaseLost
+	}
+	acc.RunLeaseUntil = now.Add(ttl).Unix()
+	return nil
+}
+
+func SaveCheckinRunResult(acc *CheckinAccount, detail string, renewedCred string) error {
+	if acc == nil || acc.RunLeaseToken == "" {
+		return ErrCheckinLeaseLost
+	}
 	acc.UpdatedTime = common.GetTimestamp()
-	return DB.Model(acc).Select(
-		"last_status", "last_result", "streak", "total_reward", "last_checkin_day", "fail_count", "updated_time",
-	).Updates(acc).Error
+	return DB.Transaction(func(tx *gorm.DB) error {
+		updates := map[string]any{
+			"last_status": acc.LastStatus, "last_result": acc.LastResult, "streak": acc.Streak,
+			"total_reward": acc.TotalReward, "last_checkin_day": acc.LastCheckinDay,
+			"fail_count": acc.FailCount, "retry_after_until": acc.RetryAfterUntil, "updated_time": acc.UpdatedTime, "run_lease_until": 0, "run_lease_token": "",
+		}
+		if renewedCred != "" {
+			updates["cred_json"] = EncryptCheckinCred(renewedCred)
+		}
+		result := tx.Model(&CheckinAccount{}).Where("id = ? AND run_lease_token = ?", acc.Id, acc.RunLeaseToken).Updates(updates)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return ErrCheckinLeaseLost
+		}
+		return tx.Create(&CheckinLog{UserId: acc.UserId, AccountId: acc.Id, Site: acc.Site, Action: "checkin", Success: acc.LastStatus == "ok" || acc.LastStatus == "skipped", Detail: detail}).Error
+	})
+}
+
+func ReleaseCheckinAccountLease(acc *CheckinAccount) error {
+	if acc == nil || acc.RunLeaseToken == "" {
+		return nil
+	}
+	return DB.Model(&CheckinAccount{}).Where("id = ? AND run_lease_token = ?", acc.Id, acc.RunLeaseToken).Updates(map[string]any{"run_lease_until": 0, "run_lease_token": ""}).Error
 }
 
 // UpdateCheckinAccountCred 单独更新凭据（agent 模式 cookie 续期回写用）。
@@ -118,6 +181,13 @@ func DeleteCheckinAccount(userId, id int) error {
 func GetEnabledCheckinAccounts(offset, limit int) ([]CheckinAccount, error) {
 	var list []CheckinAccount
 	err := DB.Where("enabled = ?", true).Order("id").Offset(offset).Limit(limit).Find(&list).Error
+	return list, err
+}
+
+// GetEnabledCheckinAccountsAfter uses a stable cursor while run results update rows.
+func GetEnabledCheckinAccountsAfter(lastID, limit int) ([]CheckinAccount, error) {
+	var list []CheckinAccount
+	err := DB.Where("enabled = ? AND id > ?", true, lastID).Order("id").Limit(limit).Find(&list).Error
 	return list, err
 }
 

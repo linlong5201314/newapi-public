@@ -2062,6 +2062,9 @@ func TestPrepareTaskPluginEndpointFiltersEachSharedCandidate(t *testing.T) {
 }
 
 func TestRouteTaskPluginEndpointUsesSelectedChannel(t *testing.T) {
+	previousCrypto, previousConfigured := common.CryptoSecret, common.CryptoSecretConfigured
+	common.CryptoSecret, common.CryptoSecretConfigured = "test-only-endpoint-routing-crypto-secret", true
+	t.Cleanup(func() { common.CryptoSecret, common.CryptoSecretConfigured = previousCrypto, previousConfigured })
 	require.NoError(t, appI18n.Init())
 	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
 		t.Run(dialect, func(t *testing.T) {
@@ -2217,7 +2220,7 @@ func TestRouteTaskPluginEndpointUsesSelectedChannel(t *testing.T) {
 								channels = append(channels, ordinary)
 							}
 							if tc.originPin || tc.retry || tc.shared {
-								alternate := &model.Channel{Type: ordinary.Type, Status: common.ChannelStatusEnabled, Name: "alternate", Key: "alternate-key", Group: "route-test", Models: modelName}
+								alternate := &model.Channel{Type: ordinary.Type, Status: common.ChannelStatusEnabled, Name: "alternate", Key: "alternate-key", Group: "route-test", Models: modelName, OwnerId: 7}
 								if tc.wantPlugin {
 									alternate.Type = plugin.Type
 									alternate.SetSetting(plugin.GetSetting())
@@ -2300,7 +2303,7 @@ func TestRouteTaskPluginEndpointUsesSelectedChannel(t *testing.T) {
 									assert.Equal(t, body, got, "ordinary relay must receive the original body")
 								}
 								assert.Equal(t, expected.Id, common.GetContextKeyInt(c, constant.ContextKeyChannelId))
-								assert.Equal(t, expected.Key, common.GetContextKeyString(c, constant.ContextKeyChannelKey))
+								assert.Equal(t, model.DecryptChannelKey(expected.Type, expected.Key), common.GetContextKeyString(c, constant.ContextKeyChannelKey))
 								if tc.retry {
 									next, _, err := service.CacheGetRandomSatisfiedChannel(&service.RetryParam{Ctx: c, TokenGroup: "route-test", ModelName: modelName, Retry: common.GetPointer(1)})
 									require.NoError(t, err)

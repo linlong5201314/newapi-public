@@ -244,7 +244,17 @@ func InitDB() (err error) {
 		}
 		common.SysLog(common.LogText("database migration started"))
 		err = migrateDB()
-		return err
+		if err != nil {
+			return err
+		}
+		migrated, migrationErr := MigrateChannelCredentialStorage(50)
+		if migrationErr != nil {
+			return migrationErr
+		}
+		if migrated > 0 {
+			common.SysLog(common.LogText("encrypted channel credentials migrated: %d", migrated))
+		}
+		return nil
 	} else {
 		common.FatalLog(err)
 	}

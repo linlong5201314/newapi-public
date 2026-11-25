@@ -18,6 +18,44 @@ type ssrfResolver interface {
 	LookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error)
 }
 
+func protectedProxyTransport(proxyURL *url.URL, policy HTTPTransportPolicy) (*http.Transport, error) {
+	if proxyURL == nil {
+		return nil, nil
+	}
+	transport := newRelayHTTPTransport()
+	transport.Proxy = nil
+	if err := configureProxyTransport(transport, proxyURL); err != nil {
+		return nil, err
+	}
+	applyHTTPTransportPolicy(transport, policy)
+	return transport, nil
+}
+
+func newTenantProtectedHTTPClient(proxyURL *url.URL, policy HTTPTransportPolicy) (*http.Client, error) {
+	proxyTransport, err := protectedProxyTransport(proxyURL, policy)
+	if err != nil {
+		return nil, err
+	}
+	client := newProtectedFetchHTTPClientWithProxy(nil, nil, nil, func(*http.Request) (*url.URL, error) { return proxyURL, nil })
+	rt := client.Transport.(*ssrfProtectedRoundTripper)
+	// For SOCKS, the dialer's network peer is the proxy but its protocol-level
+	// destination is the target. Validate both, including DNS resolved targets.
+	if proxyTransport != nil {
+		if proxyURL.Scheme != "http" && proxyURL.Scheme != "https" {
+			proxyDial := proxyTransport.DialContext
+			proxyTransport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+				if err := ValidateSSRFProtectedFetchURL((&url.URL{Scheme: "http", Host: address, Path: "/"}).String()); err != nil {
+					return nil, err
+				}
+				return proxyDial(ctx, network, address)
+			}
+		}
+		rt.transports[proxyURL.String()] = proxyTransport
+	}
+	client.CheckRedirect = checkProtectedFetchRedirect
+	return client, nil
+}
+
 type protectedFetchDialer struct {
 	resolver      ssrfResolver
 	dialContext   func(ctx context.Context, network, address string) (net.Conn, error)
@@ -109,7 +147,11 @@ func (t *ssrfProtectedRoundTripper) RoundTrip(req *http.Request) (*http.Response
 	if err != nil {
 		return nil, err
 	}
-	return t.transportFor(proxyURL).RoundTrip(req)
+	transport, err := t.transportFor(proxyURL)
+	if err != nil {
+		return nil, err
+	}
+	return transport.RoundTrip(req)
 }
 
 func (t *ssrfProtectedRoundTripper) CloseIdleConnections() {
@@ -121,7 +163,7 @@ func (t *ssrfProtectedRoundTripper) CloseIdleConnections() {
 	}
 }
 
-func (t *ssrfProtectedRoundTripper) transportFor(proxyURL *url.URL) *http.Transport {
+func (t *ssrfProtectedRoundTripper) transportFor(proxyURL *url.URL) (*http.Transport, error) {
 	// 只按代理地址分组：代理来自环境变量，取值有限，map 有界；
 	// 目标 origin 是用户可控输入，不能作为缓存 key。
 	key := "direct"
@@ -132,15 +174,39 @@ func (t *ssrfProtectedRoundTripper) transportFor(proxyURL *url.URL) *http.Transp
 	defer t.mutex.Unlock()
 
 	if transport, ok := t.transports[key]; ok {
-		return transport
+		return transport, nil
 	}
 
-	transport := t.newTransport(proxyURL)
+	// A proxy is the actual TCP peer for both plain HTTP and CONNECT. Validate
+	// its destination too; target validation in RoundTrip is not sufficient.
+	if proxyURL != nil {
+		protection, enabled, err := t.getProtection()
+		if err != nil {
+			return nil, err
+		}
+		if enabled {
+			port, err := strconv.Atoi(proxyURL.Port())
+			if proxyURL.Port() == "" {
+				if proxyURL.Scheme == "https" {
+					port = 443
+				} else {
+					port = 80
+				}
+			}
+			if err != nil || protection.ValidateNetworkTarget(proxyURL.Hostname(), port) != nil {
+				return nil, fmt.Errorf("proxy destination is not permitted")
+			}
+		}
+	}
+	transport, err := t.newTransport(proxyURL)
+	if err != nil {
+		return nil, err
+	}
 	t.transports[key] = transport
-	return transport
+	return transport, nil
 }
 
-func (t *ssrfProtectedRoundTripper) newTransport(proxyURL *url.URL) *http.Transport {
+func (t *ssrfProtectedRoundTripper) newTransport(proxyURL *url.URL) (*http.Transport, error) {
 	dialContext := t.dialContext
 	proxyFunc := http.ProxyURL(proxyURL)
 	if proxyURL == nil {
@@ -151,6 +217,13 @@ func (t *ssrfProtectedRoundTripper) newTransport(proxyURL *url.URL) *http.Transp
 		}
 		dialContext = protectedDialer.DialContext
 		proxyFunc = nil
+	} else {
+		protectedDialer := &protectedFetchDialer{
+			resolver:      t.resolver,
+			dialContext:   t.dialContext,
+			getProtection: t.getProtection,
+		}
+		dialContext = protectedDialer.DialContext
 	}
 
 	transport := &http.Transport{
@@ -164,7 +237,7 @@ func (t *ssrfProtectedRoundTripper) newTransport(proxyURL *url.URL) *http.Transp
 	if common.TLSInsecureSkipVerify {
 		transport.TLSClientConfig = common.InsecureTLSConfig.Clone()
 	}
-	return transport
+	return transport, nil
 }
 
 func (d *protectedFetchDialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {

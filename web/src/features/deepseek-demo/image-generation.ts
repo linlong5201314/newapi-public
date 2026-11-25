@@ -33,6 +33,7 @@ interface GenerateImageOptions {
   model: string
   group?: string
   prompt: string
+  signal?: AbortSignal
 }
 
 interface ImageResponseItem {
@@ -52,6 +53,7 @@ export async function generateDemoImage(
   const response = await fetch(IMAGE_GENERATIONS_ENDPOINT, {
     method: 'POST',
     headers,
+    signal: options.signal,
     body: JSON.stringify({
       model: options.model,
       group: options.group,

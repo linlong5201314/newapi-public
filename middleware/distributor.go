@@ -647,6 +647,7 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 		}
 	}
 	common.SetContextKey(c, constant.ContextKeyChannelId, channel.Id)
+	common.SetContextKey(c, constant.ContextKeyChannelOwnerUserId, channel.OwnerId)
 	common.SetContextKey(c, constant.ContextKeyChannelName, channel.Name)
 	common.SetContextKey(c, constant.ContextKeyChannelType, channel.Type)
 	templateID, _ := channel.GetOtherInfo()["templateId"].(string)

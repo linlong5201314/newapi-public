@@ -94,6 +94,15 @@ func newResponsesWSRequestRunner(c *gin.Context) relay.ResponsesWSRequestRunner 
 		request.RemoteAddr = remoteAddr
 		response := &responsesWSResponseWriter{header: make(http.Header)}
 		responsesWSRequestEngine().ServeHTTP(response, request)
+		if response.status == http.StatusTooManyRequests {
+			var body struct {
+				Error *types.OpenAIError `json:"error"`
+			}
+			if common.Unmarshal(response.body.Bytes(), &body) == nil && body.Error != nil {
+				return types.WithOpenAIError(*body.Error, http.StatusTooManyRequests, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+			}
+			return types.NewErrorWithStatusCode(errors.New(http.StatusText(http.StatusTooManyRequests)), types.ErrorCodeInvalidRequest, http.StatusTooManyRequests, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+		}
 		if state.apiError != nil {
 			return state.apiError
 		}

@@ -55,7 +55,7 @@ var (
 	AccessTokenTTL      = durationSecondsFromEnv("ACCESS_TOKEN_TTL_SECONDS", 2*time.Hour)
 	SecurityProofTTL    = durationSecondsFromEnv("SECURITY_PROOF_TTL_SECONDS", time.Minute)
 	LoginSessionTTL     = durationSecondsFromEnv("LOGIN_SESSION_TTL_SECONDS", 30*24*time.Hour)
-	RefreshReplayWindow = durationSecondsFromEnv("REFRESH_REPLAY_WINDOW_SECONDS", 24*time.Hour)
+	RefreshReplayWindow = durationSecondsFromEnv("REFRESH_REPLAY_WINDOW_SECONDS", 10*time.Minute)
 )
 
 var (

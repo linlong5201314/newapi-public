@@ -19,6 +19,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestModelRateLimitRejectsWithoutStreamStatus(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	subject := strconv.Itoa(7200000 + int(modelRateLimitTestUsers.Add(1)))
+	handler := memoryRateLimitHandler(subject, 60, 0, 1)
+	router := gin.New()
+	router.GET("/limited", handler, func(c *gin.Context) { c.Status(http.StatusOK) })
+	assert.Equal(t, http.StatusOK, performRateLimitRequest(router, "/limited", "127.0.0.1:1000").Code)
+	assert.Equal(t, http.StatusTooManyRequests, performRateLimitRequest(router, "/limited", "127.0.0.1:1000").Code)
+}
+
 func TestModelRedisRateLimitUsesUTCRegardlessOfLocalTimezone(t *testing.T) {
 	redisServer, redisClient := useRateLimitMiniRedis(t)
 	previousLocation := time.Local

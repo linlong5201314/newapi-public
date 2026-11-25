@@ -11,12 +11,31 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
+
+func validateSelfChannelGroups(userID int, raw string) error {
+	userGroup, err := model.GetUserGroup(userID, true)
+	if err != nil {
+		return err
+	}
+	allowed := service.GetUserUsableGroups(userGroup)
+	for group := range strings.SplitSeq(raw, ",") {
+		group = strings.TrimSpace(group)
+		if group == "" {
+			continue
+		}
+		if _, ok := allowed[group]; !ok {
+			return fmt.Errorf("channel group is not available to this user")
+		}
+	}
+	return nil
+}
 
 // ---------------------------------------------------------------------------
 // 自服务渠道 API（/api/channel/self）
@@ -253,6 +272,22 @@ func AddSelfChannel(c *gin.Context) {
 		return
 	}
 	addChannelRequest.Channel.OwnerId = uid
+	if err := validateSelfChannelGroups(uid, addChannelRequest.Channel.Group); err != nil {
+		common.ApiErrorMsg(c, "Channel group is not available to this user")
+		return
+	}
+	addChannelRequest.Channel.Status = common.ChannelStatusEnabled
+	addChannelRequest.Channel.Visibility = 0
+	addChannelRequest.Channel.Tier = "api"
+	addChannelRequest.Channel.AllowIps = ""
+	addChannelRequest.Channel.UsedQuota = 0
+	addChannelRequest.Channel.Priority = common.GetPointer[int64](0)
+	weight := addChannelRequest.Channel.GetWeight()
+	if weight < 1 || weight > 100 {
+		common.ApiErrorMsg(c, "Channel weight must be between 1 and 100")
+		return
+	}
+	addChannelRequest.Channel.Weight = common.GetPointer(uint(weight))
 	addChannelExecute(c, &addChannelRequest)
 }
 
@@ -289,6 +324,23 @@ func UpdateSelfChannel(c *gin.Context) {
 		return
 	}
 	originalSnapshot := *original
+	for _, field := range []string{"owner_id", "visibility", "tier", "allow_ips", "status", "used_quota", "priority"} {
+		delete(req, field)
+	}
+	if weight, exists := req["weight"]; exists {
+		value, ok := weight.(float64)
+		if !ok || value < 1 || value > 100 || value != float64(int(value)) {
+			common.ApiErrorMsg(c, "Channel weight must be an integer between 1 and 100")
+			return
+		}
+	}
+	patch.Priority = original.Priority
+	patch.OwnerId = original.OwnerId
+	patch.Status = original.Status
+	patch.Visibility = original.Visibility
+	patch.Tier = original.Tier
+	patch.AllowIps = original.AllowIps
+	patch.UsedQuota = original.UsedQuota
 	if isXiaoyiWorkChannel(original) {
 		if err := updateXiaoyiWorkChannel(c, original, patch.Id, req); err != nil {
 			common.ApiErrorMsg(c, err.Error())
@@ -298,6 +350,10 @@ func UpdateSelfChannel(c *gin.Context) {
 		*original = originalSnapshot
 		sanitizeSelfChannel(original)
 		common.ApiSuccess(c, original)
+		return
+	}
+	if err := validateSelfChannelGroups(c.GetInt("id"), patch.Group); err != nil {
+		common.ApiErrorMsg(c, "Channel group is not available to this user")
 		return
 	}
 	if original.Type == constant.ChannelTypeZCode || patch.Type == constant.ChannelTypeZCode {

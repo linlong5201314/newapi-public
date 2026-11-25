@@ -23,6 +23,8 @@ type FreePiAuthState struct {
 	EgressKey       string                  `json:"egress_key,omitempty"`
 	Identity        AuthSessionIdentity     `json:"identity"`
 	UpstreamSession string                  `json:"upstream_session,omitempty"`
+	Mode            string                  `json:"mode,omitempty"`
+	PollSecret      string                  `json:"poll_secret,omitempty"`
 	DisplayName     string                  `json:"display_name"`
 	Public          bool                    `json:"public"`
 	Interval        int                     `json:"interval"`
@@ -193,7 +195,7 @@ func CompleteFreePiChannel(tx *gorm.DB, state *FreePiAuthState, token, handle st
 	if err := tx.Create(&binding).Error; err != nil {
 		return err
 	}
-	state.ChannelID, state.Status, state.UpstreamSession = channel.Id, "done", ""
+	state.ChannelID, state.Status, state.UpstreamSession, state.PollSecret = channel.Id, "done", "", ""
 	if needsBinding {
 		state.Status = "binding"
 	}

@@ -20,6 +20,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -81,6 +82,10 @@ func freePiIdentity(c *gin.Context) (model.AuthSessionIdentity, bool) {
 // by request input. It neither follows redirects nor exposes upstream bodies or
 // transport errors (which may contain credentials) in API errors or audit logs.
 func freePiJSON(ctx context.Context, proxy, method, path, token string, body any, out any) (int, error) {
+	return freePiJSONWithHeaders(ctx, proxy, method, path, token, body, out, nil)
+}
+
+func freePiJSONWithHeaders(ctx context.Context, proxy, method, path, token string, body any, out any, headers http.Header) (int, error) {
 	var reader io.Reader
 	if body != nil {
 		raw, err := common.Marshal(body)
@@ -94,6 +99,11 @@ func freePiJSON(ctx context.Context, proxy, method, path, token string, body any
 		return 0, errors.New("FreePi upstream request is invalid")
 	}
 	req.Header.Set("Accept", "application/json")
+	for name, values := range headers {
+		for _, value := range values {
+			req.Header.Add(name, value)
+		}
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -135,6 +145,7 @@ func StartFreePiOAuth(c *gin.Context) {
 		DisplayName   string                  `json:"displayName"`
 		Public        bool                    `json:"public"`
 		ConfirmPublic bool                    `json:"confirmPublic"`
+		Method        string                  `json:"method"`
 		Proxy         string                  `json:"proxy"`
 		ProxyPolicy   *dto.ChannelProxyPolicy `json:"proxy_policy,omitempty"`
 	}
@@ -195,8 +206,16 @@ func StartFreePiOAuth(c *gin.Context) {
 		} `json:"models"`
 	}
 	status, err := freePiJSON(c.Request.Context(), proxy, http.MethodGet, "/client-version", "", nil, &catalog)
-	if err != nil || status != http.StatusOK || !freePiVersionPattern.MatchString(catalog.Latest) || len(catalog.Models) == 0 {
-		freePiError(c, http.StatusBadGateway, "FreePi model catalog could not be verified")
+	if err != nil {
+		freePiErrorWithCode(c, http.StatusBadGateway, "The FreePi model catalog could not be reached through the selected egress. Choose direct egress or test the selected proxy", "FREEPI_CATALOG_UNREACHABLE")
+		return
+	}
+	if status != http.StatusOK {
+		freePiErrorWithCode(c, http.StatusBadGateway, "FreePi model catalog returned an unexpected upstream status. Retry later or choose direct egress", "FREEPI_CATALOG_HTTP_STATUS")
+		return
+	}
+	if !freePiVersionPattern.MatchString(catalog.Latest) || len(catalog.Models) == 0 {
+		freePiErrorWithCode(c, http.StatusBadGateway, "FreePi model catalog returned an invalid version or model list", "FREEPI_CATALOG_INVALID")
 		return
 	}
 	models := make([]string, 0, len(catalog.Models))
@@ -206,7 +225,14 @@ func StartFreePiOAuth(c *gin.Context) {
 		}
 	}
 	if len(models) == 0 {
-		freePiError(c, http.StatusBadGateway, "FreePi model catalog could not be verified")
+		freePiErrorWithCode(c, http.StatusBadGateway, "FreePi model catalog has no available models", "FREEPI_CATALOG_EMPTY")
+		return
+	}
+	if req.Method == "" {
+		req.Method = "device" // Preserve the API contract for older browser clients.
+	}
+	if req.Method != "connect" && req.Method != "device" {
+		freePiError(c, http.StatusBadRequest, "Invalid FreePi authorization method")
 		return
 	}
 	var device struct {
@@ -217,22 +243,68 @@ func StartFreePiOAuth(c *gin.Context) {
 		Interval                int    `json:"interval"`
 		ExpiresIn               int    `json:"expires_in"`
 	}
-	status, err = freePiJSON(c.Request.Context(), proxy, http.MethodPost, "/auth/github/device", "", struct{}{}, &device)
+	pollSecret := ""
+	if req.Method == "connect" {
+		var connect struct {
+			SessionID   string `json:"session_id"`
+			PollSecret  string `json:"poll_secret"`
+			ConfirmCode string `json:"confirm_code"`
+			ConnectURL  string `json:"connect_url"`
+			Interval    int    `json:"interval"`
+			ExpiresIn   int    `json:"expires_in"`
+		}
+		status, err = freePiJSONWithHeaders(c.Request.Context(), proxy, http.MethodPost, "/auth/connect/start", "", gin.H{
+			"consent_version": freePiConsentVersion,
+			"client":          gin.H{"os": "new-api", "cli_version": catalog.Latest},
+		}, &connect, http.Header{"x-freepi-signin-exp": []string{"1"}})
+		connectURL, parseErr := url.Parse(connect.ConnectURL)
+		connectionToken, hasConnectionToken := strings.CutPrefix(connectURL.Fragment, "t=")
+		validConnectionToken := hasConnectionToken && connectionToken != "" && len(connectionToken) <= 1024 && !strings.ContainsAny(connectionToken, "&#/?")
+		if err != nil {
+			freePiError(c, http.StatusBadGateway, "FreePi browser connection could not reach the upstream service. Check the selected proxy or try GitHub device authorization")
+			return
+		}
+		if status != http.StatusOK {
+			freePiError(c, http.StatusBadGateway, "FreePi browser connection was not accepted by the upstream service. Retry later or use GitHub device authorization")
+			return
+		}
+		if uuid.Validate(connect.SessionID) != nil || connect.PollSecret == "" || len(connect.PollSecret) > 1024 || connect.ConfirmCode == "" || len(connect.ConfirmCode) > 64 || strings.ContainsAny(connect.ConfirmCode, "\r\n") || parseErr != nil || connectURL.Scheme != "https" || connectURL.Hostname() != "freepi.ai" || connectURL.User != nil || !validConnectionToken {
+			freePiError(c, http.StatusBadGateway, "FreePi browser connection response could not be verified")
+			return
+		}
+		pollSecret = connect.PollSecret
+		device.SessionID, device.UserCode, device.VerificationURI = connect.SessionID, connect.ConfirmCode, connectURL.String()
+		device.Interval, device.ExpiresIn = connect.Interval, connect.ExpiresIn
+	} else {
+		status, err = freePiJSON(c.Request.Context(), proxy, http.MethodPost, "/auth/github/device", "", struct{}{}, &device)
+	}
 	verification, parseErr := url.Parse(device.VerificationURI)
-	if err != nil || status != http.StatusOK || device.SessionID == "" || len(device.SessionID) > 512 || device.UserCode == "" || len(device.UserCode) > 64 || parseErr != nil || verification.Scheme != "https" || verification.Host != "github.com" || verification.Path != "/login/device" || verification.User != nil || verification.RawQuery != "" || verification.Fragment != "" || device.ExpiresIn <= 0 {
-		freePiError(c, http.StatusBadGateway, "FreePi device authorization response could not be verified")
+	validVerification := parseErr == nil && verification.Scheme == "https" && verification.User == nil
+	if req.Method == "connect" {
+		connectionToken, hasConnectionToken := strings.CutPrefix(verification.Fragment, "t=")
+		validVerification = validVerification && verification.Host == "freepi.ai" && verification.Path == "/connect" && verification.RawQuery == "" && hasConnectionToken && connectionToken != "" && len(connectionToken) <= 1024 && !strings.ContainsAny(connectionToken, "&#/?")
+	} else {
+		validVerification = validVerification && verification.Fragment == ""
+		validVerification = validVerification && verification.Host == "github.com" && verification.Path == "/login/device" && verification.RawQuery == ""
+	}
+	if err != nil || status != http.StatusOK || device.SessionID == "" || len(device.SessionID) > 512 || device.UserCode == "" || len(device.UserCode) > 64 || !validVerification || device.ExpiresIn <= 0 {
+		message := "FreePi device authorization response could not be verified"
+		if req.Method == "connect" {
+			message = "FreePi browser connection response could not be verified"
+		}
+		freePiError(c, http.StatusBadGateway, message)
 		return
 	}
 	if device.Interval > 600 {
 		freePiError(c, http.StatusBadGateway, "FreePi device authorization response could not be verified")
 		return
 	}
-	interval, expires := max(5, device.Interval), min(device.ExpiresIn, 600)
+	interval, expires := max(2, device.Interval), min(device.ExpiresIn, 1800)
 	name := strings.TrimSpace(req.DisplayName)
 	if name == "" {
 		name = "FreePi"
 	}
-	state, err := model.CreateFreePiAuthFlow(model.FreePiAuthState{Identity: identity, Proxy: req.Proxy, ProxyPolicy: req.ProxyPolicy, EgressKey: egressKey, UpstreamSession: device.SessionID, DisplayName: name, Public: req.Public, Interval: interval, NextPollAt: time.Now().Add(time.Duration(interval) * time.Second).Unix(), Status: "pending", ClientVersion: catalog.Latest, Models: models}, time.Now().Add(time.Duration(expires)*time.Second))
+	state, err := model.CreateFreePiAuthFlow(model.FreePiAuthState{Identity: identity, Proxy: req.Proxy, ProxyPolicy: req.ProxyPolicy, EgressKey: egressKey, UpstreamSession: device.SessionID, Mode: req.Method, PollSecret: pollSecret, DisplayName: name, Public: req.Public, Interval: interval, NextPollAt: time.Now().Add(time.Duration(interval) * time.Second).Unix(), Status: "pending", ClientVersion: catalog.Latest, Models: models}, time.Now().Add(time.Duration(expires)*time.Second))
 	if err != nil {
 		code := http.StatusServiceUnavailable
 		if errors.Is(err, model.ErrFreePiAuthLimit) {
@@ -241,8 +313,11 @@ func StartFreePiOAuth(c *gin.Context) {
 		freePiError(c, code, "FreePi authorization could not be started. Try again later")
 		return
 	}
-	model.RecordAuditLog(c, model.AuditLog{UserId: identity.UserID, ActorRole: c.GetInt("role"), Category: "auth", Action: "freepi.authorize.start", Success: true, Content: "FreePi device authorization started"})
-	result := gin.H{"state": state, "userCode": device.UserCode, "verificationUri": verification.String(), "interval": interval, "expiresIn": expires, "flow": "device_authorization"}
+	model.RecordAuditLog(c, model.AuditLog{UserId: identity.UserID, ActorRole: c.GetInt("role"), Category: "auth", Action: "freepi.authorize.start", Success: true, Content: "FreePi " + req.Method + " authorization started"})
+	result := gin.H{"state": state, "userCode": device.UserCode, "verificationUri": verification.String(), "interval": interval, "expiresIn": expires, "flow": "device_authorization", "method": req.Method}
+	if req.Method == "connect" {
+		result["method"], result["flow"] = "connect", "browser_connect"
+	}
 	// Only forward a complete link when upstream supplied one with this code.
 	complete, completeErr := url.Parse(device.VerificationURIComplete)
 	if completeErr == nil && complete.Scheme == "https" && complete.Host == "github.com" && complete.Path == "/login/device" && complete.User == nil && complete.Fragment == "" {
@@ -306,7 +381,7 @@ func freePiAdvance(c *gin.Context, operation string) {
 			return nil
 		}
 		if operation == "cancel" {
-			state.Status, state.UpstreamSession = "cancelled", ""
+			state.Status, state.UpstreamSession, state.PollSecret = "cancelled", "", ""
 			result["status"] = "cancelled"
 			return nil
 		}
@@ -345,9 +420,18 @@ func freePiAdvance(c *gin.Context, operation string) {
 			Error      string `json:"error"`
 			RetryAfter int    `json:"retry_after"`
 		}
-		status, err := freePiJSON(c.Request.Context(), proxy, http.MethodPost, "/auth/token", "", gin.H{"session_id": state.UpstreamSession, "timezone": "UTC", "locale": "en"}, &response)
+		path := "/auth/token"
+		payload := gin.H{"session_id": state.UpstreamSession, "timezone": "UTC", "locale": "en"}
+		if state.Mode == "connect" {
+			if state.PollSecret == "" {
+				return model.ErrAuthFlowInvalid
+			}
+			path = "/auth/connect/poll"
+			payload["poll_secret"] = state.PollSecret
+		}
+		status, err := freePiJSON(c.Request.Context(), proxy, http.MethodPost, path, "", payload, &response)
 		if err != nil {
-			state.Status, state.UpstreamSession = "failed", ""
+			state.Status, state.UpstreamSession, state.PollSecret = "failed", "", ""
 			result["status"] = "restart_required"
 			return nil
 		}
@@ -359,7 +443,7 @@ func freePiAdvance(c *gin.Context, operation string) {
 		if response.Status == "slow_down" || response.Error == "slow_down" || response.Code == "slow_down" || response.RetryAfter > state.Interval || status == http.StatusTooManyRequests {
 			state.Interval = max(state.Interval+5, response.RetryAfter)
 			if state.Interval > 600 {
-				state.Status, state.UpstreamSession = "failed", ""
+				state.Status, state.UpstreamSession, state.PollSecret = "failed", "", ""
 				result["status"] = "restart_required"
 				return nil
 			}
@@ -372,7 +456,7 @@ func freePiAdvance(c *gin.Context, operation string) {
 			return nil
 		}
 		if status != http.StatusOK || response.Token == "" || len(response.Token) > 16384 || strings.ContainsAny(response.Token, "\r\n") {
-			state.Status, state.UpstreamSession = "failed", ""
+			state.Status, state.UpstreamSession, state.PollSecret = "failed", "", ""
 			result["status"] = "restart_required"
 			return nil
 		}
@@ -381,7 +465,7 @@ func freePiAdvance(c *gin.Context, operation string) {
 		}
 		status, err = freePiJSON(c.Request.Context(), proxy, http.MethodGet, "/me", response.Token, nil, &me)
 		if err != nil || status != http.StatusOK || strings.TrimSpace(me.Handle) == "" {
-			state.Status, state.UpstreamSession = "failed", ""
+			state.Status, state.UpstreamSession, state.PollSecret = "failed", "", ""
 			result["status"] = "restart_required"
 			return nil
 		}

@@ -14,16 +14,21 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/service"
 )
 
 // Client SOLO 上游 HTTP 客户端（按凭据构造；传输层全包共享）。
 type Client struct {
 	cred *Cred
+	// allowOverride is reserved for explicitly controlled test/operator flows;
+	// imported tenant credentials never receive it from a JSON field.
+	allowOverride bool
 }
 
 // NewClient 以渠道凭据构造上游客户端。
 func NewClient(cred *Cred) *Client {
-	return &Client{cred: cred}
+	return &Client{cred: cred, allowOverride: envBaseOverride() != ""}
 }
 
 // Cred 返回客户端持有的凭据快照。
@@ -49,7 +54,7 @@ func envBaseOverride() string {
 }
 
 func (c *Client) agentBase() string {
-	if c.cred.BaseOverride != "" {
+	if c.allowOverride && c.cred.BaseOverride != "" {
 		return strings.TrimSuffix(c.cred.BaseOverride, "/")
 	}
 	if env := envBaseOverride(); env != "" {
@@ -59,7 +64,7 @@ func (c *Client) agentBase() string {
 }
 
 func (c *Client) ugBase() string {
-	if c.cred.BaseOverride != "" {
+	if c.allowOverride && c.cred.BaseOverride != "" {
 		return strings.TrimSuffix(c.cred.BaseOverride, "/")
 	}
 	if env := envBaseOverride(); env != "" {
@@ -69,21 +74,38 @@ func (c *Client) ugBase() string {
 }
 
 func (c *Client) oauthBase() string {
-	if c.cred.BaseOverride != "" {
+	if c.allowOverride && c.cred.BaseOverride != "" {
 		return strings.TrimSuffix(c.cred.BaseOverride, "/")
 	}
 	if env := envBaseOverride(); env != "" {
 		return env
 	}
-	if c.cred.ApiHost != "" {
-		return c.cred.ApiHost
+	if c.cred.ApiHost == DomesticAuthHost {
+		return DomesticAuthHost
 	}
 	return OAuthHost
 }
 
+// doWithProtectedTransport validates every actual account endpoint and redirect.
+func (c *Client) doWithProtectedTransport(req *http.Request, base *http.Client) (*http.Response, error) {
+	protected, err := service.GetTenantHTTPClientWithProxySettings("", relayChannelSettings())
+	if err != nil {
+		return nil, err
+	}
+	client := *base
+	client.Transport = protected.Transport
+	client.CheckRedirect = protected.CheckRedirect
+	return client.Do(req)
+}
+
+// relayChannelSettings keeps the shared transport policy explicit for account calls.
+func relayChannelSettings() dto.ChannelSettings {
+	return dto.ChannelSettings{ProxyPolicy: &dto.ChannelProxyPolicy{Mode: "direct"}}
+}
+
 // doJSON 发请求并解 JSON；HTTP 非 2xx 时返回带分类的 *Error。
 func (c *Client) doJSON(req *http.Request) (json.RawMessage, error) {
-	resp, err := jsonHTTP.Do(req)
+	resp, err := c.doWithProtectedTransport(req, jsonHTTP)
 	if err != nil {
 		return nil, err
 	}
@@ -175,7 +197,7 @@ func (c *Client) ChatStream(ctx context.Context, body []byte) (rc io.ReadCloser,
 		return nil, 0, nil, err
 	}
 	SOLOHeaders(req, c.cred, true)
-	resp, err := streamHTTP.Do(req)
+	resp, err := c.doWithProtectedTransport(req, streamHTTP)
 	if err != nil {
 		return nil, 0, nil, err
 	}

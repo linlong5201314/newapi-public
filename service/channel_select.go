@@ -112,6 +112,7 @@ func (p *RetryParam) ResetRetryNextTry() {
 //
 //	Retry=3: GroupB, priority1 (startRetryIndex=2, priorityRetry=1)
 //	         分组B, 优先级1
+//
 // GetRequestOwnerUserId 返回请求对应的租户归属用户 ID：
 // 优先读 Distribute 注入的 owner_user_id，缺省回退到 TokenAuth 写入的 "id"。
 // 0 表示无用户上下文（系统/内部调用），路由时仅看平台公共渠道桶。
@@ -337,7 +338,7 @@ func channelVisibleToOwner(channel *model.Channel, ownerUserId int) bool {
 	if channel.OwnerId == ownerUserId {
 		return true
 	}
-	return channel.OwnerId == 0 && operation_setting.SelfChannelUsePublicFallback
+	return model.ChannelSelectionTier(channel, ownerUserId) >= 0
 }
 
 // channelPinAllowedForOwner 令牌 pin 的归属规则：
@@ -352,13 +353,16 @@ func channelPinAllowedForOwner(channel *model.Channel, ownerUserId int) bool {
 	if channel.OwnerId == ownerUserId {
 		return true
 	}
-	if channel.OwnerId != 0 {
+	if model.ChannelSelectionTier(channel, ownerUserId) < 0 {
 		return false
 	}
-	if operation_setting.SelfChannelUsePublicFallback {
-		return true
+	if channel.OwnerId != ownerUserId && channel.OwnerId != 0 && channel.Visibility != 1 {
+		return false
 	}
-	return model.IsAdmin(ownerUserId)
+	if channel.OwnerId == 0 && !operation_setting.SelfChannelUsePublicFallback {
+		return model.IsAdmin(ownerUserId)
+	}
+	return true
 }
 
 func SelectChannelForRequest(c *gin.Context, modelName string, retry *RetryParam) (*model.Channel, string, *ChannelSelectError) {

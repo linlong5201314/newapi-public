@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -17,6 +17,7 @@ type Props = {
   options?: ProviderAuthorizationOptions
   disabled?: boolean
   busy?: boolean
+  onBusyChange?: (busy: boolean) => void
   onComplete: (result: NativeAuthorizationResult) => void
 }
 
@@ -91,9 +92,9 @@ export function parseSingleAccountImport(
   if (direct) return [direct]
   const nested = ['credentials', 'credential', 'account', 'auth']
     .map((key) => asObject(root[key]))
-    .filter(Boolean)
+    .filter((item): item is Record<string, unknown> => item !== null)
   for (const item of nested) {
-    const found = toCredential(provider, provider, item!)
+    const found = toCredential(provider, provider, item)
     if (found) return [found]
   }
   const accounts: AccountRecord[] = []
@@ -114,6 +115,7 @@ export function AccountCredentialImport({
   options,
   disabled,
   busy: parentBusy,
+  onBusyChange,
   onComplete,
 }: Props) {
   const { t } = useTranslation()
@@ -121,7 +123,12 @@ export function AccountCredentialImport({
   const [selected, setSelected] = useState('')
   const [problem, setProblem] = useState('')
   const [busy, setBusy] = useState(false)
+  const fileGeneration = useRef(0)
+  useEffect(() => {
+    onBusyChange?.(busy)
+  }, [busy, onBusyChange])
   const chooseFile = async (file?: File) => {
+    const generation = ++fileGeneration.current
     setProblem('')
     setAccounts([])
     setSelected('')
@@ -132,6 +139,7 @@ export function AccountCredentialImport({
     }
     try {
       const parsed = parseSingleAccountImport(provider, JSON.parse(await file.text()))
+      if (generation !== fileGeneration.current) return
       if (!parsed.length) throw new Error(t('No compatible account credential was found'))
       setAccounts(parsed)
       setSelected(parsed.length === 1 ? parsed[0].id : '')

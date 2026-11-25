@@ -5,6 +5,20 @@ import (
 	"testing"
 )
 
+func TestDecryptSecretWithPreviousKey(t *testing.T) {
+	withCryptoSecret(t, "old-stable-secret-for-test", true)
+	encrypted, err := EncryptSecret("credential")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CRYPTO_SECRET_PREVIOUS", "old-stable-secret-for-test")
+	withCryptoSecret(t, "new-stable-secret-for-test", true)
+	decrypted, err := DecryptSecret(encrypted)
+	if err != nil || decrypted != "credential" {
+		t.Fatalf("previous key must decrypt existing records: %v", err)
+	}
+}
+
 func withCryptoSecret(t *testing.T, secret string, configured bool) {
 	t.Helper()
 	previousSecret := CryptoSecret
@@ -46,16 +60,12 @@ func TestEncryptDecryptSecretRoundTrip(t *testing.T) {
 
 func TestEncryptSecretWithoutCryptoSecretUsesPlainPrefix(t *testing.T) {
 	withCryptoSecret(t, "fallback-session", false)
-	encrypted, err := EncryptSecret("secret-value")
-	if err != nil {
-		t.Fatalf("encrypt: %v", err)
+	if _, err := EncryptSecret("secret-value"); err == nil {
+		t.Fatal("missing key must reject new secret writes")
 	}
-	if !IsPlainPrefixedSecret(encrypted) || encrypted != "plain:secret-value" {
-		t.Fatalf("expected plain: prefix, got %q", encrypted)
-	}
-	decrypted, err := DecryptSecret(encrypted)
+	decrypted, err := DecryptSecret("plain:secret-value")
 	if err != nil || decrypted != "secret-value" {
-		t.Fatalf("decrypt plain: %q err=%v", decrypted, err)
+		t.Fatalf("decrypt historical plain: %q err=%v", decrypted, err)
 	}
 }
 

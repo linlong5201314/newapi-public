@@ -12,11 +12,26 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 )
 
 // agentHTTP agent 执行器专用 client（执行器跑 headed Chrome 过 Turnstile，耗时较长）。
-var agentHTTP = &http.Client{Timeout: 180 * time.Second}
+var agentHTTP = func() *http.Client {
+	client := service.GetSSRFProtectedHTTPClient()
+	if client == nil {
+		client = &http.Client{}
+	}
+	return &http.Client{Transport: client.Transport, Timeout: 180 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) > 0 && !strings.EqualFold(via[0].URL.Host, req.URL.Host) {
+			return http.ErrUseLastResponse
+		}
+		if client.CheckRedirect != nil {
+			return client.CheckRedirect(req, via)
+		}
+		return nil
+	}}
+}()
 
 // agentPayload agent 执行器请求体。
 type agentPayload struct {

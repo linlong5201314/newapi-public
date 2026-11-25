@@ -106,6 +106,7 @@ func main() {
 		}()
 
 		go model.SyncChannelCache(common.SyncFrequency)
+		model.StartChannelCacheEvents(context.Background())
 	}
 	wsmanager.StartSubscriber(context.Background())
 

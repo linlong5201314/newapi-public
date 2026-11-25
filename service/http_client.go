@@ -394,6 +394,30 @@ func GetHttpClientWithProxy(rawProxyURL string) (*http.Client, error) {
 	return GetHttpClientWithProxySettings(rawProxyURL, dto.ChannelSettings{})
 }
 
+var tenantHTTPClientFactory = newTenantProtectedHTTPClient
+
+// GetTenantHTTPClientWithProxySettings restricts tenant-controlled upstreams
+// while GetHttpClientWithProxySettings retains operator private-network support.
+func GetTenantHTTPClientWithProxySettings(rawProxyURL string, settings dto.ChannelSettings) (*http.Client, error) {
+	var parsed *url.URL
+	var err error
+	if strings.TrimSpace(rawProxyURL) != "" {
+		parsed, _, err = common.ParseProxyURLRuntime(rawProxyURL)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return tenantHTTPClientFactory(parsed, NormalizeHTTPTransportPolicy(settings))
+}
+
+// SetTenantHTTPClientFactoryForTest isolates protocol fixtures without replacing
+// production tenant SSRF checks or the global direct transport.
+func SetTenantHTTPClientFactoryForTest(factory func(*url.URL, HTTPTransportPolicy) (*http.Client, error)) func() {
+	previous := tenantHTTPClientFactory
+	tenantHTTPClientFactory = factory
+	return func() { tenantHTTPClientFactory = previous }
+}
+
 // GetHttpClientWithProxySettings returns a cached HTTP client for the proxy URL and
 // channel transport settings. Default auto + 1 shard shares the same client pool as
 // GetHttpClientWithProxy / GetHttpClient for the empty-proxy case.

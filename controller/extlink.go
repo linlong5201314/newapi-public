@@ -32,6 +32,7 @@ func extLinkJSON(link *model.ExtLink) gin.H {
 		"mode":         link.Mode,
 		"position":     link.Position,
 		"enabled":      link.Enabled,
+		"trusted":      link.Trusted,
 		"sort_order":   link.SortOrder,
 		"created_time": link.CreatedTime,
 		"updated_time": link.UpdatedTime,
@@ -101,6 +102,7 @@ type extLinkPayload struct {
 	Mode      string `json:"mode"`
 	Position  string `json:"position"`
 	Enabled   *bool  `json:"enabled"`
+	Trusted   *bool  `json:"trusted"`
 	SortOrder int    `json:"sort_order"`
 }
 
@@ -130,6 +132,14 @@ func validateExtLinkPayload(p *extLinkPayload) error {
 	}
 	if err := extlinksvc.ValidateExtLinkURL(p.Url); err != nil {
 		return err
+	}
+	if p.Mode == model.ExtLinkModeProxy {
+		if p.Trusted == nil || !*p.Trusted {
+			return common.NewMessage("Proxy links require explicit trust confirmation")
+		}
+		if len(operation_setting.ExtLinkAllowHostList()) == 0 {
+			return common.NewMessage("Proxy links require a non-empty host allowlist")
+		}
 	}
 	return nil
 }
@@ -166,6 +176,7 @@ func AddExtLink(c *gin.Context) {
 		Mode:      req.Mode,
 		Position:  req.Position,
 		Enabled:   enabled,
+		Trusted:   req.Trusted != nil && *req.Trusted,
 		SortOrder: req.SortOrder,
 	}
 	if err := model.CreateExtLink(link); err != nil {
@@ -204,6 +215,9 @@ func UpdateExtLink(c *gin.Context) {
 	link.Url = req.Url
 	link.Icon = req.Icon
 	link.Mode = req.Mode
+	if req.Trusted != nil {
+		link.Trusted = *req.Trusted
+	}
 	link.Position = req.Position
 	link.SortOrder = req.SortOrder
 	if req.Enabled != nil {

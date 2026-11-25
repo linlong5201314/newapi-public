@@ -5,9 +5,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -43,6 +45,12 @@ func TestImportedClientSurvivesCredentialRoundTripAndRefresh(t *testing.T) {
 				assert.NoError(t, err)
 			}))
 			defer server.Close()
+			t.Setenv("TRAE_BASE_URL", server.URL)
+			fetch := system_setting.GetFetchSetting()
+			previous := *fetch
+			fetch.AllowPrivateIp = true
+			fetch.AllowedPorts = []string{strings.TrimPrefix(server.URL, "http://127.0.0.1:")}
+			t.Cleanup(func() { *fetch = previous })
 			credential.BaseOverride = server.URL
 			renewed, err := NewClient(credential).refreshTokenOnce()
 			require.NoError(t, err)

@@ -527,7 +527,13 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		if attempt > 0 && proxyURL == "" {
 			break
 		}
-		client, cerr := service.GetHttpClientWithProxySettings(proxyURL, info.ChannelSetting)
+		var client *http.Client
+		var cerr error
+		if info != nil && info.ChannelOwnerUserId > 0 {
+			client, cerr = service.GetTenantHTTPClientWithProxySettings(proxyURL, info.ChannelSetting)
+		} else {
+			client, cerr = service.GetHttpClientWithProxySettings(proxyURL, info.ChannelSetting)
+		}
 		if cerr != nil {
 			return nil, fmt.Errorf("new proxy http client failed: %w", egressProxyTransportError{cause: cerr, address: egressProxyLogAddress(proxyURL)})
 		}
@@ -553,7 +559,13 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 				logger.LogWarn(c, fmt.Sprintf("proxy pool circuit-breaker: attempt %d via %s failed (%s), switching exit IP", attempt+1, egressProxyLogAddress(proxyURL), "transport error"))
 				continue
 			}
+			if c.GetBool("model_endpoint_probe") {
+				logger.LogDebug(c, "model probe transport error type=%T", err)
+			}
 			logger.LogError(c, common2.LogText("do request failed: %s", "upstream transport error"))
+			if common2.DebugEnabled {
+				logger.LogDebug(c, "upstream transport diagnostic: %v", err)
+			}
 			return nil, types.NewError(egressProxyTransportError{cause: err, address: egressProxyLogAddress(proxyURL)}, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))
 		}
 
@@ -579,6 +591,9 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		return nil, errors.New("resp is nil")
 	}
 
+	if info != nil {
+		service.StopRouteRuleAttemptHeaderTimer(c)
+	}
 	if info != nil && info.IsStream {
 		helper.SetEventStreamHeaders(c)
 		// 处理流式请求的 ping 保活

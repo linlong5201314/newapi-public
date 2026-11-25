@@ -320,7 +320,18 @@ func trySelectRouteRuleChannel(param *RetryParam, ownerUserId int) (channel *mod
 		return nil, "", true, errors.New("route rule targets exhausted")
 	}
 	if retryIdx > 0 && state.retryDelayMs > 0 {
-		time.Sleep(time.Duration(state.retryDelayMs) * time.Millisecond)
+		timer := time.NewTimer(time.Duration(state.retryDelayMs) * time.Millisecond)
+		select {
+		case <-timer.C:
+		case <-c.Request.Context().Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return nil, "", true, c.Request.Context().Err()
+		}
 	}
 	channel, err = model.CacheGetChannel(target.ChannelId)
 	if err != nil || channel == nil {
@@ -399,6 +410,45 @@ func RouteRuleTargetTimeout(c *gin.Context) time.Duration {
 	return time.Duration(state.targetTimeoutMs) * time.Millisecond
 }
 
+// RouteRuleAttemptCancel exposes the current target budget cancellation to the
+// transport boundary. The body remains governed by the client's context.
+func RouteRuleAttemptCancel(c *gin.Context) context.CancelFunc {
+	value, ok := common.GetContextKey(c, constant.ContextKeyRouteRuleAttemptCancel)
+	if !ok {
+		return nil
+	}
+	cancel, _ := value.(context.CancelFunc)
+	return cancel
+}
+
+// StopRouteRuleAttemptHeaderTimer ends only the time-to-first-byte budget. The
+// attempt context itself must remain alive until the upstream response body is
+// closed; cancelling it on response headers would truncate streaming responses.
+func StopRouteRuleAttemptHeaderTimer(c *gin.Context) {
+	value, ok := common.GetContextKey(c, constant.ContextKeyRouteRuleAttemptHeaderTimer)
+	if !ok {
+		return
+	}
+	timer, _ := value.(*time.Timer)
+	if timer != nil {
+		timer.Stop()
+	}
+	delete(c.Keys, string(constant.ContextKeyRouteRuleAttemptHeaderTimer))
+}
+
+func RouteRuleAttemptContextForTest(c *gin.Context, baseCtx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(baseCtx)
+	timer := time.AfterFunc(timeout, cancel)
+	common.SetContextKey(c, constant.ContextKeyRouteRuleAttemptCancel, cancel)
+	common.SetContextKey(c, constant.ContextKeyRouteRuleAttemptHeaderTimer, timer)
+	return ctx, func() {
+		timer.Stop()
+		cancel()
+		delete(c.Keys, string(constant.ContextKeyRouteRuleAttemptHeaderTimer))
+		delete(c.Keys, string(constant.ContextKeyRouteRuleAttemptCancel))
+	}
+}
+
 // RouteRuleAttemptContext 为规则路径的本次尝试构造独立超时上下文
 // （文档 §1.3：per-target 超时，超时不记故障、直接下一目标）。
 // 返回 nil ctx 表示非规则请求。
@@ -410,7 +460,7 @@ func RouteRuleAttemptContext(c *gin.Context, baseCtx context.Context) (context.C
 	if timeout <= 0 || baseCtx == nil {
 		return nil, nil
 	}
-	return context.WithTimeout(baseCtx, timeout)
+	return RouteRuleAttemptContextForTest(c, baseCtx, timeout)
 }
 
 // MergeRouteRuleModelOverride 把 targets[].modelOverride 并入渠道 model_mapping

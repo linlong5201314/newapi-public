@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 )
 
 // qoderDefaultBase Qoder CN 开放接口基址（国际版可覆盖为 openapi.qoder.com）。
@@ -44,7 +45,21 @@ type qoderCred struct {
 }
 
 // qoderHTTP Qoder 专用 client（活动接口响应快，30s 足够）。
-var qoderHTTP = &http.Client{Timeout: 30 * time.Second}
+var qoderHTTP = func() *http.Client {
+	client := service.GetSSRFProtectedHTTPClient()
+	if client == nil {
+		client = &http.Client{}
+	}
+	return &http.Client{Transport: client.Transport, Timeout: 30 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) > 0 && !strings.EqualFold(via[0].URL.Host, req.URL.Host) {
+			return http.ErrUseLastResponse
+		}
+		if client.CheckRedirect != nil {
+			return client.CheckRedirect(req, via)
+		}
+		return nil
+	}}
+}()
 
 // qoderCampaign 活动项（仅取用到的字段）。
 type qoderCampaign struct {

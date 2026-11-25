@@ -12,14 +12,14 @@ import (
 type ErrKind int
 
 const (
-	ErrNone        ErrKind = iota // 成功
-	ErrPlanLimit                  // 1005 权益不足 → 硬冷却（签到补积分后解冻）
-	ErrSoftRate                   // 429 → 短冷却（重试换路）
-	ErrSessionDead                // 401 + Cloud-IDE-JWT 失效 → 禁用渠道（需重新登录）
-	ErrNotFound                   // 404
-	ErrServer                     // 5xx
-	ErrQuotaExhausted             // 4008 配额耗尽 → 硬冷却（签到补积分后解冻）
-	ErrClient                     // 其他 4xx
+	ErrNone           ErrKind = iota // 成功
+	ErrPlanLimit                     // 1005 权益不足 → 硬冷却（签到补积分后解冻）
+	ErrSoftRate                      // 429 → 短冷却（重试换路）
+	ErrSessionDead                   // 401 + Cloud-IDE-JWT 失效 → 禁用渠道（需重新登录）
+	ErrNotFound                      // 404
+	ErrServer                        // 5xx
+	ErrQuotaExhausted                // 4008 配额耗尽 → 硬冷却（签到补积分后解冻）
+	ErrClient                        // 其他 4xx
 )
 
 func (k ErrKind) String() string {

@@ -115,17 +115,17 @@ func RedeemTraeAuthorization(ctx context.Context, proxy string, info *trae.Callb
 			device = generatedDevice
 		}
 	}
-		credential := &trae.Cred{AccessToken: info.AccessToken, RefreshToken: info.RefreshToken, UID: info.UID,
-			MachineID: machine, DeviceID: device, Domain: "trae.cn", ApiHost: trae.DomesticAuthHost,
-			ClientID: clientID, ExpiresAt: info.ExpiresAt}
-		if credential.ExpiresAt <= 0 {
-			credential.ExpiresAt = trae.CallbackTokenExpiry(credential.AccessToken)
-		}
-		// Imported desktop/Magpie sessions may already carry a fresh token pair.
-		// Do not rotate that pair merely because its refresh token is present; the
-		// provider treats refresh tokens as one-use and an unnecessary exchange can
-		// sign out the still-active desktop client.
-		if credential.AccessToken == "" || credential.ExpiresAt <= time.Now().Unix() {
+	credential := &trae.Cred{AccessToken: info.AccessToken, RefreshToken: info.RefreshToken, UID: info.UID,
+		MachineID: machine, DeviceID: device, Domain: "trae.cn", ApiHost: trae.DomesticAuthHost,
+		ClientID: clientID, ExpiresAt: info.ExpiresAt}
+	if credential.ExpiresAt <= 0 {
+		credential.ExpiresAt = trae.CallbackTokenExpiry(credential.AccessToken)
+	}
+	// Imported desktop/Magpie sessions may already carry a fresh token pair.
+	// Do not rotate that pair merely because its refresh token is present; the
+	// provider treats refresh tokens as one-use and an unnecessary exchange can
+	// sign out the still-active desktop client.
+	if credential.AccessToken == "" || credential.ExpiresAt <= time.Now().Unix() {
 		if credential.RefreshToken == "" {
 			return nil, service.ErrAccountProtocol
 		}

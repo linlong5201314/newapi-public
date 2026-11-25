@@ -352,6 +352,9 @@ func getFetchModelsResponseBody(method string, requestURL string, channel *model
 	}
 	setting := channel.GetSetting()
 	client, err := service.GetHttpClientWithProxySettings(setting.Proxy, setting)
+	if channel.OwnerId > 0 {
+		client, err = service.GetTenantHTTPClientWithProxySettings(setting.Proxy, setting)
+	}
 	if err != nil {
 		return nil, err
 	}

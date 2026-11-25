@@ -283,6 +283,7 @@ func Register(c *gin.Context) {
 	if common.EmailVerificationEnabled {
 		cleanUser.Email = user.Email
 	}
+	common.DeleteKey(user.Email, common.EmailVerificationPurpose)
 	if err := cleanUser.Insert(inviterId); err != nil {
 		if errors.Is(err, model.ErrEmailAlreadyTaken) {
 			common.ApiErrorT(c, "Email address is already in use")

@@ -46,7 +46,7 @@ func TestNodeApiTokenEncryptedAtRestAndReadable(t *testing.T) {
 	if err := DB.Model(&Node{}).Where("id = ?", node.Id).Pluck("api_token_enc", &stored).Error; err != nil {
 		t.Fatalf("read raw token: %v", err)
 	}
-	if !strings.HasPrefix(stored, common.EncryptedSecretPrefix) {
+	if !common.IsEncryptedSecret(stored) {
 		t.Fatalf("expected encrypted token at rest, got %q", stored)
 	}
 	if strings.Contains(stored, "railway-token-plain") {
@@ -78,9 +78,10 @@ func TestChannelCredentialEncryptionHelpers(t *testing.T) {
 	if again := EncryptChannelKey(constant.ChannelTypeWorkBuddy, encrypted); again != encrypted {
 		t.Fatal("EncryptChannelKey must be idempotent")
 	}
-	// 普通 API key 渠道保持上游行为（不加密）。
-	if plain := EncryptChannelKey(constant.ChannelTypeOpenAI, "sk-test"); plain != "sk-test" {
-		t.Fatalf("non-account channel must stay plaintext, got %q", plain)
+	// 普通 API key 同样加密落库；业务读取仍返回原始上游凭据。
+	plain := EncryptChannelKey(constant.ChannelTypeOpenAI, "sk-test")
+	if !common.IsEncryptedSecret(plain) || DecryptChannelKey(constant.ChannelTypeOpenAI, plain) != "sk-test" {
+		t.Fatal("API key encryption must preserve the upstream credential")
 	}
 	channel := &Channel{Type: constant.ChannelTypeTrae, Key: encrypted}
 	keys := channel.GetKeys()

@@ -7,7 +7,9 @@ func channelHasSensitiveChanges(channel *PatchChannel, origin *model.Channel, re
 		return true
 	}
 	if _, ok := requestData["key"]; ok && channel.Key != "" && channel.Key != origin.Key {
-		return true
+		if channel.Key != model.DecryptChannelKey(origin.Type, origin.Key) {
+			return true
+		}
 	}
 	if _, ok := requestData["base_url"]; ok && !equalStringPtr(channel.BaseURL, origin.BaseURL) {
 		return true

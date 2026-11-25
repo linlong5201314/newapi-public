@@ -530,6 +530,10 @@ func SetSelfChannelVisibility(c *gin.Context) {
 		saveXiaoyiWorkModelSelection(c, req.ChannelId, normalizeChannelVisibility(req.Visibility), req.Models, req.PublicModels, req.ShareConfirmed)
 		return
 	}
+	if normalizeChannelVisibility(req.Visibility) == 1 && !req.ShareConfirmed {
+		common.ApiErrorMsg(c, "Confirm public model sharing before publishing this channel")
+		return
+	}
 	if req.PublicModels != nil {
 		selected := make(map[string]bool)
 		for _, id := range strings.Split(channel.Models, ",") {
@@ -556,7 +560,7 @@ func SetSelfChannelVisibility(c *gin.Context) {
 	}
 	channel.SetOtherInfo(info)
 	updates := map[string]any{"visibility": normalizeChannelVisibility(req.Visibility), "tier": normalizeChannelTier(req.Tier), "other_info": channel.OtherInfo}
-	if strings.TrimSpace(req.AllowIps) != "" {
+	if strings.TrimSpace(req.AllowIps) != "" || req.AllowIps == "" {
 		updates["allow_ips"] = strings.TrimSpace(req.AllowIps)
 	}
 	if err := model.DB.Model(&model.Channel{}).Where("id = ? AND owner_id = ?", req.ChannelId, uid).Updates(updates).Error; err != nil {

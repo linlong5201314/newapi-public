@@ -198,7 +198,7 @@
   },
   "overrides": [
     {
-      "files": ["src/routes/**/*.{ts,tsx}"],
+      "files": ["src/routes/**/*.{ts,tsx}", "src/features/account-bindings/account-credential-import.tsx"],
       "rules": {
         "react/only-export-components": "off"
       }

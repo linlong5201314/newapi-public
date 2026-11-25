@@ -12,20 +12,29 @@ const DEFAULT_NODES = [
   { id: 'node5', url: 'https://newapi-public-production-1c18a29a.up.railway.app', provider: 'railway850', weight: 2, enabled: true, healthy: true },
   { id: 'node6', url: 'https://newapi-public-production-782d8c37.up.railway.app', provider: 'railway733', weight: 2, enabled: true, healthy: true },
   { id: 'node7', url: 'https://newapi-public-production-2113ed4c.up.railway.app', provider: 'railway964', weight: 2, enabled: true, healthy: true },
+  { id: 'node8', url: 'https://newapi-public-production-49f64774.up.railway.app', provider: 'railway871', weight: 2, enabled: true, healthy: true },
 ];
 
 async function getNodes(env) {
+  // Runtime node tables use the same contract as the static deployment table.
+  const normalize = (n) => ({
+    ...n,
+    id: String(n.id),
+    enabled: n.enabled !== false,
+    weight: Math.max(1, Number(n.weight) || 1),
+    healthy: n.healthy !== false && (!n.lastBeat || Date.now() - Number(n.lastBeat) < 90000),
+  });
   if (env.NODES_KV) {
     try {
       const raw = await env.NODES_KV.get('nodes');
       if (raw) {
         const parsed = JSON.parse(raw);
         const nodes = Array.isArray(parsed) ? parsed : (parsed && parsed.nodes);
-        if (Array.isArray(nodes) && nodes.length) return nodes;
+        if (Array.isArray(nodes) && nodes.length) return nodes.map(normalize);
       }
     } catch (e) { /* KV 读失败 → 回落到内置节点表 */ }
   }
-  return DEFAULT_NODES;
+  return DEFAULT_NODES.map(normalize);
 }
 
 // 静态资源前缀：命中后直接 302 到主节点（见 fetch 内注释）
@@ -54,12 +63,14 @@ export default {
     const url = new URL(req.url);
 
     if (url.pathname === '/__router/nodes') {
+      const secret = env.ROUTER_SHARED_SECRET || globalThis.ROUTER_SHARED_SECRET || '';
+      if (!secret || req.headers.get('X-Router-Key') !== secret) return new Response('forbidden', { status: 403 });
       return Response.json({ ok: true, source: env.NODES_KV ? 'kv' : 'builtin', nodes: await getNodes(env) });
     }
 
     if (url.pathname === '/__internal/heartbeat' && req.method === 'POST') {
       const secret = env.ROUTER_SHARED_SECRET || globalThis.ROUTER_SHARED_SECRET || '';
-      if (secret && req.headers.get('X-Router-Key') !== secret) return new Response('forbidden', { status: 403 });
+      if (!secret || req.headers.get('X-Router-Key') !== secret) return new Response('forbidden', { status: 403 });
       const report = await req.json().catch(() => ({}));
       if (env.NODES_KV) {
         const nodes = await getNodes(env);
@@ -132,7 +143,7 @@ export default {
     }
 
     let lastErr = null;
-    for (const node of weightedOrder(nodes).slice(0, 3)) {
+    for (const node of weightedOrder(nodes)) {
       try {
         const target = new URL(req.url);
         const u = new URL(node.url);
@@ -147,7 +158,7 @@ export default {
         lastErr = new Error('upstream ' + resp.status);
       } catch (e) { lastErr = e; }
     }
-    return new Response('all nodes failed: ' + (lastErr && lastErr.message), { status: 502 });
+    return new Response('All upstream nodes are temporarily unavailable', { status: 502 });
   },
 };
 

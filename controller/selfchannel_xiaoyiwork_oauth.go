@@ -276,7 +276,11 @@ func SelfXiaoyiWorkOAuthCancel(c *gin.Context) {
 		common.ApiErrorMsg(c, "Xiaoyi Work authorization expired. Start again")
 		return
 	}
-	_ = model.UpdateSelfOAuthSession(flow.State, map[string]any{"status": "cancelled", "refresh": ""})
+	result := model.DB.Model(&model.SelfOAuthSession{}).Where("state = ? AND provider = ? AND status = ?", flow.State, constant.XiaoyiWorkTemplateID, "pending").Updates(map[string]any{"status": "cancelled", "refresh": ""})
+	if result.Error != nil || result.RowsAffected != 1 {
+		common.ApiErrorMsg(c, "Xiaoyi Work authorization is already being completed")
+		return
+	}
 	common.ApiSuccess(c, gin.H{"cancelled": true})
 }
 

@@ -32,6 +32,14 @@ import (
 // The configured DSNs must point at isolated test databases. Each dialect runs
 // the real reservation, settlement and log paths with the same billing cases.
 func TestFixedPriceBillingDatabaseMatrix(t *testing.T) {
+	previousBatch := common.BatchUpdateEnabled
+	previousPlatformFree := operation_setting.PlatformPublicFreeBilling
+	common.BatchUpdateEnabled = false
+	operation_setting.PlatformPublicFreeBilling = false
+	t.Cleanup(func() {
+		common.BatchUpdateEnabled = previousBatch
+		operation_setting.PlatformPublicFreeBilling = previousPlatformFree
+	})
 	for _, dialect := range []struct {
 		name   common.DatabaseType
 		env    string

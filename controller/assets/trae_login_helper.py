@@ -140,6 +140,7 @@ class CallbackHandler(http.server.BaseHTTPRequestHandler):
     def allowed_request(self, preflight=False):
         if (self.client_address[0] != "127.0.0.1"
                 or self.headers.get_all("Host", []) != [self.server.authority]
+                or any(ord(c) < 33 or ord(c) > 126 for c in self.headers.get("Host", ""))
                 or time.time() >= self.server.deadline or self.server.callback is not None
                 or self.headers.get("Transfer-Encoding") is not None
                 or self.headers.get("Content-Length", "0") != "0"):

@@ -228,7 +228,10 @@ func SendEmailVerification(c *gin.Context) {
 		return
 	}
 	code := common.GenerateVerificationCode(6)
-	common.RegisterVerificationCodeWithKey(email, code, common.EmailVerificationPurpose)
+	if err := common.StoreVerificationCodeWithKey(email, code, common.EmailVerificationPurpose); err != nil {
+		common.ApiErrorMsg(c, "Verification storage is unavailable")
+		return
+	}
 	// The address may not belong to an account yet, so the mail follows the
 	// request language.
 	systemName := map[string]any{"SystemName": common.SystemName}
@@ -241,6 +244,7 @@ func SendEmailVerification(c *gin.Context) {
 		i18n.T(c, i18n.MsgEmailVerificationValidity, map[string]any{"Minutes": common.VerificationValidMinutes}))
 	err = common.SendEmail(subject, email, content)
 	if err != nil {
+		common.DeleteKey(email, common.EmailVerificationPurpose)
 		common.ApiError(c, err)
 		return
 	}
@@ -259,7 +263,11 @@ func SendPasswordResetEmail(c *gin.Context) {
 	}
 	if user, err := model.GetUniqueUserByEmail(email); err == nil {
 		code := common.GenerateVerificationCode(0)
-		common.RegisterVerificationCodeWithKey(email, code, common.PasswordResetPurpose)
+		if err := common.StoreVerificationCodeWithKey(email, code, common.PasswordResetPurpose); err != nil {
+			logger.LogError(c.Request.Context(), common.LogText("verification storage unavailable"))
+			c.JSON(http.StatusOK, gin.H{"success": true, "message": ""})
+			return
+		}
 		link := fmt.Sprintf("%s/user/reset?email=%s&token=%s", system_setting.ServerAddress, email, code)
 		lang := user.GetSetting().Language
 		if lang == "" {

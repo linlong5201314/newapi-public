@@ -1,25 +1,26 @@
-// channel_crypto.go M5：账号型 2api 渠道凭据（channels.key）落库加密。
-//
-// 范围（按 M5 蓝图 §4）：只对 WorkBuddy(65) / Trae(66) 两类账号型渠道的新写入
-// 凭据做 AES-GCM 加密；普通 API key 渠道维持上游 new-api 行为。读取点通过
-// DecryptChannelKey 透明解密（历史明文无前缀值原样返回，实现无感迁移）。
+// channel_crypto.go encrypts every channel credential, including ordinary API
+// keys and account credentials. Reads accept historical plaintext for a
+// controlled migration; new writes use the versioned AES-GCM envelope.
 package model
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
 )
 
-// IsEncryptedChannelType 判断渠道类型是否使用加密凭据存储。
-func IsEncryptedChannelType(channelType int) bool {
-	switch channelType {
-	case constant.ChannelTypeWorkBuddy, constant.ChannelTypeTrae, constant.ChannelTypeCline, constant.ChannelTypeRaccoon, constant.ChannelTypeFreePi, constant.ChannelTypeKimiWork, constant.ChannelTypeMiMo, constant.ChannelTypeZCode, constant.ChannelTypeQoder, constant.ChannelTypeXiaoyiWork:
-		return true
-	default:
-		return false
+func EncryptChannelKeyStrict(channelType int, key string) (string, error) {
+	if key == "" || common.IsEncryptedSecret(key) || common.IsPlainPrefixedSecret(key) {
+		return key, nil
 	}
+	return common.EncryptSecret(key)
+}
+
+// IsEncryptedChannelType is retained for callers that distinguish legacy data.
+// All newly written channel keys use the same versioned encrypted envelope.
+func IsEncryptedChannelType(channelType int) bool {
+	return true
 }
 
 // EncryptChannelKey 对账号型渠道凭据加密；其他类型/空值/已加密值原样返回（幂等）。
@@ -55,6 +56,44 @@ func EncryptCheckinCred(raw string) string {
 		return ""
 	}
 	return common.EncryptSecretBestEffort(raw)
+}
+
+// MigrateChannelCredentialStorage upgrades known legacy plaintext envelopes in
+// bounded batches. Current-version ciphertext and unreadable values are never overwritten.
+func MigrateChannelCredentialStorage(batchSize int) (int, error) {
+	if batchSize <= 0 || batchSize > 100 {
+		batchSize = 50
+	}
+	migrated := 0
+	for {
+		var channels []Channel
+		if err := DB.Select("id,type,key").Where("key <> '' AND key NOT LIKE ? AND key NOT LIKE ?", common.EncryptedSecretV2Prefix+"%", common.EncryptedSecretPrefix+"%").Order("id").Limit(batchSize).Find(&channels).Error; err != nil {
+			return migrated, err
+		}
+		if len(channels) == 0 {
+			return migrated, nil
+		}
+		for _, channel := range channels {
+			raw := DecryptChannelKey(channel.Type, channel.Key)
+			if raw == "" {
+				return migrated, fmt.Errorf("channel credential migration refused for channel %d", channel.Id)
+			}
+			encrypted, err := EncryptChannelKeyStrict(channel.Type, raw)
+			if err != nil || !common.IsEncryptedSecret(encrypted) {
+				return migrated, fmt.Errorf("channel credential migration failed for channel %d", channel.Id)
+			}
+			result := DB.Model(&Channel{}).Where("id = ? AND key = ?", channel.Id, channel.Key).Update("key", encrypted)
+			if result.Error != nil {
+				return migrated, result.Error
+			}
+			if result.RowsAffected == 1 {
+				migrated++
+			}
+		}
+		if len(channels) < batchSize {
+			return migrated, nil
+		}
+	}
 }
 
 // DecryptCheckinCred 解密签到账号独立凭据；历史明文原样返回。

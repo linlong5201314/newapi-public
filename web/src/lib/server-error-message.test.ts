@@ -94,6 +94,24 @@ describe('server error message mapping', () => {
     }
   })
 
+  test('renders the backend message object instead of the generic Axios status', () => {
+    expect(
+      getServerErrorMessage({
+        isAxiosError: true,
+        message: 'Request failed with status code 502',
+        response: {
+          status: 502,
+          data: {
+            success: false,
+            message: {
+              key: 'FreePi browser connection response could not be verified',
+            },
+          },
+        },
+      })
+    ).toBe('FreePi browser connection response could not be verified')
+  })
+
   test('renders an untranslated message_key as English text', () => {
     expect(
       getServerErrorMessage({

@@ -311,9 +311,9 @@ type ZCodePlanPreviewResult struct {
 
 // ZCodePlanClaimResult 领取响应。
 type ZCodePlanClaimResult struct {
-	Claimed   bool   `json:"claimed"`
-	PlanID    string `json:"plan_id"`
-	Message   string `json:"message,omitempty"`
+	Claimed bool   `json:"claimed"`
+	PlanID  string `json:"plan_id"`
+	Message string `json:"message,omitempty"`
 }
 
 const zcodePlanPreviewURL = ZCodeAPIBase + "/zcode-plan/billing/preview?app_version=" + ZCodeAppVersion
@@ -396,7 +396,7 @@ func ClaimZCodePlan(ctx context.Context, proxy string, credential *ZCodeCredenti
 		return nil, ErrDesktopLoginExpired
 	}
 	var envelope struct {
-		Code *int  `json:"code"`
+		Code *int   `json:"code"`
 		Msg  string `json:"msg"`
 		Data *struct {
 			Claimed *bool `json:"claimed"`

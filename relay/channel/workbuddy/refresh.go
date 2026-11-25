@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/model"
 )
 
 // refreshSkew 请求前刷新判定窗口（提前 10 分钟视为将过期）。
@@ -99,9 +101,13 @@ func refreshWithRedisLock(channelId int, cred *Cred) (*Cred, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
 	lockKey := fmt.Sprintf("wb:refresh:%d", channelId)
-	acquired, err := common.RDB.SetNX(ctx, lockKey, 1, redisRefreshLockTTL).Result()
-	if err == nil && acquired {
-		defer common.RDB.Del(ctx, lockKey)
+	lockToken := common.NewRequestId()
+	acquired, err := common.RDB.SetNX(ctx, lockKey, lockToken, redisRefreshLockTTL).Result()
+	if err != nil {
+		return nil, fmt.Errorf("workbuddy refresh coordination is unavailable")
+	}
+	if acquired {
+		defer common.RDB.Eval(context.Background(), `if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) end return 0`, []string{lockKey}, lockToken)
 		return doRefreshAndSave(channelId, cred)
 	}
 	// 未拿到锁：轮询 DB 等持锁节点写回（最长 ~12s）。
@@ -112,19 +118,27 @@ func refreshWithRedisLock(channelId int, cred *Cred) (*Cred, error) {
 			return latest, nil
 		}
 	}
-	// 兜底：锁可能已失效/持锁节点崩溃，自行刷新（反重放风险由 doJSON 的 12153 分类暴露）。
-	return doRefreshAndSave(channelId, cred)
+	// Never refresh with a stale token while another node owns the refresh.
+	return nil, fmt.Errorf("workbuddy credential refresh is in progress; retry shortly")
 }
 
 // doRefreshAndSave 执行刷新并写回 channels.key（调用方已保证串行）。
 func doRefreshAndSave(channelId int, cred *Cred) (*Cred, error) {
+	expectedKey := ""
+	if channelId > 0 {
+		stored, err := model.GetChannelById(channelId, true)
+		if err != nil || stored.Type != constant.ChannelTypeWorkBuddy {
+			return nil, fmt.Errorf("workbuddy channel credential is unavailable")
+		}
+		expectedKey = stored.Key
+	}
 	client := NewClient(cred)
 	newCred, err := client.refreshTokenOnce()
 	if err != nil {
 		return nil, err
 	}
 	if channelId > 0 {
-		if err := SaveCred(channelId, newCred); err != nil {
+		if err := saveCredCAS(channelId, expectedKey, newCred); err != nil {
 			common.SysLog("workbuddy refresh persist failed: " + err.Error())
 			return nil, err
 		}

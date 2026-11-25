@@ -364,8 +364,12 @@ func newResponsesWSBillingTest(t *testing.T, expression string, handle func(*web
 	fixture := &responsesWSBillingTest{user: user, token: token, done: make(chan struct{}), upstreamDone: make(chan struct{}), httpDone: make(chan struct{}, 1)}
 	redisServer := miniredis.RunT(t)
 	redisClient := redis.NewClient(&redis.Options{Addr: redisServer.Addr()})
+	previousRedis, previousRedisEnabled := common.RDB, common.RedisEnabled
 	common.RDB, common.RedisEnabled = redisClient, true
-	t.Cleanup(func() { require.NoError(t, redisClient.Close()) })
+	t.Cleanup(func() {
+		require.NoError(t, redisClient.Close())
+		common.RDB, common.RedisEnabled = previousRedis, previousRedisEnabled
+	})
 	var upstreamClosed sync.Once
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !websocket.IsWebSocketUpgrade(r) {
@@ -945,6 +949,9 @@ func TestResponsesStreamOutcomesPreserveAccounting(t *testing.T) {
 						assert.JSONEq(t, expected, string(actual), "upstream frames must be delivered once and unchanged")
 					}
 				}
+				if !tc.ignored {
+					waitPerfCounters(t, 1)
+				}
 				quotas := []int{1000}
 				if tc.failed {
 					// The first terminal must complete settlement and middleware before
@@ -955,7 +962,7 @@ func TestResponsesStreamOutcomesPreserveAccounting(t *testing.T) {
 				}
 				require.NoError(t, fixture.client.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","event_id":"limited","stream_id":"planner","model":"ws-billing","input":"limited"}`)))
 				limited := readResponsesWSTestEvent(t, fixture.client)
-				assert.Equal(t, float64(http.StatusTooManyRequests), limited["status"])
+				assert.Equal(t, float64(http.StatusTooManyRequests), limited["status"], limited)
 				assert.Equal(t, "planner", limited["stream_id"])
 				assert.Equal(t, "limited", limited["event_id"])
 				fixture.closeAndWait(t)

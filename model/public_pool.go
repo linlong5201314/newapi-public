@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )
 
@@ -256,6 +257,8 @@ func ListPublicChannelsForGroups(groups []string) ([]PublicChannelBrief, error) 
 // ChannelModelVisibleToOwner is shared by listing and both relay selection paths.
 // Platform channels belong to the platform, never to another user's private pool.
 // An explicit publicModels subset is fail-closed, including empty/malformed subsets.
+// ChannelModelVisibleToOwner controls model visibility. Routing also applies
+// ChannelSelectionTier so the public catalog and the relay share the same policy.
 func ChannelModelVisibleToOwner(channel *Channel, modelName string, ownerUserID int) bool {
 	if channel == nil || channel.Status != common.ChannelStatusEnabled {
 		return false
@@ -287,6 +290,29 @@ func ChannelModelVisibleToOwner(channel *Channel, modelName string, ownerUserID 
 // channel, or another user's channel explicitly shared (visibility=1). Platform
 // channels (owner_id=0) are catalog entries and deliberately excluded, so a model
 // reachable only through them still answers to the platform billing allowlist.
+// ChannelSelectionTier is the explicit trust-domain precedence shared by cache
+// and database routing. A public tenant channel is only a fallback.
+// ChannelSelectionTier returns the trust tier used by routing. A zero owner is
+// a platform channel, not an automatically routable tenant-owned channel.
+func ChannelSelectionTier(channel *Channel, ownerUserID int) int {
+	if channel == nil || channel.Status != common.ChannelStatusEnabled {
+		return -1
+	}
+	if channel.OwnerId == ownerUserID {
+		return 1
+	}
+	if channel.OwnerId == 0 {
+		if ownerUserID > 0 && !operation_setting.SelfChannelUsePublicFallback {
+			return -1
+		}
+		return 0
+	}
+	if channel.Visibility == 1 {
+		return 2
+	}
+	return -1
+}
+
 func ChannelModelTenantOwned(channel *Channel, ownerUserID int) bool {
 	if channel == nil {
 		return false
@@ -354,7 +380,7 @@ func GetModelChannelsForOwner(modelNames, groups []string, ownerUserID int) (map
 		return nil, err
 	}
 	for _, row := range rows {
-		if ChannelModelVisibleToOwner(&row.Channel, row.ModelName, ownerUserID) {
+		if ChannelModelVisibleToOwner(&row.Channel, row.ModelName, ownerUserID) && ChannelSelectionTier(&row.Channel, ownerUserID) >= 0 {
 			channel := row.Channel
 			result[row.ModelName] = append(result[row.ModelName], &channel)
 		}
