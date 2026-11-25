@@ -50,7 +50,6 @@ ENV PORT=3000 \
 
 # CRYPTO_SECRET is mandatory in release mode; missing keys fail startup.
 EXPOSE 3000
-VOLUME ["/data"]
 WORKDIR /data
 USER newapi:newapi
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
