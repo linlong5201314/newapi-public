@@ -29,6 +29,9 @@ const xiaoyiWorkExpiredMessage = "Xiaoyi Work authorization expired (valid for 1
 // Reporting every case as "expired" sent users to redo a sign-in that had
 // already failed or been consumed, which is the wrong fix for those cases.
 func xiaoyiWorkSessionProblem(state string) string {
+	if len(state) < 20 || len(state) > 128 {
+		return xiaoyiWorkExpiredMessage
+	}
 	prior, err := model.GetSelfOAuthSession(xiaoyiWorkStateHash(state), 0)
 	if err != nil || prior == nil || prior.Provider != constant.XiaoyiWorkTemplateID {
 		return xiaoyiWorkExpiredMessage
