@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { createMemoryHistory, createRootRoute, createRouter, RouterContextProvider } from '@tanstack/react-router'
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import i18next from 'i18next'
@@ -109,11 +110,19 @@ async function selectAllMyModels(user: ReturnType<typeof userEvent.setup>) {
 }
 
 function renderDialog() {
-  return render(
+  const router = createRouter({
+    routeTree: createRootRoute(),
+    history: createMemoryHistory({ initialEntries: ['/my-channels'] }),
+  })
+  const onOpenChange = vi.fn()
+  const view = render(
     <QueryClientProvider client={client}>
-      <FromTemplateDialog open onOpenChange={() => undefined} />
+      <RouterContextProvider router={router}>
+        <FromTemplateDialog open onOpenChange={onOpenChange} />
+      </RouterContextProvider>
     </QueryClientProvider>
   )
+  return { ...view, router, onOpenChange }
 }
 
 it('filters model names without dropping hidden selections and preserves public subset rules', async () => {
@@ -379,13 +388,14 @@ it('restores an unfinished Huawei authorization when the dialog is reopened', as
   }))
   const user = userEvent.setup()
   vi.mocked(api.post).mockResolvedValueOnce({ data: { success: true, data: { channelId: 12, models: ['restored-model'], unavailable_models: [], public_models: [] } } })
-  renderDialog()
+  const { router, onOpenChange } = renderDialog()
   await user.click(await screen.findByRole('button', { name: /Xiaoyi Work fixture/ }))
   expect(screen.getByLabelText('Authorization code')).toHaveValue('restored-code')
   await user.click(screen.getByRole('button', { name: 'Connect and sync models' }))
   expect(await screen.findByText('restored-model')).toBeVisible()
   expect(screen.getByText('Xiaoyi Work channel created in My channels. You can close this window or adjust models below.')).toBeVisible()
-  expect(screen.queryByRole('dialog')).toBeInTheDocument()
+  await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+  await waitFor(() => expect(router.state.location.search).toEqual({ filter: '华为小艺 Work' }))
   await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/channel/self/oauth/xiaoyiwork/complete', expect.objectContaining({ sessionId: 'restored-session', code: 'restored-code' }), expect.anything()))
 })
 

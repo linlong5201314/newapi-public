@@ -1,4 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from '@tanstack/react-router'
 import { ExternalLink, Loader2, LogIn, RefreshCw } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -62,9 +63,10 @@ function readDraft(userId?: number): AuthorizationDraft | null {
   }
 }
 
-export function XiaoyiWorkConnection() {
+export function XiaoyiWorkConnection(props: { onConnected?: () => void }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const userId = useAuthStore((state) => state.auth.user?.id)
   const pending = useRef(false)
   const [authorization, setAuthorization] = useState<AuthorizationStart | null>(() => readDraft(userId)?.authorization ?? null)
@@ -182,13 +184,22 @@ export function XiaoyiWorkConnection() {
       setUnavailable(response.data?.data?.unavailable_models ?? [])
       setSelectedModels(response.data?.data?.models ?? [])
       setDiscovered(true)
+      const firstConnection = !channelId
       setChannelId(response.data?.data?.channelId ?? channelId)
       setCallbackUrl('')
       setCode('')
-      toast.success(t(channelId ? 'Xiaoyi Work selection saved' : 'Xiaoyi Work channel connected'))
       await queryClient.invalidateQueries({ queryKey: channelsQueryKeys.all })
       await queryClient.refetchQueries({ queryKey: channelsQueryKeys.lists(), type: 'active' })
       void queryClient.invalidateQueries({ queryKey: PUBLIC_CATALOG_QUERY_KEY })
+      if (firstConnection) {
+        props.onConnected?.()
+        await navigate({
+          to: '/my-channels',
+          search: { filter: name.trim() || '华为小艺 Work' },
+          replace: true,
+        })
+      }
+      toast.success(t(channelId ? 'Xiaoyi Work selection saved' : 'Xiaoyi Work channel connected'))
     } catch (cause) {
       setError(cause)
     } finally {
