@@ -231,3 +231,46 @@ func TestXiaoyiWorkSharedRelayBillsTheCallingUser(t *testing.T) {
 	require.NoError(t, model.DB.Where("user_id = ? AND channel_id = ?", caller.Id, channel.Id).First(&chargedLog).Error)
 	assert.Equal(t, 500, chargedLog.Quota)
 }
+
+// A pending session that already failed or was consumed is not "expired".
+// Telling the user to wait out a window they are not in sends them in circles;
+// the message has to name the state that actually blocks the retry.
+func TestXiaoyiWorkReportsTheRealAuthorizationProblem(t *testing.T) {
+	identity := authClassSession(t, "https://gateway.example")
+	restore := service.SetXiaoyiWorkTransportForTest(xiaoyiWorkFakeTransport{t: t})
+	t.Cleanup(restore)
+	require.NoError(t, model.DB.AutoMigrate(&model.SelfOAuthSession{}))
+
+	startSession := func() string {
+		start := authClassRequest(identity, "https://gateway.example", SelfXiaoyiWorkOAuthStart, `{}`)
+		require.Contains(t, start.Body.String(), `"success":true`, start.Body.String())
+		var response struct {
+			Data struct {
+				SessionID string `json:"sessionId"`
+			} `json:"data"`
+		}
+		require.NoError(t, common.Unmarshal(start.Body.Bytes(), &response))
+		require.NotEmpty(t, response.Data.SessionID)
+		return response.Data.SessionID
+	}
+
+	failedState := startSession()
+	require.NoError(t, model.UpdateSelfOAuthSession(xiaoyiWorkStateHash(failedState), map[string]any{"status": "failed"}))
+	failed := authClassRequest(identity, "https://gateway.example", SelfXiaoyiWorkOAuthComplete, `{"sessionId":"`+failedState+`","code":"fixture-code"}`)
+	assert.Contains(t, failed.Body.String(), "previous Xiaoyi Work authorization attempt did not finish", failed.Body.String())
+	assert.NotContains(t, failed.Body.String(), "expired", failed.Body.String())
+
+	usedState := startSession()
+	complete := authClassRequest(identity, "https://gateway.example", SelfXiaoyiWorkOAuthComplete, `{"sessionId":"`+usedState+`","code":"fixture-code"}`)
+	require.Contains(t, complete.Body.String(), `"success":true`, complete.Body.String())
+	reused := authClassRequest(identity, "https://gateway.example", SelfXiaoyiWorkOAuthComplete, `{"sessionId":"`+usedState+`","code":"fixture-code"}`)
+	assert.Contains(t, reused.Body.String(), "already used", reused.Body.String())
+	assert.NotContains(t, reused.Body.String(), "expired", reused.Body.String())
+
+	cancelledState := startSession()
+	cancel := xiaoyiWorkAuthClassRequest(identity, "https://gateway.example", "/api/channel/self/oauth/xiaoyiwork/cancel", SelfXiaoyiWorkOAuthCancel, `{"sessionId":"`+cancelledState+`"}`)
+	require.Contains(t, cancel.Body.String(), `"success":true`, cancel.Body.String())
+	afterCancel := authClassRequest(identity, "https://gateway.example", SelfXiaoyiWorkOAuthComplete, `{"sessionId":"`+cancelledState+`","code":"fixture-code"}`)
+	assert.Contains(t, afterCancel.Body.String(), "was cancelled", afterCancel.Body.String())
+	assert.NotContains(t, afterCancel.Body.String(), "expired", afterCancel.Body.String())
+}

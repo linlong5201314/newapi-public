@@ -8584,6 +8584,10 @@
     "Zoom": "缩放",
     "You can use platform free models, models shared by other users, and your own channels. Create a channel and fetch its upstream models here; you can edit, test, share, or delete your own channels.": "你可以使用平台免费模型、其他用户公开的模型和自己的渠道。点击“创建渠道”可填写上游信息并获取模型；自己的渠道可编辑、测试、公开或删除。",
     "Open a channel name to manage it. Only superadministrators can manage all users and platform channels.": "点击渠道名称即可管理；只有超级管理员可以管理全部用户及平台渠道。",
-    "Xiaoyi Work authorization expired (valid for 15 minutes). Click Authorize Huawei account again and finish sign-in within 15 minutes": "小艺 Work 授权已过期（有效期 15 分钟）。请重新点击“授权华为账号”，并在 15 分钟内完成登录"
+    "Xiaoyi Work authorization expired (valid for 15 minutes). Click Authorize Huawei account again and finish sign-in within 15 minutes": "小艺 Work 授权已过期（有效期 15 分钟）。请重新点击“授权华为账号”，并在 15 分钟内完成登录",
+    "The previous Xiaoyi Work authorization attempt did not finish. Click Authorize Huawei account again": "上次小艺 Work 授权没有完成。请重新点击“授权华为账号”",
+    "This Xiaoyi Work authorization was already used. Click Authorize Huawei account again": "这次小艺 Work 授权已经用过了。请重新点击“授权华为账号”",
+    "Xiaoyi Work authorization is already being completed": "小艺 Work 授权正在处理中，请稍等",
+    "Xiaoyi Work authorization was cancelled. Click Authorize Huawei account again": "小艺 Work 授权已取消。请重新点击“授权华为账号”"
   }
 }

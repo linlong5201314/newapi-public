@@ -23,6 +23,29 @@ import (
 // user was still on the official page.
 const xiaoyiWorkLoginTTL = 15 * time.Minute
 
+const xiaoyiWorkExpiredMessage = "Xiaoyi Work authorization expired (valid for 15 minutes). Click Authorize Huawei account again and finish sign-in within 15 minutes"
+
+// xiaoyiWorkSessionProblem explains why a pending session could not be resumed.
+// Reporting every case as "expired" sent users to redo a sign-in that had
+// already failed or been consumed, which is the wrong fix for those cases.
+func xiaoyiWorkSessionProblem(state string) string {
+	prior, err := model.GetSelfOAuthSession(xiaoyiWorkStateHash(state), 0)
+	if err != nil || prior == nil || prior.Provider != constant.XiaoyiWorkTemplateID {
+		return xiaoyiWorkExpiredMessage
+	}
+	switch prior.Status {
+	case "failed":
+		return "The previous Xiaoyi Work authorization attempt did not finish. Click Authorize Huawei account again"
+	case "done":
+		return "This Xiaoyi Work authorization was already used. Click Authorize Huawei account again"
+	case "exchanging":
+		return "Xiaoyi Work authorization is already being completed"
+	case "cancelled":
+		return "Xiaoyi Work authorization was cancelled. Click Authorize Huawei account again"
+	}
+	return xiaoyiWorkExpiredMessage
+}
+
 type xiaoyiWorkLoginState struct {
 	Identity       model.AuthSessionIdentity `json:"identity"`
 	Verifier       string                    `json:"verifier"`
@@ -135,7 +158,7 @@ func SelfXiaoyiWorkOAuthComplete(c *gin.Context) {
 	}
 	flow, options, err := xiaoyiWorkLoginSession(state)
 	if err != nil || flow == nil {
-		common.ApiErrorMsg(c, "Xiaoyi Work authorization expired (valid for 15 minutes). Click Authorize Huawei account again and finish sign-in within 15 minutes")
+		common.ApiErrorMsg(c, xiaoyiWorkSessionProblem(state))
 		return
 	}
 	if options.Identity.UserID != c.GetInt("id") {
@@ -248,7 +271,7 @@ func SelfXiaoyiWorkOAuthPoll(c *gin.Context) {
 	state := strings.TrimSpace(c.Query("sessionId"))
 	flow, _, err := xiaoyiWorkLoginSessionWithTerminal(state, true)
 	if err != nil || flow == nil || flow.Phone != strconv.Itoa(c.GetInt("id")) {
-		common.ApiErrorMsg(c, "Xiaoyi Work authorization expired (valid for 15 minutes). Click Authorize Huawei account again and finish sign-in within 15 minutes")
+		common.ApiErrorMsg(c, xiaoyiWorkSessionProblem(state))
 		return
 	}
 	channelID, _ := strconv.Atoi(flow.AccountID)
@@ -276,7 +299,7 @@ func SelfXiaoyiWorkOAuthCancel(c *gin.Context) {
 	}
 	flow, options, err := xiaoyiWorkLoginSession(request.SessionID)
 	if err != nil || flow == nil || options.Identity.UserID != c.GetInt("id") {
-		common.ApiErrorMsg(c, "Xiaoyi Work authorization expired (valid for 15 minutes). Click Authorize Huawei account again and finish sign-in within 15 minutes")
+		common.ApiErrorMsg(c, xiaoyiWorkSessionProblem(request.SessionID))
 		return
 	}
 	result := model.DB.Model(&model.SelfOAuthSession{}).Where("state = ? AND provider = ? AND status = ?", flow.State, constant.XiaoyiWorkTemplateID, "pending").Updates(map[string]any{"status": "cancelled", "refresh": ""})
