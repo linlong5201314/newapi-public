@@ -186,8 +186,8 @@ export function XiaoyiWorkConnection() {
       setCallbackUrl('')
       setCode('')
       toast.success(t(channelId ? 'Xiaoyi Work selection saved' : 'Xiaoyi Work channel connected'))
-      void queryClient.invalidateQueries({ queryKey: channelsQueryKeys.all })
-      void queryClient.refetchQueries({ queryKey: channelsQueryKeys.all, type: 'active' })
+      await queryClient.invalidateQueries({ queryKey: channelsQueryKeys.all })
+      await queryClient.refetchQueries({ queryKey: channelsQueryKeys.lists(), type: 'active' })
       void queryClient.invalidateQueries({ queryKey: PUBLIC_CATALOG_QUERY_KEY })
     } catch (cause) {
       setError(cause)

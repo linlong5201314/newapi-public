@@ -52,6 +52,22 @@ export const CHANNEL_TYPE_TRAE = 66
 
 export const CHANNEL_TYPE_CLINE = 67
 
+export const CHANNEL_TYPE_RACCOON = 68
+
+export const CHANNEL_TYPE_FREE_PI = 69
+
+export const CHANNEL_TYPE_KIMI_WORK = 70
+
+export const CHANNEL_TYPE_MIMO = 71
+
+export const CHANNEL_TYPE_ZCODE = 72
+
+export const CHANNEL_TYPE_QODER = 73
+
+export const CHANNEL_TYPE_NOUS_PORTAL = 74
+
+export const CHANNEL_TYPE_XIAOYI_WORK = 76
+
 export const CHANNEL_TYPES = {
   0: 'Unknown',
   1: 'OpenAI',
@@ -116,6 +132,14 @@ export const CHANNEL_TYPES = {
   65: 'WorkBuddy',
   66: 'Trae',
   67: 'Cline',
+  68: '商汤小浣熊',
+  69: 'FreePi',
+  70: 'Kimi Work',
+  71: 'Xiaomi MiMo',
+  72: 'ZCode Start Plan',
+  73: 'Qoder',
+  74: 'Nous Portal',
+  76: '华为小艺 Work',
 } as const
 
 export type ChannelProviderPresentation = {
@@ -214,6 +238,14 @@ export const CHANNEL_PROVIDER_PRESENTATION: Partial<
       'Connect to Cline with a WorkOS credential; the gateway injects the required client fingerprint headers',
     badge: { labelKey: 'Account login', tone: 'primary' },
   },
+  68: { descriptionKey: 'Connect to a Raccoon account', badge: { labelKey: 'Account login', tone: 'primary' } },
+  69: { descriptionKey: 'Connect to FreePi account authorization', badge: { labelKey: 'Account login', tone: 'primary' } },
+  70: { descriptionKey: 'Connect to a Kimi Work account', badge: { labelKey: 'Account login', tone: 'primary' } },
+  71: { descriptionKey: 'Connect to a Xiaomi MiMo account', badge: { labelKey: 'Account login', tone: 'primary' } },
+  72: { descriptionKey: 'Connect to a ZCode Start Plan account', badge: { labelKey: 'Account login', tone: 'primary' } },
+  73: { descriptionKey: 'Connect to a Qoder account', badge: { labelKey: 'Account login', tone: 'primary' } },
+  74: { descriptionKey: 'Connect to a Nous Portal account', badge: { labelKey: 'Account login', tone: 'primary' } },
+  76: { descriptionKey: 'Connect to Huawei Xiaoyi Work and synchronize account models', badge: { labelKey: 'Account login', tone: 'primary' } },
 } satisfies Record<
   Exclude<keyof typeof CHANNEL_TYPES, 0 | typeof CHANNEL_TYPE_TASK_PLUGIN>,
   ChannelProviderPresentation
@@ -222,7 +254,8 @@ export const CHANNEL_PROVIDER_PRESENTATION: Partial<
 const CHANNEL_TYPE_DISPLAY_ORDER: number[] = [
   1, 14, 24, 33, 43, 3, 41, 17, 45, 25, 26, 23, 48, 60, 58, 59, 61, 42, 34, 20,
   4, 62, 40, 27, 15, 46, 18, 31, 35, 49, 19, 47, 37, 38, 39, 11, 8, 57, 22, 21,
-  44, 2, 5, 36, 50, 51, 52, 53, 54, 55, 56, 63, 65, 66, 67,
+  44, 2, 5, 36, 50, 51, 52, 53, 54, 55, 56, 63, 65, 66, 67, 68, 69, 70, 71, 72,
+  73, 74, 76,
 ]
 
 export const CHANNEL_TYPE_OPTIONS: { value: number; label: string }[] = (() => {

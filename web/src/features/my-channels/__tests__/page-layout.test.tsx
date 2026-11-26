@@ -14,6 +14,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { api } from '@/lib/api'
 
 import { MyChannels } from '../index'
+import { channelSchema } from '../types'
 
 vi.mock('@/lib/api', () => ({
   api: { get: vi.fn(), post: vi.fn(), put: vi.fn() },
@@ -65,6 +66,36 @@ async function renderPage() {
     </QueryClientProvider>
   )
 }
+
+it('shows a newly connected Xiaoyi Work channel with its real type instead of Unknown', async () => {
+  const channel = channelSchema.parse({
+    id: 103,
+    type: 76,
+    key: '',
+    name: '华为小艺 Work',
+    status: 1,
+    models: 'DeepSeek_V4.1_Flash_VE',
+    group: 'default',
+    created_time: 1,
+    test_time: 0,
+    response_time: 0,
+    balance_updated_time: 0,
+  })
+  vi.mocked(api.get).mockImplementation(async (url) => {
+    if (url === '/api/channel/self/') {
+      return { data: { success: true, data: { items: [channel], total: 1 } } }
+    }
+    if (url === '/api/channel/self/free_usage') {
+      return { data: { success: true, data: [] } }
+    }
+    return { data: { success: true, data: [] } }
+  })
+  await renderPage()
+  expect(await screen.findByRole('button', { name: '华为小艺 Work' })).toBeVisible()
+  expect(screen.getAllByText('华为小艺 Work').length).toBeGreaterThan(1)
+  expect(screen.queryByText('Unknown')).not.toBeInTheDocument()
+  expect(screen.getByText('1 models')).toBeVisible()
+})
 
 it('shows the primary channel list before quota and keeps optional Magpie collapsed below it', async () => {
   await renderPage()
