@@ -3311,7 +3311,7 @@
     "footer.columns.related.links.oneApi": "1つのAPI",
     "footer.columns.related.title": "関連プロジェクト",
     "footer.defaultCopyright": "すべての権利を留保します。",
-    "footer.new\u0061pi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
+    "footer.newapi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
     "For advanced custom channels this applies only to /v1/responses routes without protocol conversion.": "高度なカスタムチャネルでは、プロトコル変換を行わない /v1/responses ルートにのみ適用されます。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "2025 年 5 月 10 日以降に追加されたチャネルの場合、デプロイ時にモデル名から「.」を削除する必要はありません",
     "For private deployments, format: https://fastgpt.run/api/openapi": "プライベートデプロイメントの場合、形式: https://fastgpt.run/api/openapi",
@@ -8583,6 +8583,11 @@
     "Zone that owns the primary domain. Leave blank to keep the current value.": "Zone that owns the primary domain. Leave blank to keep the current value.",
     "Zoom": "ズーム",
     "You can use platform free models, models shared by other users, and your own channels. Create a channel and fetch its upstream models here; you can edit, test, share, or delete your own channels.": "You can use platform free models, models shared by other users, and your own channels. Create a channel and fetch its upstream models here; you can edit, test, share, or delete your own channels.",
-    "Open a channel name to manage it. Only superadministrators can manage all users and platform channels.": "Open a channel name to manage it. Only superadministrators can manage all users and platform channels."
+    "Open a channel name to manage it. Only superadministrators can manage all users and platform channels.": "Open a channel name to manage it. Only superadministrators can manage all users and platform channels.",
+    "The previous Xiaoyi Work authorization attempt did not finish. Click Authorize Huawei account again": "前回の Xiaoyi Work 認証が完了していません。「Huawei アカウントを認証」を再度クリックしてください",
+    "This Xiaoyi Work authorization was already used. Click Authorize Huawei account again": "この Xiaoyi Work 認証はすでに使用済みです。「Huawei アカウントを認証」を再度クリックしてください",
+    "Xiaoyi Work authorization is already being completed": "Xiaoyi Work 認証を処理中です。しばらくお待ちください",
+    "Xiaoyi Work authorization was cancelled. Click Authorize Huawei account again": "Xiaoyi Work 認証はキャンセルされました。「Huawei アカウントを認証」を再度クリックしてください",
+    "Xiaoyi Work authorization expired (valid for 15 minutes). Click Authorize Huawei account again and finish sign-in within 15 minutes": "Xiaoyi Work 認証の有効期限が切れました（有効期間 15 分）。「Huawei アカウントを認証」を再度クリックし、15 分以内にサインインを完了してください"
   }
 }

@@ -3311,7 +3311,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "Các Dự Án Liên Quan",
     "footer.defaultCopyright": "Bản quyền được bảo lưu.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Bản quyền được bảo lưu. Được thiết kế và phát triển bởi các cộng tác viên dự án.",
+    "footer.newapi.projectAttributionSuffix": "Bản quyền được bảo lưu. Được thiết kế và phát triển bởi các cộng tác viên dự án.",
     "For advanced custom channels this applies only to /v1/responses routes without protocol conversion.": "Với kênh tùy chỉnh nâng cao, thiết lập này chỉ áp dụng cho các route /v1/responses không chuyển đổi giao thức.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Đối với các kênh được thêm sau ngày 10 tháng 5 năm 2025, không cần loại bỏ \".\" khỏi tên mô hình trong quá trình triển khai",
     "For private deployments, format: https://fastgpt.run/api/openapi": "Đối với các triển khai riêng tư, định dạng: https://fastgpt.run/api/openapi",
@@ -8583,6 +8583,11 @@
     "Zone that owns the primary domain. Leave blank to keep the current value.": "Zone that owns the primary domain. Leave blank to keep the current value.",
     "Zoom": "Zoom",
     "You can use platform free models, models shared by other users, and your own channels. Create a channel and fetch its upstream models here; you can edit, test, share, or delete your own channels.": "You can use platform free models, models shared by other users, and your own channels. Create a channel and fetch its upstream models here; you can edit, test, share, or delete your own channels.",
-    "Open a channel name to manage it. Only superadministrators can manage all users and platform channels.": "Open a channel name to manage it. Only superadministrators can manage all users and platform channels."
+    "Open a channel name to manage it. Only superadministrators can manage all users and platform channels.": "Open a channel name to manage it. Only superadministrators can manage all users and platform channels.",
+    "The previous Xiaoyi Work authorization attempt did not finish. Click Authorize Huawei account again": "Lần ủy quyền Xiaoyi Work trước chưa hoàn tất. Hãy bấm lại \"Ủy quyền tài khoản Huawei\"",
+    "This Xiaoyi Work authorization was already used. Click Authorize Huawei account again": "Lần ủy quyền Xiaoyi Work này đã được dùng. Hãy bấm lại \"Ủy quyền tài khoản Huawei\"",
+    "Xiaoyi Work authorization is already being completed": "Ủy quyền Xiaoyi Work đang được xử lý, vui lòng đợi",
+    "Xiaoyi Work authorization was cancelled. Click Authorize Huawei account again": "Ủy quyền Xiaoyi Work đã bị hủy. Hãy bấm lại \"Ủy quyền tài khoản Huawei\"",
+    "Xiaoyi Work authorization expired (valid for 15 minutes). Click Authorize Huawei account again and finish sign-in within 15 minutes": "Ủy quyền Xiaoyi Work đã hết hạn (hiệu lực 15 phút). Hãy bấm lại \"Ủy quyền tài khoản Huawei\" và hoàn tất đăng nhập trong 15 phút"
   }
 }

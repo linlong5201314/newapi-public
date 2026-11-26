@@ -3311,7 +3311,7 @@
     "footer.columns.related.links.oneApi": "Один API",
     "footer.columns.related.title": "Связанные проекты",
     "footer.defaultCopyright": "Все права защищены.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Все права защищены. Разработано участниками проекта.",
+    "footer.newapi.projectAttributionSuffix": "Все права защищены. Разработано участниками проекта.",
     "For advanced custom channels this applies only to /v1/responses routes without protocol conversion.": "Для расширенных пользовательских каналов это действует только для маршрутов /v1/responses без преобразования протокола.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Для каналов, добавленных после 10 мая 2025 г., не нужно удалять \".\" из имён моделей при развёртывании",
     "For private deployments, format: https://fastgpt.run/api/openapi": "Для частных развертываний, формат: https://fastgpt.run/api/openapi",
@@ -8583,6 +8583,11 @@
     "Zone that owns the primary domain. Leave blank to keep the current value.": "Zone that owns the primary domain. Leave blank to keep the current value.",
     "Zoom": "Zoom",
     "You can use platform free models, models shared by other users, and your own channels. Create a channel and fetch its upstream models here; you can edit, test, share, or delete your own channels.": "You can use platform free models, models shared by other users, and your own channels. Create a channel and fetch its upstream models here; you can edit, test, share, or delete your own channels.",
-    "Open a channel name to manage it. Only superadministrators can manage all users and platform channels.": "Open a channel name to manage it. Only superadministrators can manage all users and platform channels."
+    "Open a channel name to manage it. Only superadministrators can manage all users and platform channels.": "Open a channel name to manage it. Only superadministrators can manage all users and platform channels.",
+    "The previous Xiaoyi Work authorization attempt did not finish. Click Authorize Huawei account again": "Предыдущая авторизация Xiaoyi Work не завершилась. Нажмите «Авторизовать аккаунт Huawei» ещё раз",
+    "This Xiaoyi Work authorization was already used. Click Authorize Huawei account again": "Эта авторизация Xiaoyi Work уже использована. Нажмите «Авторизовать аккаунт Huawei» ещё раз",
+    "Xiaoyi Work authorization is already being completed": "Авторизация Xiaoyi Work уже выполняется, подождите",
+    "Xiaoyi Work authorization was cancelled. Click Authorize Huawei account again": "Авторизация Xiaoyi Work отменена. Нажмите «Авторизовать аккаунт Huawei» ещё раз",
+    "Xiaoyi Work authorization expired (valid for 15 minutes). Click Authorize Huawei account again and finish sign-in within 15 minutes": "Срок авторизации Xiaoyi Work истёк (действует 15 минут). Нажмите «Авторизовать аккаунт Huawei» и завершите вход в течение 15 минут"
   }
 }

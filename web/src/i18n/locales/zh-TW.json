@@ -3311,7 +3311,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "相關項目",
     "footer.defaultCopyright": "版權所有。",
-    "footer.new\u0061pi.projectAttributionSuffix": "版權所有，由項目貢獻者設計與開發。",
+    "footer.newapi.projectAttributionSuffix": "版權所有，由項目貢獻者設計與開發。",
     "For advanced custom channels this applies only to /v1/responses routes without protocol conversion.": "進階自訂渠道僅對 /v1/responses 且不做協定轉換的路由生效。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "對於 2025 年 5 月 10 日之後新增的渠道，在部署時無需從模型名稱中移除 \".\"",
     "For private deployments, format: https://fastgpt.run/api/openapi": "對於私有部署，格式為：https://fastgpt.run/api/openapi",
@@ -8583,6 +8583,11 @@
     "Zone that owns the primary domain. Leave blank to keep the current value.": "Zone that owns the primary domain. Leave blank to keep the current value.",
     "Zoom": "縮放",
     "You can use platform free models, models shared by other users, and your own channels. Create a channel and fetch its upstream models here; you can edit, test, share, or delete your own channels.": "You can use platform free models, models shared by other users, and your own channels. Create a channel and fetch its upstream models here; you can edit, test, share, or delete your own channels.",
-    "Open a channel name to manage it. Only superadministrators can manage all users and platform channels.": "Open a channel name to manage it. Only superadministrators can manage all users and platform channels."
+    "Open a channel name to manage it. Only superadministrators can manage all users and platform channels.": "Open a channel name to manage it. Only superadministrators can manage all users and platform channels.",
+    "The previous Xiaoyi Work authorization attempt did not finish. Click Authorize Huawei account again": "上次小藝 Work 授權沒有完成。請重新點擊「授權華為帳號」",
+    "This Xiaoyi Work authorization was already used. Click Authorize Huawei account again": "這次小藝 Work 授權已經用過了。請重新點擊「授權華為帳號」",
+    "Xiaoyi Work authorization is already being completed": "小藝 Work 授權正在處理中，請稍等",
+    "Xiaoyi Work authorization was cancelled. Click Authorize Huawei account again": "小藝 Work 授權已取消。請重新點擊「授權華為帳號」",
+    "Xiaoyi Work authorization expired (valid for 15 minutes). Click Authorize Huawei account again and finish sign-in within 15 minutes": "小藝 Work 授權已過期（有效期 15 分鐘）。請重新點擊「授權華為帳號」，並在 15 分鐘內完成登入"
   }
 }
