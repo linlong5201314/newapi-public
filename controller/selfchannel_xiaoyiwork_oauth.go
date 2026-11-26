@@ -18,7 +18,10 @@ import (
 	"gorm.io/gorm"
 )
 
-const xiaoyiWorkLoginTTL = 5 * time.Minute
+// Huawei sign-in plus SMS verification routinely takes longer than five
+// minutes, so a short window made the callback look expired even though the
+// user was still on the official page.
+const xiaoyiWorkLoginTTL = 15 * time.Minute
 
 type xiaoyiWorkLoginState struct {
 	Identity       model.AuthSessionIdentity `json:"identity"`
@@ -132,7 +135,7 @@ func SelfXiaoyiWorkOAuthComplete(c *gin.Context) {
 	}
 	flow, options, err := xiaoyiWorkLoginSession(state)
 	if err != nil || flow == nil {
-		common.ApiErrorMsg(c, "Xiaoyi Work authorization expired. Start again")
+		common.ApiErrorMsg(c, "Xiaoyi Work authorization expired (valid for 15 minutes). Click Authorize Huawei account again and finish sign-in within 15 minutes")
 		return
 	}
 	if options.Identity.UserID != c.GetInt("id") {
@@ -245,7 +248,7 @@ func SelfXiaoyiWorkOAuthPoll(c *gin.Context) {
 	state := strings.TrimSpace(c.Query("sessionId"))
 	flow, _, err := xiaoyiWorkLoginSessionWithTerminal(state, true)
 	if err != nil || flow == nil || flow.Phone != strconv.Itoa(c.GetInt("id")) {
-		common.ApiErrorMsg(c, "Xiaoyi Work authorization expired. Start again")
+		common.ApiErrorMsg(c, "Xiaoyi Work authorization expired (valid for 15 minutes). Click Authorize Huawei account again and finish sign-in within 15 minutes")
 		return
 	}
 	channelID, _ := strconv.Atoi(flow.AccountID)
@@ -273,7 +276,7 @@ func SelfXiaoyiWorkOAuthCancel(c *gin.Context) {
 	}
 	flow, options, err := xiaoyiWorkLoginSession(request.SessionID)
 	if err != nil || flow == nil || options.Identity.UserID != c.GetInt("id") {
-		common.ApiErrorMsg(c, "Xiaoyi Work authorization expired. Start again")
+		common.ApiErrorMsg(c, "Xiaoyi Work authorization expired (valid for 15 minutes). Click Authorize Huawei account again and finish sign-in within 15 minutes")
 		return
 	}
 	result := model.DB.Model(&model.SelfOAuthSession{}).Where("state = ? AND provider = ? AND status = ?", flow.State, constant.XiaoyiWorkTemplateID, "pending").Updates(map[string]any{"status": "cancelled", "refresh": ""})
