@@ -34,6 +34,29 @@ type AuthorizationStart = {
   authUrl: string
   callbackPort: number
   callbackPath: string
+  expiresIn?: number
+  startedAt?: number
+}
+
+const EXPIRED_AUTHORIZATION_MESSAGE =
+  'Xiaoyi Work authorization expired (valid for 15 minutes). Click Authorize Huawei account again and finish sign-in within 15 minutes'
+
+// The server keeps a pending authorization for a fixed window. Restoring an
+// older draft only reproduces "authorization expired" for a session that can no
+// longer complete, so such a draft is dropped and the user starts over.
+const DEFAULT_AUTHORIZATION_TTL_SECONDS = 15 * 60
+const AUTHORIZATION_SAFETY_MS = 15_000
+
+function authorizationDeadline(authorization: AuthorizationStart | null) {
+  if (!authorization?.startedAt) return 0
+  const ttl = (authorization.expiresIn ?? DEFAULT_AUTHORIZATION_TTL_SECONDS) * 1000
+  return authorization.startedAt + ttl
+}
+
+function authorizationRemainingMs(authorization: AuthorizationStart | null) {
+  const deadline = authorizationDeadline(authorization)
+  if (!deadline) return 0
+  return deadline - Date.now() - AUTHORIZATION_SAFETY_MS
 }
 
 const draftKey = 'new-api:xiaoyiwork:authorization-draft'
@@ -49,6 +72,7 @@ type AuthorizationDraft = {
   code: string
   name: string
   channelId: number | null
+  savedAt?: number
 }
 
 function readDraft(userId?: number): AuthorizationDraft | null {
@@ -57,7 +81,21 @@ function readDraft(userId?: number): AuthorizationDraft | null {
     if (!value) return null
     const draft = JSON.parse(value) as AuthorizationDraft
     if (draft.userId !== undefined && draft.userId !== userId) return null
-    return draft.authorization?.sessionId && draft.authorization.authUrl ? draft : null
+    if (!draft.authorization?.sessionId || !draft.authorization.authUrl) return null
+    // A channel that already exists is managed through the visibility endpoint,
+    // so only the pending authorization itself has to be alive.
+    if (draft.channelId) return draft
+    // Drafts written before the start time was recorded carry only the save
+    // time; drafts older than both predate this check and are left to the
+    // server, which is the authority on whether the session still exists.
+    const startedAt = draft.authorization.startedAt ?? draft.savedAt
+    if (!startedAt) return draft
+    const restored = { ...draft, authorization: { ...draft.authorization, startedAt } }
+    if (authorizationRemainingMs(restored.authorization) <= 0) {
+      sessionStorage.removeItem(draftKeyForUser(userId))
+      return null
+    }
+    return restored
   } catch {
     return null
   }
@@ -115,7 +153,7 @@ export function XiaoyiWorkConnection(props: { onConnected?: () => void }) {
       sessionStorage.removeItem(draftKeyForUser(userId))
       return
     }
-    sessionStorage.setItem(draftKeyForUser(userId), JSON.stringify({ userId, authorization, callbackUrl, code, name, channelId } satisfies AuthorizationDraft))
+    sessionStorage.setItem(draftKeyForUser(userId), JSON.stringify({ userId, authorization, callbackUrl, code, name, channelId, savedAt: authorization.startedAt ?? Date.now() } satisfies AuthorizationDraft))
   }, [authorization, callbackUrl, code, name, channelId, userId])
 
   async function startAuthorization() {
@@ -141,7 +179,7 @@ export function XiaoyiWorkConnection(props: { onConnected?: () => void }) {
       if (target.protocol !== 'https:' || target.hostname !== 'oauth-login.cloud.huawei.com' || target.port || target.username || target.password) {
         throw new Error(t('The authorization URL is not from the official provider'))
       }
-      setAuthorization(next)
+      setAuthorization({ ...next, startedAt: Date.now() })
       const popup = window.open(next.authUrl, '_blank', 'noopener,noreferrer')
       if (!popup) toast.info(t('Open the authorization link below in your browser'))
     } catch (cause) {
@@ -155,6 +193,14 @@ export function XiaoyiWorkConnection(props: { onConnected?: () => void }) {
   async function connect() {
     if (!authorization || (!channelId && !callbackUrl.trim() && !code.trim()) || pending.current) return
     if (publicModels.length > 0 && !shareConfirmed) return
+    if (!channelId && authorizationRemainingMs(authorization) <= 0) {
+      setAuthorization(null)
+      setCallbackUrl('')
+      setCode('')
+      sessionStorage.removeItem(draftKeyForUser(userId))
+      setError(new Error(EXPIRED_AUTHORIZATION_MESSAGE))
+      return
+    }
     pending.current = true
     setBusy('connect')
     setError(null)

@@ -398,7 +398,7 @@ it('reports a failed Xiaoyi authorization instead of claiming the channel connec
 
 it('restores an unfinished Huawei authorization when the dialog is reopened', async () => {
   sessionStorage.setItem('new-api:xiaoyiwork:authorization-draft:anonymous', JSON.stringify({
-    authorization: { sessionId: 'restored-session', authUrl: 'https://oauth-login.cloud.huawei.com/oauth2/v3/authorize?state=restored', callbackPort: 17355, callbackPath: '/auth/callback' },
+    authorization: { sessionId: 'restored-session', authUrl: 'https://oauth-login.cloud.huawei.com/oauth2/v3/authorize?state=restored', callbackPort: 17355, callbackPath: '/auth/callback', startedAt: Date.now() },
     callbackUrl: '', code: 'restored-code', name: '', channelId: null,
   }))
   const user = userEvent.setup()
@@ -412,6 +412,21 @@ it('restores an unfinished Huawei authorization when the dialog is reopened', as
   await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
   await waitFor(() => expect(router.state.location.search).toEqual({ filter: '华为小艺 Work' }))
   await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/channel/self/oauth/xiaoyiwork/complete', expect.objectContaining({ sessionId: 'restored-session', code: 'restored-code' }), expect.anything()))
+})
+
+it('drops an expired Huawei authorization draft instead of submitting a dead session', async () => {
+  sessionStorage.setItem('new-api:xiaoyiwork:authorization-draft:anonymous', JSON.stringify({
+    authorization: { sessionId: 'stale-session', authUrl: 'https://oauth-login.cloud.huawei.com/oauth2/v3/authorize?state=stale', callbackPort: 17355, callbackPath: '/auth/callback', expiresIn: 900, startedAt: Date.now() - 16 * 60_000 },
+    callbackUrl: '', code: 'stale-code', name: '', channelId: null,
+  }))
+  const user = userEvent.setup()
+  const { onOpenChange } = renderDialog()
+  await user.click(await screen.findByRole('button', { name: /Xiaoyi Work fixture/ }))
+  expect(await screen.findByRole('button', { name: 'Authorize Huawei account' })).toBeVisible()
+  expect(screen.queryByLabelText('Authorization code')).not.toBeInTheDocument()
+  expect(sessionStorage.getItem('new-api:xiaoyiwork:authorization-draft:anonymous')).toBeNull()
+  expect(api.post).not.toHaveBeenCalled()
+  expect(onOpenChange).not.toHaveBeenCalledWith(false)
 })
 
 it('uses ZCode native consent without the generic token submit or unauthenticated model fetch', async () => {
