@@ -36,22 +36,24 @@ func logFilterFromQuery(c *gin.Context, admin bool) model.LogFilter {
 	return filter
 }
 
-// limitLogTimeRange returns the start of a log or dashboard search kept within
-// the longest log time range. A missing start reaches back the whole range, and
-// time after now does not count toward it.
-func limitLogTimeRange(startTimestamp int64, endTimestamp int64) (int64, error) {
+// limitLogTimeRange returns a log or dashboard search range kept within the
+// longest log time range. A missing start reaches back the whole range, and
+// time after now does not count toward it. The clamped end is returned as well:
+// queries compare `created_at <= end`, so a caller that kept the raw value would
+// turn an omitted end into `created_at <= 0` and read nothing.
+func limitLogTimeRange(startTimestamp int64, endTimestamp int64) (int64, int64, error) {
 	maxRange := operation_setting.GetLogSetting().MaxRangeSeconds()
 	end := common.GetTimestamp()
 	if endTimestamp != 0 {
 		end = min(end, endTimestamp)
 	}
 	if startTimestamp == 0 {
-		return end - maxRange, nil
+		return end - maxRange, end, nil
 	}
 	if end-startTimestamp > maxRange {
-		return 0, common.NewMessage("The time range cannot exceed {{days}} days", map[string]any{"days": maxRange / (24 * 60 * 60)})
+		return 0, 0, common.NewMessage("The time range cannot exceed {{days}} days", map[string]any{"days": maxRange / (24 * 60 * 60)})
 	}
-	return startTimestamp, nil
+	return startTimestamp, end, nil
 }
 
 func GetAllLogs(c *gin.Context) {
@@ -76,12 +78,13 @@ func GetUserLogs(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	filter := logFilterFromQuery(c, false)
 	if c.GetInt("role") < common.RoleAdminUser {
-		startTimestamp, err := limitLogTimeRange(filter.StartTimestamp, filter.EndTimestamp)
+		startTimestamp, endTimestamp, err := limitLogTimeRange(filter.StartTimestamp, filter.EndTimestamp)
 		if err != nil {
 			common.ApiError(c, err)
 			return
 		}
 		filter.StartTimestamp = startTimestamp
+		filter.EndTimestamp = endTimestamp
 	}
 	logs, total, err := model.GetUserLogs(c.GetInt("id"), filter, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
@@ -114,12 +117,13 @@ func ExportUserLogs(c *gin.Context) {
 // range.
 func exportLogs(c *gin.Context, all bool) {
 	filter := logFilterFromQuery(c, all)
-	startTimestamp, err := limitLogTimeRange(filter.StartTimestamp, filter.EndTimestamp)
+	startTimestamp, endTimestamp, err := limitLogTimeRange(filter.StartTimestamp, filter.EndTimestamp)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	filter.StartTimestamp = startTimestamp
+	filter.EndTimestamp = endTimestamp
 
 	userId := c.GetInt("id")
 	release, ok, err := service.AcquireLogExportLock(userId)
@@ -234,7 +238,7 @@ func GetLogsSelfStat(c *gin.Context) {
 	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
 	if c.GetInt("role") < common.RoleAdminUser {
 		var err error
-		if startTimestamp, err = limitLogTimeRange(startTimestamp, endTimestamp); err != nil {
+		if startTimestamp, endTimestamp, err = limitLogTimeRange(startTimestamp, endTimestamp); err != nil {
 			common.ApiError(c, err)
 			return
 		}

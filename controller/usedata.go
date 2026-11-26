@@ -64,7 +64,7 @@ func GetUserQuotaDates(c *gin.Context) {
 	userId := c.GetInt("id")
 	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
 	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
-	startTimestamp, err := limitLogTimeRange(startTimestamp, endTimestamp)
+	startTimestamp, endTimestamp, err := limitLogTimeRange(startTimestamp, endTimestamp)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -107,7 +107,7 @@ func GetUserFlowQuotaDates(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if _, err := limitLogTimeRange(startTimestamp, endTimestamp); err != nil {
+	if _, _, err := limitLogTimeRange(startTimestamp, endTimestamp); err != nil {
 		common.ApiError(c, err)
 		return
 	}

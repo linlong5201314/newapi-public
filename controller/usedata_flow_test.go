@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -132,4 +133,37 @@ func TestGetUserFlowQuotaDatesRejectsInvalidTimeRange(t *testing.T) {
 	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &payload))
 	require.False(t, payload.Success)
 	require.Equal(t, "invalid start_timestamp", payload.Message)
+}
+
+// A caller that omits end_timestamp must still read the user's usage up to now.
+// The clamped end has to reach the query: comparing `created_at <= 0` returned
+// an empty dashboard for a request that only supplied a start.
+func TestGetUserQuotaDatesWithoutEndTimestampReadsUpToNow(t *testing.T) {
+	setupFlowControllerTestDB(t)
+
+	// The fixture rows sit at epoch seconds 1100/1200, far outside the allowed
+	// window. Place this user's usage one hour ago so only the missing end
+	// timestamp can decide whether the row is read.
+	recent := common.GetTimestamp() - 3600
+	require.NoError(t, model.DB.Model(&model.QuotaData{}).Where("user_id = ?", 1).Update("created_at", recent).Error)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Set("id", 1)
+	ctx.Set("role", common.RoleCommonUser)
+	ctx.Request = httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/data/self?start_timestamp=%d", recent-600), nil)
+
+	GetUserQuotaDates(ctx)
+
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	var payload struct {
+		Success bool              `json:"success"`
+		Message string            `json:"message"`
+		Data    []model.QuotaData `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &payload))
+	require.True(t, payload.Success, recorder.Body.String())
+	require.Len(t, payload.Data, 1, "usage before now must survive a missing end_timestamp")
+	require.Equal(t, "alice", payload.Data[0].Username)
+	require.EqualValues(t, 100, payload.Data[0].Quota)
 }
