@@ -381,6 +381,21 @@ it('creates the native channel from a verified callback and shows grey previews'
   expect(initialRequest).not.toHaveProperty('models')
 })
 
+it('reports a failed Xiaoyi authorization instead of claiming the channel connected', async () => {
+  const user = userEvent.setup()
+  vi.mocked(api.post)
+    .mockResolvedValueOnce({ data: { success: true, data: { sessionId: 'fixture-session', authUrl: 'https://oauth-login.cloud.huawei.com/oauth2/v3/authorize?state=fixture', callbackPort: 17355, callbackPath: '/auth/callback' } } })
+    .mockResolvedValueOnce({ data: { success: false, message: 'Xiaoyi Work authorization could not be completed' } })
+  const { onOpenChange } = renderDialog()
+  await user.click(await screen.findByRole('button', { name: /Xiaoyi Work fixture/ }))
+  await user.click(screen.getByRole('button', { name: 'Authorize Huawei account' }))
+  await user.type(screen.getByLabelText('Authorization code'), 'fixture-code')
+  await user.click(screen.getByRole('button', { name: 'Connect and sync models' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Xiaoyi Work authorization could not be completed')
+  expect(screen.queryByText('Xiaoyi Work channel created in My channels. You can close this window or adjust models below.')).not.toBeInTheDocument()
+  expect(onOpenChange).not.toHaveBeenCalledWith(false)
+})
+
 it('restores an unfinished Huawei authorization when the dialog is reopened', async () => {
   sessionStorage.setItem('new-api:xiaoyiwork:authorization-draft:anonymous', JSON.stringify({
     authorization: { sessionId: 'restored-session', authUrl: 'https://oauth-login.cloud.huawei.com/oauth2/v3/authorize?state=restored', callbackPort: 17355, callbackPath: '/auth/callback' },

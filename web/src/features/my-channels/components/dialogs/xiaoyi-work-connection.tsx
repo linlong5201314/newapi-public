@@ -134,10 +134,8 @@ export function XiaoyiWorkConnection(props: { onConnected?: () => void }) {
     setShareConfirmed(false)
     sessionStorage.removeItem(draftKeyForUser(userId))
     try {
-      const response = requireServerSuccess(
-        await api.post('/api/channel/self/oauth/xiaoyiwork/start', {}, channelActionConfig({ singleUseAuthorization: true }))
-      )
-      const next = response.data?.data as AuthorizationStart | undefined
+      const started = await api.post('/api/channel/self/oauth/xiaoyiwork/start', {}, channelActionConfig({ singleUseAuthorization: true }))
+      const next = requireServerSuccess(started.data).data as AuthorizationStart | undefined
       if (!next?.sessionId || !next.authUrl) throw new Error('Authorization could not be started')
       const target = new URL(next.authUrl)
       if (target.protocol !== 'https:' || target.hostname !== 'oauth-login.cloud.huawei.com' || target.port || target.username || target.password) {
@@ -161,16 +159,17 @@ export function XiaoyiWorkConnection(props: { onConnected?: () => void }) {
     setBusy('connect')
     setError(null)
     try {
-      const response = requireServerSuccess(
+      const response = await api.post(
+        channelId ? '/api/channel/self/visibility' : '/api/channel/self/oauth/xiaoyiwork/complete',
         channelId
-          ? await api.post('/api/channel/self/visibility', {
+          ? {
               channelId,
               models: selectedModels,
               visibility: publicModels.length > 0 ? 1 : 0,
               publicModels,
               share_confirmed: shareConfirmed,
-            }, channelActionConfig({ singleUseAuthorization: true }))
-          : await api.post('/api/channel/self/oauth/xiaoyiwork/complete', {
+            }
+          : {
               sessionId: authorization.sessionId,
               callbackUrl: callbackUrl.trim(),
               code: code.trim(),
@@ -178,14 +177,19 @@ export function XiaoyiWorkConnection(props: { onConnected?: () => void }) {
               ...(discovered ? { models: selectedModels } : {}),
               public_models: publicModels,
               share_confirmed: shareConfirmed,
-            }, channelActionConfig({ singleUseAuthorization: true }))
+            },
+        channelActionConfig({ singleUseAuthorization: true })
       )
-      setCatalog(response.data?.data?.models ?? [])
-      setUnavailable(response.data?.data?.unavailable_models ?? [])
-      setSelectedModels(response.data?.data?.models ?? [])
+      const payload = requireServerSuccess(response.data).data
+      if (!payload?.channelId) {
+        throw new Error(t('Xiaoyi Work channel was not created. Start authorization again'))
+      }
+      setCatalog(payload.models ?? [])
+      setUnavailable(payload.unavailable_models ?? [])
+      setSelectedModels(payload.models ?? [])
       setDiscovered(true)
       const firstConnection = !channelId
-      setChannelId(response.data?.data?.channelId ?? channelId)
+      setChannelId(payload.channelId)
       setCallbackUrl('')
       setCode('')
       await queryClient.invalidateQueries({ queryKey: channelsQueryKeys.all })
