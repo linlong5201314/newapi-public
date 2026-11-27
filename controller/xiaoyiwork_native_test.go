@@ -274,3 +274,65 @@ func TestXiaoyiWorkReportsTheRealAuthorizationProblem(t *testing.T) {
 	assert.Contains(t, afterCancel.Body.String(), "was cancelled", afterCancel.Body.String())
 	assert.NotContains(t, afterCancel.Body.String(), "expired", afterCancel.Body.String())
 }
+
+// Model mapping is a relay-level capability that every channel supports: the
+// Xiaoyi relay sends info.GetUpstreamModelName(), which is the mapped name. The
+// update guard must therefore accept it and keep rejecting only the fields that
+// would swap the account or point the channel at another gateway.
+func TestXiaoyiWorkUpdateAcceptsModelMapping(t *testing.T) {
+	original := &model.Channel{
+		Id:      7,
+		Type:    constant.ChannelTypeXiaoyiWork,
+		Key:     "encrypted-session",
+		BaseURL: common.GetPointer(service.XiaoyiWorkSSEEndpoint),
+		Models:  "model-one",
+	}
+
+	fields := map[string]any{
+		"model_mapping": `{"gpt-4o":"model-one"}`,
+		"priority":      float64(0),
+		"weight":        float64(1),
+	}
+	require.NoError(t, prepareXiaoyiWorkUpdate(original, fields))
+	assert.Equal(t, `{"gpt-4o":"model-one"}`, fields["model_mapping"],
+		"model mapping must survive the guard so the channel can save it")
+
+	// Swapping the credential or the gateway still needs a reconnect.
+	assert.ErrorContains(t, prepareXiaoyiWorkUpdate(original, map[string]any{"key": "other-session"}),
+		"Reconnect Xiaoyi Work")
+	assert.ErrorContains(t, prepareXiaoyiWorkUpdate(original, map[string]any{"base_url": "https://evil.example"}),
+		"Reconnect Xiaoyi Work")
+
+	// Resubmitting the stored credential is a no-op, not a rejection.
+	assert.NoError(t, prepareXiaoyiWorkUpdate(original, map[string]any{"key": "encrypted-session"}))
+}
+
+// The guard must not only accept the mapping: it has to reach the stored row so
+// the distributor picks it up on the next request.
+func TestXiaoyiWorkModelMappingPersists(t *testing.T) {
+	identity := authClassSession(t, "https://gateway.example")
+	channel := &model.Channel{
+		Type:        constant.ChannelTypeXiaoyiWork,
+		Name:        "xiaoyi-mapping",
+		Key:         "encrypted-session",
+		OwnerId:     identity.UserID,
+		Status:      common.ChannelStatusEnabled,
+		Group:       "default",
+		Models:      "model-one",
+		Tier:        "api",
+		CreatedTime: common.GetTimestamp(),
+	}
+	base := service.XiaoyiWorkSSEEndpoint
+	channel.BaseURL = &base
+	require.NoError(t, model.DB.Create(channel).Error)
+
+	stored, err := model.GetChannelById(channel.Id, true)
+	require.NoError(t, err)
+	fields := map[string]any{"model_mapping": `{"9191":"Kimi_K3.1"}`}
+	require.NoError(t, prepareXiaoyiWorkUpdate(stored, fields))
+	require.NoError(t, model.SaveVerifiedSelfChannel(stored, fields))
+
+	updated, err := model.GetChannelById(channel.Id, true)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"9191":"Kimi_K3.1"}`, updated.GetModelMapping())
+}

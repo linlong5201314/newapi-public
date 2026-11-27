@@ -125,10 +125,25 @@ func prepareXiaoyiWorkUpdate(original *model.Channel, fields map[string]any) err
 			}
 		case "visibility", "other_info", "header_override", "param_override", "channel_info", "setting", "settings", "tier", "models":
 			delete(fields, key)
-		case "model_mapping", "key":
-			if text, ok := value.(string); ok && strings.TrimSpace(text) != "" && text != original.Key {
-				return errors.New("Reconnect Xiaoyi Work to change its account. Model mapping and external gateways are not supported")
+		case "model_mapping":
+			// Model mapping is a relay-level rewrite that the distributor applies
+			// to every channel type, and the Xiaoyi relay sends the mapped name.
+			// Only its shape is validated here; the value is saved as given.
+			text, ok := value.(string)
+			if !ok {
+				return errors.New("Model mapping must be a JSON object")
 			}
+			if trimmed := strings.TrimSpace(text); trimmed != "" {
+				var mapping map[string]string
+				if err := common.UnmarshalJsonStr(trimmed, &mapping); err != nil {
+					return errors.New("Model mapping must be a JSON object of model names")
+				}
+			}
+		case "key":
+			if text, ok := value.(string); ok && strings.TrimSpace(text) != "" && text != original.Key {
+				return errors.New("Reconnect Xiaoyi Work to change its account. External gateways are not supported")
+			}
+			delete(fields, key)
 		case "base_url":
 			if text, ok := value.(string); ok && strings.TrimSpace(text) != "" && strings.TrimSpace(text) != original.GetBaseURL() {
 				return errors.New("Reconnect Xiaoyi Work to change its account. External gateways are not supported")
