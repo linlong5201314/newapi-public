@@ -51,8 +51,8 @@
     },
     {
       "id": "node8",
-      "url": "https://newapi-public-production-49f64774.up.railway.app",
-      "provider": "railway871",
+      "url": "https://newapi-public-production-aaf8178f.up.railway.app",
+      "provider": "railway684",
       "weight": 2,
       "enabled": true,
       "healthy": true
