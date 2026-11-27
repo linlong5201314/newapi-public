@@ -254,7 +254,10 @@ function UsersPage() {
   )
 }
 
-async function renderUsersList(emptyInvitation = false) {
+async function renderUsersList(
+  emptyInvitation = false,
+  inviterUsername = ''
+) {
   useAuthStore.getState().auth.setUser({ id: 1, username: 'admin', role: 100 })
   const usersResponse = {
     data: {
@@ -276,6 +279,7 @@ async function renderUsersList(emptyInvitation = false) {
             aff_count: emptyInvitation ? 0 : 2,
             aff_history_quota: emptyInvitation ? 0 : 500000,
             inviter_id: emptyInvitation ? 0 : 42,
+            ...(inviterUsername ? { inviter_username: inviterUsername } : {}),
           },
         ],
         total: 1,
@@ -335,6 +339,12 @@ it('sends balance sorting to the server and keeps invitation details on two line
   ).not.toBeInTheDocument()
   expect(screen.getByText('Inviter ID: 42')).toBeInTheDocument()
   expect(screen.getByText(/Invited 2 users · Earnings:/)).toBeInTheDocument()
+})
+
+it('shows the inviter by username when the server resolves it', async () => {
+  await renderUsersList(false, 'alice')
+  expect(screen.getByText('Inviter: alice')).toBeInTheDocument()
+  expect(screen.queryByText('Inviter ID: 42')).not.toBeInTheDocument()
 })
 
 it('shows balance above usage on mobile cards in Chinese', async () => {

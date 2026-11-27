@@ -243,6 +243,7 @@ export function useUsersColumns(): ColumnDef<User>[] {
           const affCount = user.aff_count || 0
           const affHistoryQuota = user.aff_history_quota || 0
           const inviterId = user.inviter_id || 0
+          const inviterName = user.inviter_username || ''
 
           if (affCount === 0 && affHistoryQuota === 0 && inviterId === 0) {
             return <span className='text-muted-foreground text-sm'>—</span>
@@ -264,7 +265,9 @@ export function useUsersColumns(): ColumnDef<User>[] {
               )}
               {inviterId > 0 && (
                 <LongText className='text-muted-foreground'>
-                  {t('Inviter ID: {{id}}', { id: inviterId })}
+                  {inviterName
+                    ? t('Inviter: {{name}}', { name: inviterName })
+                    : t('Inviter ID: {{id}}', { id: inviterId })}
                 </LongText>
               )}
             </div>
@@ -272,7 +275,7 @@ export function useUsersColumns(): ColumnDef<User>[] {
         },
         size: 240,
         enableSorting: false,
-        meta: { mobileHidden: true },
+        meta: { mobileOrder: 50 },
       },
       {
         accessorKey: 'created_at',

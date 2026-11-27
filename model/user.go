@@ -104,6 +104,7 @@ type User struct {
 	AffQuota             int                        `json:"aff_quota" gorm:"type:int;default:0;column:aff_quota"`           // 邀请剩余额度
 	AffHistoryQuota      int                        `json:"aff_history_quota" gorm:"type:int;default:0;column:aff_history"` // 邀请历史额度
 	InviterId            int                        `json:"inviter_id" gorm:"type:int;column:inviter_id;index"`
+	InviterUsername      string                     `json:"inviter_username,omitempty" gorm:"-:all"` // filled by FillInviterUsernames for administrator lists
 	DeletedAt            gorm.DeletedAt             `gorm:"index"`
 	LinuxDOId            string                     `json:"linux_do_id" gorm:"column:linux_do_id;index"`
 	Setting              string                     `json:"setting" gorm:"type:text;column:setting"`
@@ -399,6 +400,44 @@ func GetMaxUserId() int {
 	var user User
 	DB.Unscoped().Last(&user)
 	return user.Id
+}
+
+// FillInviterUsernames resolves each user's inviter_id to a username in one
+// query, so an administrator list shows who invited a user rather than a bare
+// number. A soft-deleted inviter still resolves: the relationship stays true
+// even when the inviting account is gone. A missing inviter leaves the field
+// empty and the numeric ID remains available.
+func FillInviterUsernames(users []*User) error {
+	ids := make([]int, 0, len(users))
+	seen := make(map[int]bool, len(users))
+	for _, user := range users {
+		if user == nil || user.InviterId <= 0 || seen[user.InviterId] {
+			continue
+		}
+		seen[user.InviterId] = true
+		ids = append(ids, user.InviterId)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	var rows []struct {
+		Id       int
+		Username string
+	}
+	if err := DB.Unscoped().Model(&User{}).Select("id", "username").Where("id IN ?", ids).Find(&rows).Error; err != nil {
+		return err
+	}
+	names := make(map[int]string, len(rows))
+	for _, row := range rows {
+		names[row.Id] = row.Username
+	}
+	for _, user := range users {
+		if user == nil {
+			continue
+		}
+		user.InviterUsername = names[user.InviterId]
+	}
+	return nil
 }
 
 func GetAllUsers(pageInfo *common.PageInfo, sortOptions ...UserSortOptions) (users []*User, total int64, err error) {

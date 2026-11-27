@@ -242,6 +242,29 @@ func GetSelfChannel(c *gin.Context) {
 	})
 }
 
+// GetSelfChannelKey POST /api/channel/self/:id/key
+// Returns the decrypted key of a channel the caller owns. Ownership is enforced
+// by loadSelfOwnedChannel, so an administrator reading another user's channel
+// still goes through the admin route and its own audit trail.
+func GetSelfChannelKey(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		writeSelfChannelNotFound(c)
+		return
+	}
+	channel, ok := loadSelfOwnedChannel(c, id, true)
+	if !ok {
+		return
+	}
+	recordManageAudit(c, "channel.key_view", map[string]any{
+		"id":   channel.Id,
+		"name": channel.Name,
+	})
+	common.ApiSuccessT(c, "Fetched successfully", map[string]any{
+		"key": model.DecryptChannelKey(channel.Type, channel.Key),
+	})
+}
+
 // AddSelfChannel POST /api/channel/self
 // 复用 addChannelExecute；强制 owner_id=当前用户；扣 SelfChannelMaxPerUser 上限。
 func AddSelfChannel(c *gin.Context) {

@@ -331,12 +331,15 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 
 	// Self-service account binding, probe, proxy-pool, public-pool, free-source
 	// and internal maintenance routes (declared for PAT scope coverage).
-	"GET /api/channel/self/account_capabilities":              accessTokenScopeRule("channel:read"),
-	"GET /api/channel/self/bindings":                          accessTokenScopeRule("channel:read"),
-	"POST /api/channel/self/bindings":                         accessTokenScopeRule("channel:write"),
-	"POST /api/channel/self/bindings/:id/public":              accessTokenScopeRule("channel:write"),
-	"DELETE /api/channel/self/bindings/:id":                   accessTokenScopeRule("channel:write"),
-	"GET /api/channel/self/:id/detail":                        accessTokenScopeRule("channel:read"),
+	"GET /api/channel/self/account_capabilities": accessTokenScopeRule("channel:read"),
+	"GET /api/channel/self/bindings":             accessTokenScopeRule("channel:read"),
+	"POST /api/channel/self/bindings":            accessTokenScopeRule("channel:write"),
+	"POST /api/channel/self/bindings/:id/public": accessTokenScopeRule("channel:write"),
+	"DELETE /api/channel/self/bindings/:id":      accessTokenScopeRule("channel:write"),
+	"GET /api/channel/self/:id/detail":           accessTokenScopeRule("channel:read"),
+	// Revealing a channel key needs the same grant as the admin route: the
+	// step-up proof for this scope requires channel:secret_view.
+	"POST /api/channel/self/:id/key":                          accessTokenScopeRule(service.AccessTokenScopeOf(authz.ChannelSecretView)),
 	"POST /api/channel/self/:id/allow_ips":                    accessTokenScopeRule("channel:write"),
 	"GET /api/channel/self/magpie_plugins":                    accessTokenScopeRule("channel:read"),
 	"GET /api/channel/self/model_probe/:id":                   accessTokenScopeRule("channel:read"),

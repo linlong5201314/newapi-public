@@ -344,6 +344,10 @@ func GetAllUsers(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if err := model.FillInviterUsernames(users); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(users)
@@ -371,6 +375,10 @@ func SearchUsers(c *gin.Context) {
 	sortOptions := model.NewUserSortOptions(c.Query("sort_by"), c.Query("sort_order"))
 	users, total, err := model.SearchUsers(keyword, group, role, status, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), sortOptions)
 	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := model.FillInviterUsernames(users); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -402,6 +410,10 @@ func GetUser(c *gin.Context) {
 		return
 	}
 	user.AdminPermissions = authz.Capabilities(user.Id, user.Role)
+	if err := model.FillInviterUsernames([]*model.User{user}); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -885,9 +897,29 @@ func UpdateSelf(c *gin.Context) {
 
 	cleanUser := model.User{
 		Id:          c.GetInt("id"),
-		Username:    user.Username,
+		Username:    strings.TrimSpace(user.Username),
 		Password:    user.Password,
 		DisplayName: user.DisplayName,
+	}
+	// A self-service rename must not collide with another account. Without this
+	// check the unique index rejects the write with a raw driver error.
+	if cleanUser.Username != "" {
+		current, err := model.GetUserById(cleanUser.Id, false)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		if cleanUser.Username != current.Username {
+			taken, err := model.CheckUserExistOrDeleted(cleanUser.Username, "")
+			if err != nil {
+				common.ApiErrorT(c, "Update failed")
+				return
+			}
+			if taken {
+				common.ApiErrorT(c, "Username already exists or has been deleted")
+				return
+			}
+		}
 	}
 	if user.Password != "" {
 		identity, ok := middleware.GetStepUpIdentity(c)

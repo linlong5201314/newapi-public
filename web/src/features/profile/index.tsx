@@ -24,6 +24,7 @@ import {
 import { useStatus } from '@/hooks/use-status'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { AccountNameCard } from './components/account-name-card'
 import { CheckinCalendarCard } from './components/checkin-calendar-card'
 import { LanguagePreferencesCard } from './components/language-preferences-card'
 import { ProfileHeader } from './components/profile-header'
@@ -57,6 +58,10 @@ export function Profile() {
           <CardStaggerItem>
             <div className='grid gap-4 sm:gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.46fr)] xl:items-start'>
               <div className='space-y-4 sm:space-y-6'>
+                <AccountNameCard
+                  profile={profile}
+                  onProfileUpdate={refreshProfile}
+                />
                 <ProfileSettingsCard
                   profile={profile}
                   loading={loading}

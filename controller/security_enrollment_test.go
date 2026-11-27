@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
@@ -1885,4 +1886,97 @@ func TestSecurityEnrollmentRejectsChangedFirstFactorPolicy(t *testing.T) {
 			})
 		}
 	}
+}
+
+// A channel owner may read their own key after proving it is them, and never
+// another user's. The admin route keeps its own path, so this covers the owner
+// route only.
+func TestSelfChannelKeyRequiresOwnership(t *testing.T) {
+	user, identity := setupSecurityEnrollmentTest(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.Channel{}))
+	require.NoError(t, model.LOG_DB.AutoMigrate(&model.AuditLog{}))
+
+	own := &model.Channel{Type: constant.ChannelTypeOpenAI, Name: "mine", Key: "sk-own-secret", OwnerId: user.Id, Status: common.ChannelStatusEnabled, Group: "default", CreatedTime: common.GetTimestamp()}
+	require.NoError(t, model.DB.Create(own).Error)
+	other := &model.Channel{Type: constant.ChannelTypeOpenAI, Name: "theirs", Key: "sk-other-secret", OwnerId: user.Id + 1, Status: common.ChannelStatusEnabled, Group: "default", CreatedTime: common.GetTimestamp()}
+	require.NoError(t, model.DB.Create(other).Error)
+
+	// gin c.Param is not populated by the plain test context, so drive the
+	// handler through a router that carries the path parameter and the same
+	// proof middleware the real route uses.
+	router := gin.New()
+	router.POST("/api/channel/self/:id/key", func(c *gin.Context) {
+		c.Set("id", identity.UserID)
+		c.Set("role", common.RoleCommonUser)
+		c.Set("session_id", identity.SessionID)
+		c.Set("auth_version", identity.UserAuthVersion)
+		c.Set("session_version", identity.SessionVersion)
+	}, middleware.SecureVerificationRequired(), GetSelfChannelKey)
+	run := func(id int) *httptest.ResponseRecorder {
+		contextBytes, err := common.Marshal(service.ChannelKeyReadContext{ChannelID: id})
+		require.NoError(t, err)
+		proof := issueSecurityEnrollmentProof(t, identity, service.VerificationOperation{
+			Scope:   service.VerificationScopeChannelKeyRead,
+			Context: contextBytes,
+		}, service.VerificationMethodPassword)
+		recorder := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/channel/self/%d/key", id), nil)
+		req.Header.Set("X-Security-Proof", proof)
+		router.ServeHTTP(recorder, req)
+		return recorder
+	}
+
+	ownRecorder := run(own.Id)
+	assert.Contains(t, ownRecorder.Body.String(), "sk-own-secret", "the owner must read their own key")
+
+	otherRecorder := run(other.Id)
+	assert.NotContains(t, otherRecorder.Body.String(), "sk-other-secret", "another user's key must never be returned")
+
+	// A proof issued for one channel must not unlock another, even one the same
+	// user owns: the channel is part of the proof binding.
+	contextBytes, err := common.Marshal(service.ChannelKeyReadContext{ChannelID: own.Id})
+	require.NoError(t, err)
+	foreignProof := issueSecurityEnrollmentProof(t, identity, service.VerificationOperation{
+		Scope:   service.VerificationScopeChannelKeyRead,
+		Context: contextBytes,
+	}, service.VerificationMethodPassword)
+	reused := httptest.NewRecorder()
+	reusedRequest := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/channel/self/%d/key", other.Id), nil)
+	reusedRequest.Header.Set("X-Security-Proof", foreignProof)
+	router.ServeHTTP(reused, reusedRequest)
+	assert.NotContains(t, reused.Body.String(), "sk-other-secret")
+	assert.Contains(t, reused.Body.String(), "SECURITY_PROOF_CONTEXT_MISMATCH")
+}
+
+// An ordinary user without 2FA or a Passkey used to be refused outright when
+// revealing a channel key. The scope now offers their account password, and the
+// password still has to be correct.
+func TestChannelKeyReadRequirementsForPlainUser(t *testing.T) {
+	_, identity := setupSecurityEnrollmentTest(t)
+
+	requirements, err := service.GetVerificationRequirements(identity, service.VerificationScopeChannelKeyRead)
+	require.NoError(t, err)
+	require.Len(t, requirements.Methods, 1)
+	assert.Equal(t, service.VerificationMethodPassword, requirements.Methods[0].Method)
+	assert.True(t, requirements.Methods[0].Available)
+
+	contextBytes, err := common.Marshal(service.ChannelKeyReadContext{ChannelID: 1})
+	require.NoError(t, err)
+	proof, err := service.VerifySecurityInput(identity, service.VerificationInput{
+		Scope:    service.VerificationScopeChannelKeyRead,
+		Context:  contextBytes,
+		Method:   service.VerificationMethodPassword,
+		Password: "enrollment-password",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, service.VerificationMethodPassword, proof.Method)
+
+	// A wrong password still fails; a wider method list is not a weaker check.
+	_, err = service.VerifySecurityInput(identity, service.VerificationInput{
+		Scope:    service.VerificationScopeChannelKeyRead,
+		Context:  contextBytes,
+		Method:   service.VerificationMethodPassword,
+		Password: "not-the-password",
+	})
+	assert.ErrorIs(t, err, service.ErrVerificationFailed)
 }

@@ -3892,6 +3892,7 @@
     "Invitee Reward": "Referral reward",
     "Inviter": "Người mời",
     "Inviter ID: {{id}}": "ID người mời: {{id}}",
+    "Inviter: {{name}}": "Người mời: {{name}}",
     "Inviter Reward": "Phần thưởng người mời",
     "Invites": "Mời",
     "Invoke developer-defined functions with structured arguments": "Gọi các hàm do nhà phát triển định nghĩa với đối số có cấu trúc",
@@ -8097,7 +8098,7 @@
     "Use only accounts you own. FreePi uses the dedicated GitHub device authorization below. Magpie requires your own running gateway endpoint and gateway key; copying a plugin command does not deploy a gateway.": "Use only accounts you own. FreePi uses the dedicated GitHub device authorization below. Magpie requires your own running gateway endpoint and gateway key; copying a plugin command does not deploy a gateway.",
     "Use OpenAI-compatible Ollama chat API": "Dùng API chat Ollama tương thích OpenAI",
     "Use our unified OpenAI-compatible endpoint in your applications": "Sử dụng endpoint thống nhất tương thích OpenAI trong ứng dụng của bạn",
-    "Use Passkey or 2FA to confirm your identity before revealing this channel key.": "Hãy dùng Passkey hoặc 2FA để xác nhận danh tính trước khi xem khóa kênh này.",
+    "Confirm your identity before revealing this channel key.": "Xác nhận danh tính trước khi xem khóa kênh này.",
     "Use Passkey to sign in without entering your password.": "Sử dụng Khóa truy cập để đăng nhập mà không cần nhập mật khẩu của bạn.",
     "Use presets or upstream discovery to populate the model list faster.": "Dùng mẫu đặt sẵn hoặc phát hiện từ upstream để điền danh sách mô hình nhanh hơn.",
     "Use secure connection when sending emails": "Sử dụng kết nối an toàn khi gửi email",
@@ -8588,6 +8589,10 @@
     "This Xiaoyi Work authorization was already used. Click Authorize Huawei account again": "Lần ủy quyền Xiaoyi Work này đã được dùng. Hãy bấm lại \"Ủy quyền tài khoản Huawei\"",
     "Xiaoyi Work authorization is already being completed": "Ủy quyền Xiaoyi Work đang được xử lý, vui lòng đợi",
     "Xiaoyi Work authorization was cancelled. Click Authorize Huawei account again": "Ủy quyền Xiaoyi Work đã bị hủy. Hãy bấm lại \"Ủy quyền tài khoản Huawei\"",
-    "Xiaoyi Work authorization expired (valid for 15 minutes). Click Authorize Huawei account again and finish sign-in within 15 minutes": "Ủy quyền Xiaoyi Work đã hết hạn (hiệu lực 15 phút). Hãy bấm lại \"Ủy quyền tài khoản Huawei\" và hoàn tất đăng nhập trong 15 phút"
+    "Xiaoyi Work authorization expired (valid for 15 minutes). Click Authorize Huawei account again and finish sign-in within 15 minutes": "Ủy quyền Xiaoyi Work đã hết hạn (hiệu lực 15 phút). Hãy bấm lại \"Ủy quyền tài khoản Huawei\" và hoàn tất đăng nhập trong 15 phút",
+    "Account Name": "Tên tài khoản",
+    "Change the name shown across the site": "Đổi tên hiển thị trên trang",
+    "Used to sign in. Letters, numbers and symbols, up to 20.": "Dùng để đăng nhập. Tối đa 20 ký tự.",
+    "Shown on your profile and in place of the username.": "Hiển thị trên hồ sơ và thay cho tên đăng nhập."
   }
 }

@@ -3892,6 +3892,7 @@
     "Invitee Reward": "Récompense de l'invité",
     "Inviter": "Inviteur",
     "Inviter ID: {{id}}": "ID du parrain : {{id}}",
+    "Inviter: {{name}}": "Parrain : {{name}}",
     "Inviter Reward": "Récompense de l'inviteur",
     "Invites": "Invitations",
     "Invoke developer-defined functions with structured arguments": "Appeler des fonctions définies par le développeur avec des arguments structurés",
@@ -8097,7 +8098,7 @@
     "Use only accounts you own. FreePi uses the dedicated GitHub device authorization below. Magpie requires your own running gateway endpoint and gateway key; copying a plugin command does not deploy a gateway.": "Use only accounts you own. FreePi uses the dedicated GitHub device authorization below. Magpie requires your own running gateway endpoint and gateway key; copying a plugin command does not deploy a gateway.",
     "Use OpenAI-compatible Ollama chat API": "Utiliser l'API de chat Ollama compatible OpenAI",
     "Use our unified OpenAI-compatible endpoint in your applications": "Utilisez notre point de terminaison unifié compatible OpenAI dans vos applications",
-    "Use Passkey or 2FA to confirm your identity before revealing this channel key.": "Utilisez une Passkey ou la 2FA pour confirmer votre identité avant d’afficher cette clé de canal.",
+    "Confirm your identity before revealing this channel key.": "Confirmez votre identité avant d’afficher cette clé de canal.",
     "Use Passkey to sign in without entering your password.": "Utilisez une clé d'accès (Passkey) pour vous connecter sans saisir votre mot de passe.",
     "Use presets or upstream discovery to populate the model list faster.": "Utilisez des préréglages ou la découverte en amont pour remplir plus vite la liste des modèles.",
     "Use secure connection when sending emails": "Utiliser une connexion sécurisée lors de l'envoi d'e-mails",
@@ -8588,6 +8589,10 @@
     "This Xiaoyi Work authorization was already used. Click Authorize Huawei account again": "Cette autorisation Xiaoyi Work a déjà été utilisée. Cliquez de nouveau sur « Autoriser le compte Huawei »",
     "Xiaoyi Work authorization is already being completed": "L'autorisation Xiaoyi Work est déjà en cours, patientez",
     "Xiaoyi Work authorization was cancelled. Click Authorize Huawei account again": "L'autorisation Xiaoyi Work a été annulée. Cliquez de nouveau sur « Autoriser le compte Huawei »",
-    "Xiaoyi Work authorization expired (valid for 15 minutes). Click Authorize Huawei account again and finish sign-in within 15 minutes": "L'autorisation Xiaoyi Work a expiré (valable 15 minutes). Cliquez de nouveau sur « Autoriser le compte Huawei » et terminez la connexion sous 15 minutes"
+    "Xiaoyi Work authorization expired (valid for 15 minutes). Click Authorize Huawei account again and finish sign-in within 15 minutes": "L'autorisation Xiaoyi Work a expiré (valable 15 minutes). Cliquez de nouveau sur « Autoriser le compte Huawei » et terminez la connexion sous 15 minutes",
+    "Account Name": "Nom du compte",
+    "Change the name shown across the site": "Modifier le nom affiché sur le site",
+    "Used to sign in. Letters, numbers and symbols, up to 20.": "Sert à la connexion. Jusqu’à 20 caractères.",
+    "Shown on your profile and in place of the username.": "Affiché sur votre profil et à la place du nom d’utilisateur."
   }
 }

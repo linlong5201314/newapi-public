@@ -3892,6 +3892,7 @@
     "Invitee Reward": "Invitee Reward",
     "Inviter": "Inviter",
     "Inviter ID: {{id}}": "Inviter ID: {{id}}",
+    "Inviter: {{name}}": "Inviter: {{name}}",
     "Inviter Reward": "Inviter Reward",
     "Invites": "Invites",
     "Invoke developer-defined functions with structured arguments": "Invoke developer-defined functions with structured arguments",
@@ -8097,7 +8098,7 @@
     "Use only accounts you own. FreePi uses the dedicated GitHub device authorization below. Magpie requires your own running gateway endpoint and gateway key; copying a plugin command does not deploy a gateway.": "Use only accounts you own. FreePi uses the dedicated GitHub device authorization below. Magpie requires your own running gateway endpoint and gateway key; copying a plugin command does not deploy a gateway.",
     "Use OpenAI-compatible Ollama chat API": "Use OpenAI-compatible Ollama chat API",
     "Use our unified OpenAI-compatible endpoint in your applications": "Use our unified OpenAI-compatible endpoint in your applications",
-    "Use Passkey or 2FA to confirm your identity before revealing this channel key.": "Use Passkey or 2FA to confirm your identity before revealing this channel key.",
+    "Confirm your identity before revealing this channel key.": "Confirm your identity before revealing this channel key.",
     "Use Passkey to sign in without entering your password.": "Use Passkey to sign in without entering your password.",
     "Use presets or upstream discovery to populate the model list faster.": "Use presets or upstream discovery to populate the model list faster.",
     "Use secure connection when sending emails": "Use secure connection when sending emails",
@@ -8583,6 +8584,10 @@
     "Zone that owns the primary domain. Leave blank to keep the current value.": "Zone that owns the primary domain. Leave blank to keep the current value.",
     "Zoom": "Zoom",
     "You can use platform free models, models shared by other users, and your own channels. Create a channel and fetch its upstream models here; you can edit, test, share, or delete your own channels.": "You can use platform free models, models shared by other users, and your own channels. Create a channel and fetch its upstream models here; you can edit, test, share, or delete your own channels.",
-    "Open a channel name to manage it. Only superadministrators can manage all users and platform channels.": "Open a channel name to manage it. Only superadministrators can manage all users and platform channels."
+    "Open a channel name to manage it. Only superadministrators can manage all users and platform channels.": "Open a channel name to manage it. Only superadministrators can manage all users and platform channels.",
+    "Account Name": "Account Name",
+    "Change the name shown across the site": "Change the name shown across the site",
+    "Used to sign in. Letters, numbers and symbols, up to 20.": "Used to sign in. Letters, numbers and symbols, up to 20.",
+    "Shown on your profile and in place of the username.": "Shown on your profile and in place of the username."
   }
 }

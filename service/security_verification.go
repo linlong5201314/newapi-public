@@ -332,7 +332,19 @@ func securityVerificationPolicy(scope string, state model.UserVerificationState)
 		methods = append(methods, VerificationMethodPasskey)
 	}
 	switch scope {
-	case VerificationScopeChannelKeyRead, VerificationScopePasskeyDelete, VerificationScopeLogin:
+	case VerificationScopePasskeyDelete, VerificationScopeLogin:
+	case VerificationScopeChannelKeyRead:
+		// A channel owner without 2FA or a Passkey still has to prove it is them.
+		// The account password is the remaining factor while password sign-in is
+		// allowed; an account that signs in another way proves itself by signing
+		// in again, so turning password sign-in off cannot leave a dead end.
+		if len(methods) == 0 {
+			if state.HasPassword && common.PasswordLoginEnabled {
+				methods = append(methods, VerificationMethodPassword)
+			} else {
+				methods = append(methods, VerificationMethodOAuth)
+			}
+		}
 	case VerificationScopeTwoFADisable, VerificationScopeTwoFABackupCodes:
 		if !state.HasTwoFA {
 			return nil, model.ErrTwoFANotEnabled
@@ -388,9 +400,9 @@ func GetVerificationRequirements(identity AuthIdentity, scope string) (*Verifica
 	if state.Status != common.UserStatusEnabled || state.AuthVersion != identity.UserAuthVersion {
 		return nil, ErrAuthTokenInvalid
 	}
-	if scope == VerificationScopeChannelKeyRead && state.Role != common.RoleRootUser {
-		return nil, ErrVerificationForbidden
-	}
+	// channel.key.read is reachable by the channel's owner as well as by an
+	// administrator. Ownership is checked by the handler that reads the key,
+	// because the requirements call only knows the scope, not the channel.
 	if strings.HasPrefix(scope, verificationScopeAdminUserPrefix) && state.Role < common.RoleAdminUser {
 		return nil, ErrVerificationForbidden
 	}

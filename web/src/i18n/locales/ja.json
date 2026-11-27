@@ -3892,6 +3892,7 @@
     "Invitee Reward": "招待された側の報酬",
     "Inviter": "招待者",
     "Inviter ID: {{id}}": "招待者 ID：{{id}}",
+    "Inviter: {{name}}": "招待者：{{name}}",
     "Inviter Reward": "招待した側の報酬",
     "Invites": "招待",
     "Invoke developer-defined functions with structured arguments": "構造化された引数で開発者定義の関数を呼び出す",
@@ -8097,7 +8098,7 @@
     "Use only accounts you own. FreePi uses the dedicated GitHub device authorization below. Magpie requires your own running gateway endpoint and gateway key; copying a plugin command does not deploy a gateway.": "Use only accounts you own. FreePi uses the dedicated GitHub device authorization below. Magpie requires your own running gateway endpoint and gateway key; copying a plugin command does not deploy a gateway.",
     "Use OpenAI-compatible Ollama chat API": "Ollama の OpenAI 互換チャット API を使用",
     "Use our unified OpenAI-compatible endpoint in your applications": "アプリケーションでOpenAI互換の統一エンドポイントを使用",
-    "Use Passkey or 2FA to confirm your identity before revealing this channel key.": "チャネルキーを表示する前に、Passkey または 2FA で本人確認を行ってください。",
+    "Confirm your identity before revealing this channel key.": "このチャネルキーを表示する前に本人確認を行ってください。",
     "Use Passkey to sign in without entering your password.": "パスワードを入力せずにサインインするには、パスキーを使用してください。",
     "Use presets or upstream discovery to populate the model list faster.": "プリセットまたは上流検出を使ってモデルリストをすばやく入力します。",
     "Use secure connection when sending emails": "メール送信時に安全な接続を使用する",
@@ -8588,6 +8589,10 @@
     "This Xiaoyi Work authorization was already used. Click Authorize Huawei account again": "この Xiaoyi Work 認証はすでに使用済みです。「Huawei アカウントを認証」を再度クリックしてください",
     "Xiaoyi Work authorization is already being completed": "Xiaoyi Work 認証を処理中です。しばらくお待ちください",
     "Xiaoyi Work authorization was cancelled. Click Authorize Huawei account again": "Xiaoyi Work 認証はキャンセルされました。「Huawei アカウントを認証」を再度クリックしてください",
-    "Xiaoyi Work authorization expired (valid for 15 minutes). Click Authorize Huawei account again and finish sign-in within 15 minutes": "Xiaoyi Work 認証の有効期限が切れました（有効期間 15 分）。「Huawei アカウントを認証」を再度クリックし、15 分以内にサインインを完了してください"
+    "Xiaoyi Work authorization expired (valid for 15 minutes). Click Authorize Huawei account again and finish sign-in within 15 minutes": "Xiaoyi Work 認証の有効期限が切れました（有効期間 15 分）。「Huawei アカウントを認証」を再度クリックし、15 分以内にサインインを完了してください",
+    "Account Name": "アカウント名",
+    "Change the name shown across the site": "サイト内に表示される名前を変更します",
+    "Used to sign in. Letters, numbers and symbols, up to 20.": "サインインに使用します。20 文字まで。",
+    "Shown on your profile and in place of the username.": "プロフィールに表示され、ユーザー名の代わりに使われます。"
   }
 }

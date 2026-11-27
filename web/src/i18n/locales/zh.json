@@ -3892,6 +3892,7 @@
     "Invitee Reward": "受邀者奖励",
     "Inviter": "邀请人",
     "Inviter ID: {{id}}": "邀请人 ID：{{id}}",
+    "Inviter: {{name}}": "邀请人：{{name}}",
     "Inviter Reward": "邀请者奖励",
     "Invites": "邀请",
     "Invoke developer-defined functions with structured arguments": "使用结构化参数调用开发者定义的函数",
@@ -8097,7 +8098,7 @@
     "Use only accounts you own. FreePi uses the dedicated GitHub device authorization below. Magpie requires your own running gateway endpoint and gateway key; copying a plugin command does not deploy a gateway.": "请绑定本人账号。FreePi 使用下方专属 GitHub 设备授权；Magpie 需要你自己运行的网关地址及密钥，复制插件命令不会自动部署网关。",
     "Use OpenAI-compatible Ollama chat API": "使用 Ollama 的 OpenAI 兼容对话接口",
     "Use our unified OpenAI-compatible endpoint in your applications": "在应用中使用我们兼容 OpenAI 的统一接口",
-    "Use Passkey or 2FA to confirm your identity before revealing this channel key.": "请使用 Passkey 或双重身份验证确认身份后再查看此渠道密钥。",
+    "Confirm your identity before revealing this channel key.": "确认身份后再查看此渠道密钥。",
     "Use Passkey to sign in without entering your password.": "使用通行密钥登录，无需输入密码。",
     "Use presets or upstream discovery to populate the model list faster.": "使用预设或上游发现来更快填充模型列表。",
     "Use secure connection when sending emails": "发送电子邮件时使用安全连接",
@@ -8588,6 +8589,10 @@
     "The previous Xiaoyi Work authorization attempt did not finish. Click Authorize Huawei account again": "上次小艺 Work 授权没有完成。请重新点击“授权华为账号”",
     "This Xiaoyi Work authorization was already used. Click Authorize Huawei account again": "这次小艺 Work 授权已经用过了。请重新点击“授权华为账号”",
     "Xiaoyi Work authorization is already being completed": "小艺 Work 授权正在处理中，请稍等",
-    "Xiaoyi Work authorization was cancelled. Click Authorize Huawei account again": "小艺 Work 授权已取消。请重新点击“授权华为账号”"
+    "Xiaoyi Work authorization was cancelled. Click Authorize Huawei account again": "小艺 Work 授权已取消。请重新点击“授权华为账号”",
+    "Account Name": "账号名称",
+    "Change the name shown across the site": "修改站点内显示的名称",
+    "Used to sign in. Letters, numbers and symbols, up to 20.": "用于登录，最多 20 个字符。",
+    "Shown on your profile and in place of the username.": "显示在个人资料中，并代替用户名展示。"
   }
 }

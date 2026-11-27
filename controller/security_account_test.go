@@ -29,6 +29,7 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/pquerna/otp/totp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -473,6 +474,82 @@ func TestSecurityAccountProfileUpdateDoesNotRequireProof(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Updated", stored.DisplayName)
 	assert.Equal(t, user.Password, stored.Password)
+}
+
+// A self-service rename is a profile update, and the unique index must never be
+// the thing that reports a collision.
+func TestSecurityAccountRenameKeepsUsernameUnique(t *testing.T) {
+	user, identity := setupSecurityEnrollmentTest(t)
+	taken := &model.User{Username: "already-here", Password: user.Password, AffCode: "taken-aff-code", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Group: "default", AuthVersion: 1}
+	require.NoError(t, model.DB.Create(taken).Error)
+
+	body, err := common.Marshal(map[string]string{"username": "already-here"})
+	require.NoError(t, err)
+	response := securityEnrollmentRequest(http.MethodPut, "/api/user/self", string(body), "", identity, UpdateSelf)
+	var result securityEnrollmentResponse
+	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
+	assert.False(t, result.Success)
+	assert.Contains(t, response.Body.String(), "Username already exists")
+
+	stored, err := model.GetUserById(user.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, "enrollment-user", stored.Username, "a rejected rename must not change the username")
+
+	// The same account may resubmit its own username; that is not a collision.
+	body, err = common.Marshal(map[string]string{"username": "enrollment-user", "display_name": "Renamed"})
+	require.NoError(t, err)
+	response = securityEnrollmentRequest(http.MethodPut, "/api/user/self", string(body), "", identity, UpdateSelf)
+	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
+	require.True(t, result.Success, response.Body.String())
+	stored, err = model.GetUserById(user.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, "enrollment-user", stored.Username)
+	assert.Equal(t, "Renamed", stored.DisplayName)
+
+	// A free username goes through.
+	body, err = common.Marshal(map[string]string{"username": "renamed-user"})
+	require.NoError(t, err)
+	response = securityEnrollmentRequest(http.MethodPut, "/api/user/self", string(body), "", identity, UpdateSelf)
+	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
+	require.True(t, result.Success, response.Body.String())
+	stored, err = model.GetUserById(user.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, "renamed-user", stored.Username)
+}
+
+// An administrator list must show who invited a user, including when the
+// inviting account was deleted.
+func TestFillInviterUsernames(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	previousDB := model.DB
+	db, err := gorm.Open(sqlite.Open(t.TempDir()+"/inviter.db?_pragma=busy_timeout(30000)"), &gorm.Config{})
+	require.NoError(t, err)
+	model.DB = db
+	t.Cleanup(func() {
+		model.DB = previousDB
+		if connection, err := db.DB(); err == nil {
+			_ = connection.Close()
+		}
+	})
+	require.NoError(t, db.AutoMigrate(&model.User{}))
+
+	inviter := &model.User{Username: "inviter", AffCode: "aff-inviter", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Group: "default", AuthVersion: 1}
+	require.NoError(t, db.Create(inviter).Error)
+	invitee := &model.User{Username: "invitee", AffCode: "aff-invitee", InviterId: inviter.Id, Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Group: "default", AuthVersion: 1}
+	require.NoError(t, db.Create(invitee).Error)
+	orphan := &model.User{Username: "orphan", AffCode: "aff-orphan", InviterId: 9999, Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Group: "default", AuthVersion: 1}
+	require.NoError(t, db.Create(orphan).Error)
+
+	users := []*model.User{invitee, orphan}
+	require.NoError(t, model.FillInviterUsernames(users))
+	assert.Equal(t, "inviter", users[0].InviterUsername)
+	assert.Empty(t, users[1].InviterUsername, "a missing inviter leaves the name empty, not an error")
+	assert.Equal(t, 9999, users[1].InviterId, "the numeric ID stays available as a fallback")
+
+	// A deleted inviter still resolves; the relationship does not become a lie.
+	require.NoError(t, db.Delete(inviter).Error)
+	require.NoError(t, model.FillInviterUsernames(users))
+	assert.Equal(t, "inviter", users[0].InviterUsername)
 }
 
 func TestSecurityAccountLongUnicodePasswordAndSessionRotation(t *testing.T) {
